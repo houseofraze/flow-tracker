@@ -1356,6 +1356,174 @@ const PREP_BATCH_RULES = {
   }
 };
 
+
+// ─── COMPREHENSIVE INGREDIENT GUIDE ───────────────────────────────────────────
+// Classifies EVERY common ingredient with its prep approach + helpful note.
+// Used by the per-meal coverage panel so nothing is silently dropped.
+//
+// Approach values:
+//   'sundayBatch'   — generates a Stage A-E task (handled by buildPrepSequence)
+//   'cookDayOf'     — must be cooked at meal time (eggs, salmon, fish)
+//   'sliceDayOf'    — must be sliced/diced fresh (avocado, banana, sourdough)
+//   'pantry'        — no prep, used as-is in marinades or assembly
+//   'noPrep'        — refrigerate/freeze whole, no action needed
+//
+// Order matters: more specific patterns FIRST. First match wins.
+const INGREDIENT_GUIDE = [
+  // ─── SUNDAY BATCH — GRAINS (Stage C) ────────────────────────────
+  { match: /brown rice|basmati rice|jasmine rice|cooked rice|^white rice|long grain/i,
+    approach: 'sundayBatch', stage: 'C', stageLabel: 'cook in batch' },
+  { match: /quinoa/i, approach: 'sundayBatch', stage: 'C', stageLabel: 'cook in batch' },
+  { match: /rolled oats|^oats|oat bran/i, approach: 'sundayBatch', stage: 'C', stageLabel: 'cook in batch' },
+  { match: /\bpasta|spaghetti|penne|fusilli/i, approach: 'sundayBatch', stage: 'C', stageLabel: 'cook in batch' },
+  { match: /couscous/i, approach: 'sundayBatch', stage: 'C', stageLabel: 'cook in batch' },
+  { match: /rice noodles|udon|soba/i, approach: 'sundayBatch', stage: 'C', stageLabel: 'cook day-of (1-2 min)' },
+  { match: /barley|farro|bulgur/i, approach: 'sundayBatch', stage: 'C', stageLabel: 'cook in batch' },
+
+  // ─── SUNDAY BATCH — ROAST VEG (Stage B) ────────────────────────
+  { match: /sweet potato/i, approach: 'sundayBatch', stage: 'B', stageLabel: 'roast Sunday' },
+  { match: /pumpkin|butternut/i, approach: 'sundayBatch', stage: 'B', stageLabel: 'roast Sunday' },
+  { match: /capsicum/i, approach: 'sundayBatch', stage: 'B', stageLabel: 'roast Sunday' },
+  { match: /zucchini/i, approach: 'sundayBatch', stage: 'B', stageLabel: 'roast Sunday' },
+  { match: /eggplant/i, approach: 'sundayBatch', stage: 'B', stageLabel: 'roast Sunday' },
+  { match: /broccolini|^broccoli/i, approach: 'sundayBatch', stage: 'B', stageLabel: 'roast Sunday' },
+  { match: /cauliflower/i, approach: 'sundayBatch', stage: 'B', stageLabel: 'roast Sunday' },
+  { match: /red onion|^onion/i, approach: 'sundayBatch', stage: 'B', stageLabel: 'roast Sunday' },
+  { match: /carrot/i, approach: 'sundayBatch', stage: 'B', stageLabel: 'roast Sunday' },
+  { match: /asparagus/i, approach: 'sundayBatch', stage: 'B', stageLabel: 'roast Sunday' },
+  { match: /mushroom/i, approach: 'sundayBatch', stage: 'B', stageLabel: 'roast Sunday' },
+  { match: /mixed roasted veg/i, approach: 'sundayBatch', stage: 'B', stageLabel: 'roast Sunday' },
+
+  // ─── SUNDAY BATCH — MARINATED PROTEINS (Stage A→D) ─────────────
+  { match: /chicken thigh/i, approach: 'sundayBatch', stage: 'A+D', stageLabel: 'marinate + cook Sunday' },
+  { match: /chicken breast|^chicken/i, approach: 'sundayBatch', stage: 'A+D', stageLabel: 'marinate + cook Sunday' },
+  { match: /lamb/i, approach: 'sundayBatch', stage: 'A+D', stageLabel: 'marinate + cook Sunday' },
+  { match: /beef rump|beef mince|^beef/i, approach: 'sundayBatch', stage: 'A+D', stageLabel: 'marinate + cook Sunday' },
+  { match: /turkey mince|^turkey/i, approach: 'sundayBatch', stage: 'A+D', stageLabel: 'marinate + cook Sunday' },
+  { match: /pork loin|^pork/i, approach: 'sundayBatch', stage: 'A+D', stageLabel: 'marinate + cook Sunday' },
+
+  // ─── SUNDAY BATCH — AROMATICS, SPICES (Stage A) ────────────────
+  { match: /garlic/i, approach: 'sundayBatch', stage: 'A', stageLabel: 'mince in bulk Sunday' },
+  { match: /\bginger/i, approach: 'sundayBatch', stage: 'A', stageLabel: 'grate in bulk Sunday' },
+  { match: /^lemon$|^lemon,|lemon, juiced|^lemon\b/i, approach: 'sundayBatch', stage: 'A', stageLabel: 'juice for the week' },
+  { match: /^lime$|^lime,|lime, juiced|^lime\b/i, approach: 'sundayBatch', stage: 'A', stageLabel: 'juice for the week' },
+  { match: /smoked paprika/i, approach: 'sundayBatch', stage: 'A', stageLabel: 'pre-mix into rub' },
+  { match: /\bcumin/i, approach: 'sundayBatch', stage: 'A', stageLabel: 'pre-mix into rub' },
+  { match: /turmeric/i, approach: 'sundayBatch', stage: 'A', stageLabel: 'pre-mix into rub' },
+  { match: /garam masala|curry powder/i, approach: 'sundayBatch', stage: 'A', stageLabel: 'pre-mix into rub' },
+  { match: /chilli flakes/i, approach: 'sundayBatch', stage: 'A', stageLabel: 'add to rub' },
+  { match: /oregano/i, approach: 'sundayBatch', stage: 'A', stageLabel: 'add to rub' },
+  { match: /\bcinnamon/i, approach: 'sundayBatch', stage: 'A', stageLabel: 'add to oats / rub' },
+  { match: /paprika$|^paprika/i, approach: 'sundayBatch', stage: 'A', stageLabel: 'pre-mix into rub' },
+
+  // ─── FRESH HERBS (Stage E — chop & store) ──────────────────────
+  { match: /fresh coriander|coriander leaves/i, approach: 'sundayBatch', stage: 'E', stageLabel: 'chop & store with paper towel' },
+  { match: /fresh parsley|parsley/i, approach: 'sundayBatch', stage: 'E', stageLabel: 'chop & store with paper towel' },
+  { match: /fresh basil|basil leaves/i, approach: 'sundayBatch', stage: 'E', stageLabel: 'pluck leaves, store wrapped' },
+  { match: /fresh dill/i, approach: 'sundayBatch', stage: 'E', stageLabel: 'chop & store with paper towel' },
+  { match: /fresh thyme/i, approach: 'sundayBatch', stage: 'E', stageLabel: 'leave on stems until use' },
+  { match: /fresh herbs/i, approach: 'sundayBatch', stage: 'E', stageLabel: 'chop & store' },
+  { match: /\bmint\b/i, approach: 'sundayBatch', stage: 'E', stageLabel: 'wash, store stems in water' },
+
+  // ─── LEAFY GREENS (Stage E — wash, dry, store) ────────────────
+  { match: /mixed salad leaves|baby spinach|^spinach|rocket|kale|cos lettuce|romaine/i,
+    approach: 'sundayBatch', stage: 'E', stageLabel: 'wash, spin dry, store with paper towel' },
+
+  // ─── COOK DAY-OF — FRESH PROTEINS ──────────────────────────────
+  { match: /salmon fillet|atlantic salmon|^salmon/i, approach: 'cookDayOf', stageLabel: 'buy fresh, pan-sear day-of (6 min)' },
+  { match: /barramundi|white fish|snapper|cod|^fish/i, approach: 'cookDayOf', stageLabel: 'buy fresh, pan-sear day-of (5 min)' },
+  { match: /prawns|shrimp/i, approach: 'cookDayOf', stageLabel: 'buy fresh, pan-sear day-of (3 min)' },
+  { match: /^eggs$|^eggs,|^egg whites/i, approach: 'cookDayOf', stageLabel: 'cook fresh (3 min) — or hard-boil 6 Sunday' },
+
+  // ─── SLICE DAY-OF (oxidation / texture matters) ────────────────
+  { match: /avocado/i, approach: 'sliceDayOf', stageLabel: 'slice fresh — oxidizes brown in 30 min' },
+  { match: /banana/i, approach: 'sliceDayOf', stageLabel: 'slice fresh — oxidizes immediately' },
+  { match: /strawber/i, approach: 'sliceDayOf', stageLabel: 'slice fresh' },
+  { match: /^cucumber|cucumber,/i, approach: 'sliceDayOf', stageLabel: 'dice fresh — loses crunch fast' },
+  { match: /cherry tomato|^tomato|tomato,/i, approach: 'sliceDayOf', stageLabel: 'slice fresh — sliced go soggy in 24h' },
+  { match: /sourdough|^bread|toast/i, approach: 'sliceDayOf', stageLabel: 'toast fresh — keeps best at room temp' },
+
+  // ─── NO PREP — WHOLE FRUIT ─────────────────────────────────────
+  { match: /^blueberries|fresh blueberries/i, approach: 'noPrep', stageLabel: 'refrigerate, use within 5 days' },
+  { match: /mixed berries|^berries|raspberries/i, approach: 'noPrep', stageLabel: 'refrigerate' },
+  { match: /^apple|^orange|^pear/i, approach: 'noPrep', stageLabel: 'whole fruit, no prep' },
+
+  // ─── NO PREP — FREEZER ─────────────────────────────────────────
+  { match: /^frozen|frozen edamame|frozen mixed|frozen berries/i, approach: 'noPrep', stageLabel: 'keep frozen, defrost as needed' },
+
+  // ─── PANTRY — SAUCES & CONDIMENTS (used in marinades) ─────────
+  { match: /soy sauce|fish sauce|oyster sauce|hoisin|tamari/i, approach: 'pantry', stageLabel: 'pantry — used in marinades' },
+  { match: /sesame oil|olive oil|coconut oil|grapeseed oil/i, approach: 'pantry', stageLabel: 'pantry oil' },
+  { match: /balsamic|rice vinegar|wine vinegar|^vinegar/i, approach: 'pantry', stageLabel: 'pantry vinegar' },
+  { match: /mirin|sake|cooking wine/i, approach: 'pantry', stageLabel: 'pantry — used in marinades' },
+  { match: /honey|maple syrup|agave/i, approach: 'pantry', stageLabel: 'pantry sweetener' },
+  { match: /dijon|mustard/i, approach: 'pantry', stageLabel: 'fridge condiment' },
+  { match: /harissa paste|tomato paste|miso paste|miso|gochujang|chilli paste|curry paste/i,
+    approach: 'pantry', stageLabel: 'pantry/fridge — used in marinades' },
+  { match: /tahini|peanut butter|almond butter|nut butter/i, approach: 'pantry', stageLabel: 'pantry — stir before use' },
+  { match: /chicken stock|vegetable stock|beef stock|^stock|broth/i, approach: 'pantry', stageLabel: 'pantry boxed stock' },
+  { match: /fresh salsa|salsa/i, approach: 'pantry', stageLabel: 'fridge — use within 5 days' },
+  { match: /kimchi|sauerkraut|pickle/i, approach: 'pantry', stageLabel: 'fridge — fermented, use as-is' },
+
+  // ─── PANTRY — TINNED / JARRED ─────────────────────────────────
+  { match: /tuna in spring water|tinned tuna|^tuna,/i, approach: 'pantry', stageLabel: 'tinned — open day-of' },
+  { match: /sardines|tinned salmon/i, approach: 'pantry', stageLabel: 'tinned — open day-of' },
+  { match: /canned black beans|chickpeas|kidney beans|^beans|lentils/i, approach: 'pantry', stageLabel: 'rinse before use' },
+  { match: /olives|kalamata/i, approach: 'pantry', stageLabel: 'jarred — drain before use' },
+
+  // ─── PANTRY — DAIRY (refrigerated, no prep) ───────────────────
+  { match: /greek yoghurt|^yoghurt|^yogurt/i, approach: 'pantry', stageLabel: 'fridge — use within best-before' },
+  { match: /^feta|feta cheese|cottage cheese|halloumi|parmesan|mozzarella|cheese/i,
+    approach: 'pantry', stageLabel: 'fridge cheese' },
+  { match: /^milk|almond milk|oat milk|coconut milk/i, approach: 'pantry', stageLabel: 'fridge milk' },
+  { match: /^butter|butter,|butter \(/i, approach: 'pantry', stageLabel: 'fridge butter' },
+  { match: /protein powder|whey|casein|vanilla protein/i, approach: 'pantry', stageLabel: 'pantry — scoop into shake/oats' },
+
+  // ─── PANTRY — DRY GOODS ────────────────────────────────────────
+  { match: /granola|cereal|muesli/i, approach: 'pantry', stageLabel: 'pantry breakfast' },
+  { match: /^almonds|^walnuts|^cashews|\bnuts|raw almonds|crushed/i, approach: 'pantry', stageLabel: 'pantry — optional pre-toast for flavour' },
+  { match: /sesame seeds|chia seeds|pumpkin seeds|sunflower seeds|flax/i, approach: 'pantry', stageLabel: 'pantry seeds' },
+  { match: /rice cake/i, approach: 'pantry', stageLabel: 'pantry — open packet day-of' },
+  { match: /\bnori|seaweed/i, approach: 'pantry', stageLabel: 'pantry — open day-of' },
+
+  // ─── WATER, BASE LIQUIDS ──────────────────────────────────────
+  { match: /^water|water or/i, approach: 'pantry', stageLabel: '' },
+
+  // ─── EMOJI / NON-INGREDIENT (silent skip) ─────────────────────
+  { match: /^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u, approach: 'skip', stageLabel: '' }
+];
+
+// Classify any ingredient name. Always returns a result (never null) so the
+// per-meal coverage panel can show 100% of ingredients with their disposition.
+function classifyIngredientForCoverage(name) {
+  if (!name) return { approach: 'unknown', stageLabel: 'unclassified — please review' };
+  const lower = String(name).toLowerCase();
+  for (const rule of INGREDIENT_GUIDE) {
+    if (rule.match.test(lower)) return rule;
+  }
+  return { approach: 'unknown', stageLabel: 'unclassified — uses pantry assembly or fresh chop' };
+}
+
+// Per-meal coverage analysis. Walks every ingredient, classifies, groups.
+// Returns { sundayBatch: [...], cookDayOf: [...], sliceDayOf: [...], pantry: [...], noPrep: [...] }
+function buildMealCoverage(meal) {
+  const groups = { sundayBatch: [], cookDayOf: [], sliceDayOf: [], pantry: [], noPrep: [], unknown: [] };
+  if (!meal || !meal.ingredients) return groups;
+  meal.ingredients.forEach(ing => {
+    const guide = classifyIngredientForCoverage(ing.n);
+    if (guide.approach === 'skip') return;
+    const bucket = groups[guide.approach] || groups.unknown;
+    bucket.push({
+      name: ing.n,
+      amount: ing.m,
+      unit: ing.mu,
+      stageLabel: guide.stageLabel,
+      stage: guide.stage || null
+    });
+  });
+  return groups;
+}
+
 function categorizePrepIngredient(name) {
   if (!name) return null;
   const lower = name.toLowerCase();
@@ -1457,8 +1625,10 @@ function buildPrepSequence(lockedPlan) {
     });
   });
 
-  // Step 2: Filter to ingredients in 2+ DISTINCT meals
-  const shared = Object.values(sharedMap).filter(s => s.mealNames.size >= 2);
+  // Step 2: Include EVERY classified ingredient (not just shared ones).
+  // Single-meal proteins, roast veg, etc. still need their own prep task — a
+  // chicken thigh used in only one meal still benefits from Sunday marinate+cook.
+  const shared = Object.values(sharedMap);
   if (!shared.length) return [];
 
   // Step 3: Distribute tasks into stages
@@ -2082,6 +2252,25 @@ function renderMealPrepChefMode() {
     });
   });
 
+  // ─── PER-MEAL COVERAGE — guarantees completeness across every meal ───
+  // For each meal in the locked week, shows what's prepped Sunday, what's
+  // cook day-of, what's slice day-of, and what's pantry assembly. This makes
+  // every ingredient visible so nothing is silently missed.
+  const uniqueMeals = [];
+  const seenNames = new Set();
+  Object.keys(livePlan.mealsByDay).forEach(d => {
+    (livePlan.mealsByDay[d] || []).forEach(m => {
+      if (m && m.name && !seenNames.has(m.name)) {
+        seenNames.add(m.name);
+        uniqueMeals.push(m);
+      }
+    });
+  });
+
+  if (uniqueMeals.length) {
+    body.appendChild(renderMealCoverageSection(uniqueMeals));
+  }
+
   // Done button
   body.appendChild(el('button',{
     class:'btn',
@@ -2301,6 +2490,173 @@ function renderPrepChefTask(task, globalNum, stageId) {
   if (task.mistake)      card.appendChild(chefCallout('⚠ Common Mistake', task.mistake,    CHEF_PALETTE.warn));
   if (task.tip)          card.appendChild(chefCallout('💡 Pro Tip',        task.tip,        CHEF_PALETTE.done));
   if (task.why)          card.appendChild(chefCallout('🧠 Why',            task.why,        CHEF_PALETTE.primary));
+
+  return card;
+}
+
+// ─── PER-MEAL COVERAGE SECTION ──────────────────────────────────────────────
+// Renders a master "every meal, every ingredient" panel after the stage cards.
+// Confirms that nothing is missed: each meal shows its full ingredient list
+// grouped by what's done Sunday vs day-of vs pantry-assembly.
+function renderMealCoverageSection(meals) {
+  const wrap = div({ marginTop: '32px' });
+
+  // Section header
+  const header = div({display:'flex',alignItems:'center',gap:'10px',marginBottom:'12px',flexWrap:'wrap'});
+  header.appendChild(el('div',{
+    style:{
+      background: CHEF_PALETTE.textPrimary,
+      color: CHEF_PALETTE.bg,
+      padding: '4px 10px', borderRadius: '4px',
+      fontFamily: "'DM Mono',monospace",
+      fontSize: '10px', fontWeight: '700',
+      letterSpacing: '0.15em', flexShrink: '0'
+    }
+  }, 'COVERAGE'));
+  header.appendChild(el('span',{style:{fontSize:'18px',flexShrink:'0'}}, '📋'));
+  header.appendChild(el('div',{
+    style:{
+      flex:'1',
+      fontFamily:"'Bebas Neue',sans-serif",
+      fontSize:'20px',
+      color:CHEF_PALETTE.textPrimary,
+      letterSpacing:'0.03em',
+      lineHeight:'1.1'
+    }
+  }, 'Every meal, every ingredient'));
+  wrap.appendChild(header);
+
+  wrap.appendChild(el('div',{
+    style:{
+      fontSize:'12px',color:CHEF_PALETTE.textDim,
+      lineHeight:'1.5',fontStyle:'italic',
+      marginBottom:'14px',paddingLeft:'4px'
+    }
+  }, 'Confirms nothing is missed. For each meal, shows what stages cover it, what needs day-of action, and what is straight pantry assembly.'));
+
+  // Render each meal as a coverage card
+  meals.forEach(meal => {
+    const coverage = buildMealCoverage(meal);
+    wrap.appendChild(renderMealCoverageCard(meal, coverage));
+  });
+
+  return wrap;
+}
+
+function renderMealCoverageCard(meal, coverage) {
+  const card = div({
+    background: CHEF_PALETTE.cardBright,
+    border: '1px solid ' + CHEF_PALETTE.border,
+    borderRadius: '12px',
+    padding: '16px 18px',
+    marginBottom: '10px'
+  });
+
+  // Meal title
+  const titleRow = div({display:'flex',alignItems:'center',gap:'8px',marginBottom:'10px',flexWrap:'wrap'});
+  titleRow.appendChild(el('div',{
+    style:{
+      fontFamily:"'Bebas Neue',sans-serif",
+      fontSize:'17px',
+      color:CHEF_PALETTE.textPrimary,
+      letterSpacing:'0.02em',
+      lineHeight:'1.15',
+      flex:'1',
+      minWidth:'0'
+    }
+  }, meal.name));
+  if (meal.kcal || meal.calories) {
+    titleRow.appendChild(el('span',{
+      style:{
+        fontSize:'9px',color:CHEF_PALETTE.textMuted,
+        fontFamily:"'DM Mono',monospace",
+        letterSpacing:'0.05em',flexShrink:'0'
+      }
+    }, '~' + (meal.kcal || meal.calories) + ' kcal'));
+  }
+  card.appendChild(titleRow);
+
+  // Coverage status pill
+  const totalIngs = (meal.ingredients || []).length;
+  const sundayCount = coverage.sundayBatch.length;
+  const dayOfCount = coverage.cookDayOf.length + coverage.sliceDayOf.length;
+  const pantryCount = coverage.pantry.length + coverage.noPrep.length;
+  const unknownCount = coverage.unknown.length;
+
+  const statusRow = div({display:'flex',gap:'6px',flexWrap:'wrap',marginBottom:'12px'});
+  const pill = (text, color) => el('span',{
+    style:{
+      fontSize:'9px',color: color,
+      fontFamily:"'DM Mono',monospace",
+      letterSpacing:'0.1em',textTransform:'uppercase',
+      fontWeight:'700',padding:'3px 8px',
+      background:CHEF_PALETTE.bgPanel,
+      border:'1px solid ' + color + '44',
+      borderRadius:'4px'
+    }
+  }, text);
+  if (sundayCount) statusRow.appendChild(pill(sundayCount + ' sunday', CHEF_PALETTE.done));
+  if (dayOfCount)  statusRow.appendChild(pill(dayOfCount + ' day-of', CHEF_PALETTE.warn));
+  if (pantryCount) statusRow.appendChild(pill(pantryCount + ' pantry', CHEF_PALETTE.textMuted));
+  if (unknownCount) statusRow.appendChild(pill(unknownCount + ' to review', CHEF_PALETTE.warn));
+  card.appendChild(statusRow);
+
+  // ─── COVERAGE GROUPS ───
+  function groupSection(title, items, color, icon) {
+    if (!items.length) return null;
+    const sec = div({marginBottom:'10px'});
+    sec.appendChild(el('div',{
+      style:{
+        fontSize:'9px',color: color,
+        letterSpacing:'0.18em',textTransform:'uppercase',
+        marginBottom:'5px',fontWeight:'700'
+      }
+    }, icon + ' ' + title + ' (' + items.length + ')'));
+    items.forEach(it => {
+      const row = div({
+        display:'flex',gap:'10px',alignItems:'baseline',
+        fontSize:'12px',color:CHEF_PALETTE.textPrimary,
+        lineHeight:'1.5',marginBottom:'2px',
+        paddingLeft:'2px'
+      });
+      // Left: amount
+      const amtText = (it.amount != null && it.unit !== undefined)
+        ? (it.amount + (it.unit || '')).trim()
+        : '';
+      row.appendChild(el('span',{
+        style:{
+          color:color,fontFamily:"'DM Mono',monospace",
+          fontWeight:'700',flexShrink:'0',minWidth:'52px',
+          fontSize:'11px'
+        }
+      }, amtText));
+      // Middle: ingredient name
+      row.appendChild(el('span',{
+        style:{flex:'1',minWidth:'0'}
+      }, it.name));
+      // Right: stage label hint
+      if (it.stageLabel) {
+        row.appendChild(el('span',{
+          style:{
+            fontSize:'10px',color:CHEF_PALETTE.textMuted,
+            fontStyle:'italic',flexShrink:'0',
+            textAlign:'right'
+          }
+        }, it.stage ? '['+it.stage+'] '+it.stageLabel : it.stageLabel));
+      }
+      sec.appendChild(row);
+    });
+    return sec;
+  }
+
+  const s1 = groupSection('Sunday batch',  coverage.sundayBatch, CHEF_PALETTE.done,    '✓');
+  const s2 = groupSection('Cook day-of',   coverage.cookDayOf,   CHEF_PALETTE.warn,    '🔥');
+  const s3 = groupSection('Slice day-of',  coverage.sliceDayOf,  CHEF_PALETTE.warn,    '✂');
+  const s4 = groupSection('Pantry / fridge', coverage.pantry,    CHEF_PALETTE.textDim, '🧂');
+  const s5 = groupSection('No prep',       coverage.noPrep,      CHEF_PALETTE.textDim, '·');
+  const s6 = groupSection('To review',     coverage.unknown,     CHEF_PALETTE.warn,    '?');
+
+  [s1, s2, s3, s4, s5, s6].forEach(s => { if (s) card.appendChild(s); });
 
   return card;
 }
