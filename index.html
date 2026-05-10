@@ -917,6 +917,21 @@ const RECIPE_CHEF_DATA = {
       leftovers:"Bowl assembled (minus avocado) keeps overnight in the fridge — actually develops flavour. Add fresh avocado and lemon when eating."
     }
   },
+  "Tuna Avocado Bowl": {
+    chefSteps:[
+      {step:"Drain the tuna fully, flake into a mixing bowl. Squeeze a quarter of the lemon over and toss.", timer:30, tip:"Press the tuna against the can lid before draining — gets the last 5g of liquid out. Wet tuna makes a watery bowl.", mistake:"Skipping the lemon at this stage — tuna in spring water tastes flat without acid. Add it now, not just at the end."},
+      {step:"Halve the avocado, score the flesh in a grid pattern, scoop out with a spoon.", timer:60, sensoryCheck:"Ripe avocado yields slightly to pressure at the stem end. Hard = unripe and starchy.", tip:"The grid-scoring trick gives clean cubes without bruising the flesh — better than slicing.", why:"Avocado is the main fat source on rest day, so quality matters. A bruised under-ripe avocado will tank the dish."},
+      {step:"Dice cucumber into 1cm cubes (not slices — cubes hold the dressing better).", timer:60, mistake:"Slicing cucumber thin — too watery. Cubes give a better texture-to-tuna ratio."},
+      {step:"Whisk soy sauce, sesame oil, olive oil and the remaining lemon juice in a small bowl.", timer:30, sensoryCheck:"Dressing should look glossy and slightly emulsified, not separated.", tip:"Add the soy LAST — it's the saltiest. Taste-check before adding the full tablespoon.", why:"On a low-carb day, the dressing carries most of the flavour load. A balanced dressing is the difference between satisfying and depressing."},
+      {step:"Combine tuna, avocado, cucumber in a bowl. Pour dressing over, toss gently.", timer:30, sensoryCheck:"Avocado should still hold its shape — fold, don't stir.", tip:"Eat immediately or within 20 minutes. Without rice, the dressing has nowhere to go and the avocado will start to oxidise."}
+    ],
+    chefNotes:{
+      makeAhead:"Tuna and dressing can prep Sunday in a sealed container (lasts 3 days). Avocado and cucumber are always day-of.",
+      swaps:"Skip cucumber for capsicum or rocket. Add a soft-boiled egg if you want more protein. Swap olive oil for tahini for a richer mouthfeel.",
+      fixIts:"Bowl tastes flat? More lemon, more salt. Too oily? Add cucumber. Avocado underripe? Mash it harder, add an extra teaspoon of olive oil to compensate.",
+      leftovers:"Doesn't store well — make and eat. The avocado oxidises within 2 hours even with lemon."
+    }
+  },
 
   "Rice Cakes + Almond Butter + Banana": {
     chefSteps:[
@@ -1187,6 +1202,12 @@ const MEAL_PREP_DATA = {
     freshComponents: ['Open tuna tin', 'Slice avocado fresh', 'Halve cherry tomatoes'],
     note: 'Brown rice = the big win. Make a giant batch Sunday, lasts all week. Tuna + assembly is 3 minutes.'
   },
+  'Tuna Avocado Bowl': {
+    strategy: 'fresh', prepDay: null, shelfDays: 1,
+    prepComponents: [],
+    freshComponents: ['Open tuna tin', 'Slice avocado fresh', 'Dice cucumber', 'Whisk dressing'],
+    note: 'Rest day variant — no rice, so no batch cook needed. Avocado oxidises fast, build and eat within 20 min.'
+  },
   'Rice Cakes + Almond Butter + Banana': {
     strategy: 'fresh', prepDay: null, shelfDays: 1,
     prepComponents: ['Toast rice cakes in batches (keep 3 days crisp in airtight container)'],
@@ -1289,6 +1310,1100 @@ function mergePrepData() {
   });
 }
 mergePrepData();
+
+
+// ─── PHASE 1: CROSS-MEAL BATCH PREP SEQUENCE ──────────────────────────────────
+// Scans the locked week, identifies shared ingredients across meals, and
+// generates a sequenced batch-cooking plan with chef-mode quality detail.
+//
+// Stage order follows the "marinades-first / oven-first" principle:
+//   A. Marinades & Mise — start so they rest while other cooking happens
+//   B. Oven Roasts      — share trays, share preheat, share oven time
+//   C. Grains           — runs in parallel with oven (stovetop)
+//   D. Proteins         — sear/cook last to hit fridge fresh
+//   E. Storage & Notes  — labels, mid-week refresh, fresh-only reminders
+
+const PREP_BATCH_RULES = {
+  grains: {
+    patterns: ['brown rice', 'basmati rice', 'jasmine rice', 'cooked rice', 'quinoa', 'pasta', 'couscous', 'rolled oats'],
+    techniqueLabel: 'Grains',
+    icon: '🍚'
+  },
+  roastVeg: {
+    patterns: ['sweet potato', 'red capsicum', 'capsicum', 'zucchini', 'broccoli', 'broccolini', 'eggplant', 'pumpkin'],
+    techniqueLabel: 'Oven roasts',
+    icon: '🥦'
+  },
+  marinatedProtein: {
+    patterns: ['chicken thigh', 'chicken breast', 'beef rump', 'beef mince', 'lamb', 'pork loin', 'turkey mince'],
+    techniqueLabel: 'Proteins',
+    icon: '🍗'
+  },
+  freshProtein: {
+    patterns: ['salmon', 'barramundi', 'prawns', 'white fish'],
+    techniqueLabel: 'Fresh proteins',
+    icon: '🐟'
+  },
+  spicesRubs: {
+    patterns: ['smoked paprika', 'garam masala', 'curry powder', 'cumin', 'turmeric'],
+    techniqueLabel: 'Spice rubs',
+    icon: '🧂'
+  },
+  aromatics: {
+    patterns: ['garlic', 'ginger', 'lemon', 'lime'],
+    techniqueLabel: 'Aromatics',
+    icon: '🧄'
+  }
+};
+
+function categorizePrepIngredient(name) {
+  if (!name) return null;
+  const lower = name.toLowerCase();
+  for (const cat in PREP_BATCH_RULES) {
+    for (const pat of PREP_BATCH_RULES[cat].patterns) {
+      if (lower.includes(pat)) {
+        // Normalize so rice/quinoa/oat variants merge into a single batch.
+        // Brown vs basmati vs jasmine all share an approach (rinse, simmer)
+        // even if cook times differ — the prep flow is the same pot, same step.
+        let canonical = pat;
+        if (cat === 'grains') {
+          if (pat.includes('rice'))      canonical = 'rice';
+          else if (pat.includes('quinoa')) canonical = 'quinoa';
+          else if (pat.includes('oats'))   canonical = 'oats';
+          else if (pat.includes('pasta'))  canonical = 'pasta';
+        } else if (cat === 'roastVeg') {
+          if (pat.includes('capsicum')) canonical = 'capsicum';
+        }
+        return { category: cat, canonical,
+                 techniqueLabel: PREP_BATCH_RULES[cat].techniqueLabel,
+                 icon: PREP_BATCH_RULES[cat].icon };
+      }
+    }
+  }
+  return null;
+}
+
+function ingredientToGrams(ing) {
+  if (!ing || ing.m == null) return null;
+  const m = Number(ing.m);
+  if (!isFinite(m)) return null;
+  const mu = String(ing.mu || '').toLowerCase();
+  if (mu === 'g' || mu === '') return m;
+  if (mu === 'kg') return m * 1000;
+  if (mu === 'ml') return m;
+  if (mu === 'l') return m * 1000;
+  return null; // whole, large, can, sheet, etc — not gram-convertible
+}
+
+// Like ingredientToGrams, but for grains it back-converts cooked weight to dry
+// equivalent. Useful when a week mixes recipes specifying "brown rice (dry) 75g"
+// with recipes specifying "cooked rice 150g" — both need to roll up to a single
+// dry weight for the batch task.
+function ingredientToDryGrams(ing) {
+  const g = ingredientToGrams(ing);
+  if (g == null) return null;
+  const lower = (ing.n || '').toLowerCase();
+  if (lower.includes('cooked')) {
+    if (lower.includes('rice'))     return g / 2.7;
+    if (lower.includes('quinoa'))   return g / 2.5;
+    if (lower.includes('pasta'))    return g / 2.5;
+    if (lower.includes('couscous')) return g / 2.5;
+    if (lower.includes('oats'))     return g / 2.0;
+  }
+  return g;
+}
+
+function buildPrepSequence(lockedPlan) {
+  if (!lockedPlan || !lockedPlan.mealsByDay) return null;
+
+  // Step 1: Map shared ingredients across the locked week
+  // sharedMap[key] = {
+  //   category, canonical, ...,
+  //   mealNames: Set of meal names,
+  //   totalGrams: sum of dry-equivalent grams,
+  //   portions: { [mealName]: { perServingGrams, count, perServingDisplay } }
+  // }
+  const sharedMap = {};
+  Object.keys(lockedPlan.mealsByDay).forEach(dayNum => {
+    (lockedPlan.mealsByDay[dayNum] || []).forEach(meal => {
+      if (!meal || !meal.ingredients) return;
+      meal.ingredients.forEach(ing => {
+        const cat = categorizePrepIngredient(ing.n);
+        if (!cat) return;
+        const key = cat.category + '::' + cat.canonical;
+        if (!sharedMap[key]) {
+          sharedMap[key] = {
+            category: cat.category, canonical: cat.canonical,
+            techniqueLabel: cat.techniqueLabel, icon: cat.icon,
+            mealNames: new Set(), totalGrams: 0, portions: {}
+          };
+        }
+        sharedMap[key].mealNames.add(meal.name);
+        const g = ingredientToDryGrams(ing);
+        if (g) sharedMap[key].totalGrams += g;
+        // Track per-meal portion breakdown
+        const mp = sharedMap[key].portions[meal.name];
+        if (!mp) {
+          sharedMap[key].portions[meal.name] = {
+            perServingGrams: g || 0,
+            perServingDisplay: (ing.m != null ? ing.m + (ing.mu || '') : ''),
+            count: 1,
+            ingredientLabel: ing.n
+          };
+        } else {
+          mp.count += 1;
+        }
+      });
+    });
+  });
+
+  // Step 2: Filter to ingredients in 2+ DISTINCT meals
+  const shared = Object.values(sharedMap).filter(s => s.mealNames.size >= 2);
+  if (!shared.length) return [];
+
+  // Step 3: Distribute tasks into stages
+  const stageA = [], stageB = [], stageC = [], stageD = [], stageE = [];
+  shared.forEach(s => {
+    const meals = Array.from(s.mealNames).sort();
+    if (s.category === 'grains')             stageC.push(buildGrainTask(s, meals));
+    else if (s.category === 'roastVeg')      stageB.push(buildRoastTask(s, meals));
+    else if (s.category === 'marinatedProtein') {
+      const m = buildMarinadeTask(s, meals);
+      if (m) stageA.push(m);
+      stageD.push(buildProteinTask(s, meals));
+    }
+    else if (s.category === 'freshProtein')  stageE.push(buildFreshProteinNote(s, meals));
+    else if (s.category === 'spicesRubs')    stageA.push(buildSpiceRubTask(s, meals));
+    else if (s.category === 'aromatics')     stageA.push(buildAromaticsTask(s, meals));
+  });
+
+  const stages = [];
+  if (stageA.length) stages.push({id:'A', title:'Marinades & Mise', icon:'🧪', estTime:'15-20 min',
+    sequenceNote:'Start here. Marinades need 30+ min to penetrate, so they rest while you cook everything else.', tasks:stageA});
+  if (stageB.length) stages.push({id:'B', title:'Oven Roasts', icon:'🔥', estTime:'40-45 min',
+    sequenceNote:'Preheat to 200°C once. Roastable veg can share the oven on parallel trays.', tasks:stageB});
+  if (stageC.length) stages.push({id:'C', title:'Grains', icon:'🍚', estTime:'25-30 min',
+    sequenceNote:'Runs in parallel with the oven — stovetop work, no oven competition.', tasks:stageC});
+  if (stageD.length) stages.push({id:'D', title:'Proteins', icon:'🍗', estTime:'15-25 min',
+    sequenceNote:'Sear marinated proteins last so they hit the fridge as fresh as possible.', tasks:stageD});
+  if (stageE.length) stages.push({id:'E', title:'Storage & Mid-week', icon:'📦', estTime:'5-10 min',
+    sequenceNote:'Labels, fresh-only reminders, and Wednesday refresh notes.', tasks:stageE});
+  return stages;
+}
+
+// ─── Task builders (chef-mode quality detail per task) ───
+function buildGrainTask(s, meals) {
+  const totalG = Math.round(s.totalGrams);
+  const cookedG = Math.round(s.totalGrams * 2.7);
+  const isRice = s.canonical === 'rice';
+  const isQuinoa = s.canonical === 'quinoa';
+  const isOats = s.canonical === 'oats';
+
+  if (isRice || isQuinoa) {
+    const grain = isRice ? 'rice' : 'quinoa';
+    const cookTime = isRice ? '25-30' : '12-15';
+    return {
+      stepKey: 'prep-grains-' + s.canonical,
+      portions: s.portions,
+      label: totalG ? `Cook ${totalG}g dry ${grain} (≈${cookedG}g cooked)` : `Cook one batch of ${grain}`,
+      coversMeals: meals,
+      step: `Rinse ${grain} in cold water until water runs clear (3 changes). Cook 2:1 water-to-${grain}, lid on, low heat for ${cookTime} minutes. Don't lift the lid.`,
+      sensoryCheck: `Done when steam-vents appear in the surface AND water is fully absorbed. Off heat, rest covered for 10 min — final rest is when grains finish setting.`,
+      mistake: `Stirring during cooking destroys the steam pockets that fluff the grains. Hands off until rest is done.`,
+      tip: isRice
+        ? `If your week mixes brown and white rice, cook them in separate pots — brown takes 25-30 min, white only 12-15. Same approach, both ready in the brown rice's window.`
+        : `Add a bay leaf and 1 tsp olive oil to the cooking water — oil keeps grains separate, bay leaf adds depth without making it taste of bay.`,
+      why: totalG ? `${totalG}g dry covers your whole week. One pot, no mid-week ${grain} cook.` : `One batch covers ${meals.length} meals.`,
+      timer: isRice ? 1680 : 900
+    };
+  }
+  if (isOats) {
+    return {
+      stepKey: 'prep-grains-oats',
+      portions: s.portions,
+      label: `Cook a ${meals.length}-portion oat batch with milk + cinnamon`,
+      coversMeals: meals,
+      step: `Cook oats in milk over medium-low for 5 min, stirring constantly. Cool fully before lidding the container.`,
+      sensoryCheck: `Oats are done when they look glossy and pull away from the pan as you stir. If dry, splash more milk.`,
+      mistake: `Adding protein powder to the BATCH — goes rubbery in the fridge. Stir protein in fresh each morning.`,
+      tip: `Cool fully before lidding. Trapped steam = soggy oats by Tuesday.`,
+      timer: 300
+    };
+  }
+  return {
+    stepKey: 'prep-grains-' + s.canonical,
+    portions: s.portions,
+    label: `Cook ${s.canonical}`, coversMeals: meals,
+    step: `Cook ${s.canonical} per packet directions, cool, portion, store.`, timer: 600
+  };
+}
+
+function buildRoastTask(s, meals) {
+  const totalG = Math.round(s.totalGrams);
+  const isStarchy = s.canonical.includes('sweet potato') || s.canonical.includes('pumpkin');
+  return {
+    stepKey: 'prep-roastVeg-' + s.canonical,
+    portions: s.portions,
+    label: totalG ? `Roast ${totalG}g of ${s.canonical}` : `Roast ${s.canonical}`,
+    coversMeals: meals,
+    step: `Cube into 2cm pieces, toss with olive oil and salt. Spread on a tray with space — overcrowded = steamed not roasted. 200°C for ${isStarchy ? '25-30' : '20-22'} min, flip halfway.`,
+    sensoryCheck: `Edges should be deep golden-brown with crispy corners. Pale = give them another 5 min. Burning before tender = drop heat to 180°C.`,
+    mistake: `Crowding the tray. Each piece needs space. Use 2 trays if you have them — better than packing one.`,
+    tip: `Toss with smoked paprika or cumin BEFORE roasting if those spices appear in the week's meals. Compounds the flavour-by-association across dishes.`,
+    why: `Sharing oven space and tray time saves 60-80 min vs cooking each meal's veg separately.`,
+    timer: isStarchy ? 1800 : 1320
+  };
+}
+
+function buildMarinadeTask(s, meals) {
+  const p = s.canonical;
+  if (!(p.includes('chicken thigh') || p.includes('lamb') || p.includes('beef rump'))) return null;
+  return {
+    stepKey: 'prep-marinade-' + s.canonical,
+    portions: s.portions,
+    label: `Marinate ${p} for tonight's prep cook`,
+    coversMeals: meals,
+    step: `Combine each meal's marinade ingredients (oil + acid + spices, e.g. harissa-yogurt-lemon, soy-honey-ginger) in a zip-bag. Add the protein, massage to coat. Rest 30+ min at room temp, or up to overnight in fridge.`,
+    sensoryCheck: `Marinade should coat each piece thickly, like wet paint. If runny and pooling, add a teaspoon of mustard or yogurt to thicken.`,
+    mistake: `Marinating less than 20 min adds flavour to the surface only. Salt needs time to penetrate.`,
+    tip: `Add 1 tsp honey to any savoury marinade. Doesn't make it sweet, dramatically improves caramelisation when you sear.`,
+    why: `Marinating now means 30+ minutes of inactive flavour-building while you handle Stage B and C.`,
+    timer: 0
+  };
+}
+
+function buildProteinTask(s, meals) {
+  const totalG = Math.round(s.totalGrams);
+  const p = s.canonical;
+  return {
+    stepKey: 'prep-protein-' + s.canonical,
+    portions: s.portions,
+    label: totalG ? `Cook ${totalG}g of ${p}` : `Cook ${p} for the week`,
+    coversMeals: meals,
+    step: `Heat a heavy pan medium-high. Cook in batches, never crowd. ${p.includes('thigh') ? 'Sear 4-5 min per side' : p.includes('mince') ? 'Brown in a hot pan, 6-8 min total, breaking up' : 'Sear 3-4 min per side'} to 74°C internal. Rest 3 min before slicing.`,
+    sensoryCheck: `Pan ready when a drop of water dances. Protein ready to flip when it releases without sticking.`,
+    mistake: `Slicing immediately — juices run out, meat goes dry. The 3-min rest keeps everything inside.`,
+    tip: `Slice ACROSS the grain (perpendicular to fibres). Stringy meat means you sliced wrong, not that the protein was bad.`,
+    why: `${totalG ? totalG + 'g ' : ''}cooked in two pan rounds takes 20 min and saves cooking it on ${meals.length} separate weeknights.`,
+    timer: 600
+  };
+}
+
+function buildFreshProteinNote(s, meals) {
+  return {
+    stepKey: 'prep-fresh-' + s.canonical,
+    portions: s.portions,
+    label: `Buy ${s.canonical} fresh — DO NOT pre-cook`,
+    coversMeals: meals,
+    step: `Shopping reminder: pick up day-of or no more than 24h ahead. Pan-seared fresh, ${s.canonical} takes 6-8 min total per meal.`,
+    sensoryCheck: `Fresh ${s.canonical} smells of the sea, not "fishy". Press the flesh — should spring back. Leaves a dent = old, skip it.`,
+    mistake: `Pre-cooking and reheating ${s.canonical} — texture goes from silky to chalky in one fridge night.`,
+    tip: `If you must prep ahead, marinate raw in soy/mirin/ginger and store. Cooks in 4 min when you're ready, no quality loss.`,
+    why: `${s.canonical} loses ~40% of its quality when reheated. The 6 min to cook fresh is non-negotiable.`,
+    timer: 0
+  };
+}
+
+function buildSpiceRubTask(s, meals) {
+  return {
+    stepKey: 'prep-spice-' + s.canonical,
+    portions: s.portions,
+    label: `Pre-mix ${s.canonical} rub for the week`,
+    coversMeals: meals,
+    step: `Combine ${s.canonical} with salt, pepper, and any partner spices (cumin, garlic powder, oregano) in a small jar. Shake to combine.`,
+    sensoryCheck: `Smell the jar after shaking — should hit the full spice profile, not one note. If one dominates, scale others up.`,
+    tip: `Toast whole spices in a dry pan 30 sec before grinding for 3x the aroma. Pre-ground supermarket spices lose 50% of volatile oils within a month of opening.`,
+    why: `One jar saves 5+ minutes of measuring during the week. Cheapest time-win in any kitchen.`,
+    timer: 60
+  };
+}
+
+function buildAromaticsTask(s, meals) {
+  const isCitrus = s.canonical === 'lemon' || s.canonical === 'lime';
+  return {
+    stepKey: 'prep-aromatic-' + s.canonical,
+    portions: s.portions,
+    label: isCitrus
+      ? `Juice ${meals.length} ${s.canonical}s for the week`
+      : `Prep bulk ${s.canonical} for the week`,
+    coversMeals: meals,
+    step: isCitrus
+      ? `Roll ${s.canonical} on the bench pressing firmly, juice into a small jar (lasts 5 days fridged). Reserve 2 wedges for fresh squeezing.`
+      : `Mince/grate ${s.canonical} in bulk. Store in airtight container with a splash of olive oil to slow oxidation.`,
+    sensoryCheck: s.canonical === 'garlic'
+      ? `Smell minced garlic — should be sharp and pungent. Mellow smell = old bulb, use more.`
+      : `Aromatic should look bright and vivid. Brown spots = oxidation = lost flavour.`,
+    tip: s.canonical === 'garlic'
+      ? `Submerge minced garlic in olive oil — extends life from 3 to 7 days. The infused oil is bonus dressing material.`
+      : `Roll citrus on counter pressing firmly before juicing — extracts 30% more juice.`,
+    timer: 0
+  };
+}
+
+// ─── Rendering ───
+function renderPrepSequence(stages, isLocked) {
+  if (!stages || !stages.length) return null;
+
+  const wrap = div({
+    background: '#0a0a0a',
+    border: '1px solid #5fd46344',
+    borderRadius: '10px',
+    padding: '12px',
+    marginBottom: '14px'
+  });
+
+  // Header
+  const hdr = div({display:'flex',alignItems:'flex-start',gap:'8px',marginBottom:'10px'});
+  hdr.appendChild(el('span',{style:{fontSize:'16px',lineHeight:'1',flexShrink:'0',marginTop:'1px'}}, '🧑‍🍳'));
+  const titleBlock = el('div',{style:{flex:'1',minWidth:'0'}});
+  // Title + status badge on one line
+  const titleLine = div({display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap'});
+  titleLine.appendChild(el('div',{style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'13px',color:'#5fd463',letterSpacing:'0.05em',lineHeight:'1.1'}}, 'Sunday Prep Sequence'));
+  // Lock-state badge: 🔒 LOCKED (green) or 🔓 PREVIEW (blue)
+  const badgeColor = isLocked ? '#5fd463' : '#3b9eff';
+  const badgeText = isLocked ? '🔒 LOCKED' : '🔓 PREVIEW';
+  titleLine.appendChild(el('span',{
+    style:{
+      fontSize:'7px', fontFamily:"'DM Mono',monospace", fontWeight:'700',
+      letterSpacing:'0.12em',
+      color: badgeColor,
+      border:'1px solid '+badgeColor+'66',
+      padding:'2px 5px', borderRadius:'3px',
+      flexShrink:'0'
+    }
+  }, badgeText));
+  titleBlock.appendChild(titleLine);
+  // Subtitle changes based on state
+  const subtitle = isLocked
+    ? stages.length + ' stage' + (stages.length === 1 ? '' : 's') + ' · committed for the week'
+    : stages.length + ' stage' + (stages.length === 1 ? '' : 's') + ' · live preview, lock to commit';
+  titleBlock.appendChild(el('div',{
+    style:{fontSize:'9px',color:'#8a8a8a',marginTop:'3px',lineHeight:'1.4'}
+  }, subtitle));
+  hdr.appendChild(titleBlock);
+  wrap.appendChild(hdr);
+
+  // ─── Primary CTA: Open Chef Mode ───
+  // Big terracotta button matching individual recipe chef-mode entry style.
+  // Opens an immersive full-screen prep flow with portion breakdowns + timers.
+  const chefBtn = el('button', {
+    class: 'btn',
+    style: {
+      width: '100%',
+      background: 'linear-gradient(135deg, #c44a1a 0%, #a23c14 100%)',
+      color: '#fff8e8',
+      border: 'none',
+      padding: '14px 16px',
+      borderRadius: '8px',
+      fontFamily: "'DM Mono',monospace",
+      fontSize: '12px',
+      letterSpacing: '0.18em',
+      textTransform: 'uppercase',
+      cursor: 'pointer',
+      fontWeight: '700',
+      marginBottom: '14px',
+      boxShadow: '0 2px 6px rgba(196,74,26,0.25)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
+    },
+    onclick: (e) => {
+      e.stopPropagation();
+      openMealPrepChefMode();
+    }
+  });
+  chefBtn.appendChild(el('span',{style:{fontSize:'16px'}}, '👨‍🍳'));
+  chefBtn.appendChild(el('span',{}, 'Open Prep Chef Mode'));
+  wrap.appendChild(chefBtn);
+
+  stages.forEach(stage => wrap.appendChild(renderPrepStage(stage)));
+
+  wrap.appendChild(el('div',{
+    style:{
+      marginTop:'10px', padding:'8px 10px',
+      background:'#0e0e0e', borderLeft:'2px solid #5fd463',
+      borderRadius:'3px',
+      fontSize:'9px',color:'#aaa',lineHeight:'1.5',fontStyle:'italic'
+    }
+  }, 'Stages run in this order, but B and C overlap (oven runs while you cook grains). Sequence notes inside each stage explain the parallelism.'));
+
+  return wrap;
+}
+
+function renderPrepStage(stage) {
+  const card = div({
+    background:'#0e0e0e',
+    border:'1px solid #1a1a1a',
+    borderRadius:'8px',
+    padding:'10px',
+    marginBottom:'8px'
+  });
+
+  const head = div({display:'flex',alignItems:'center',gap:'8px',marginBottom:'6px'});
+  head.appendChild(el('div',{
+    style:{
+      fontFamily:"'DM Mono',monospace", background:'#5fd463', color:'#000',
+      padding:'2px 6px', borderRadius:'3px',
+      fontSize:'8px', fontWeight:'700', letterSpacing:'0.1em', flexShrink:'0'
+    }
+  }, 'STAGE ' + stage.id));
+  head.appendChild(el('span',{style:{fontSize:'15px',flexShrink:'0'}}, stage.icon));
+  head.appendChild(el('div',{
+    style:{flex:'1',fontFamily:"'Bebas Neue',sans-serif",fontSize:'12px',color:'#ebebeb',letterSpacing:'0.04em',lineHeight:'1.2'}
+  }, stage.title));
+  head.appendChild(el('span',{
+    style:{fontSize:'8px',color:'#8a8a8a',fontFamily:"'DM Mono',monospace",letterSpacing:'0.05em',flexShrink:'0'}
+  }, stage.estTime));
+  card.appendChild(head);
+
+  if (stage.sequenceNote) {
+    card.appendChild(el('div',{
+      style:{fontSize:'10px',color:'#9a9a9a',lineHeight:'1.4',marginBottom:'8px',fontStyle:'italic'}
+    }, stage.sequenceNote));
+  }
+
+  stage.tasks.forEach(task => card.appendChild(renderPrepTask(task)));
+  return card;
+}
+
+// Compact dark-theme stopwatch — uses PersistentTimers infrastructure so countdowns
+// survive tab switches and fire the existing app-wide expired notification.
+function renderPrepStopwatch(stepKey, durationSec, label) {
+  if (!stepKey || !durationSec || durationSec <= 0) return null;
+  const SIZE = 56;
+  const ringStroke = 3;
+  const ringR = (SIZE - ringStroke) / 2;
+  const ringCircum = 2 * Math.PI * ringR;
+
+  const wrap = el('button', {
+    class: 'btn',
+    style: {
+      width: SIZE+'px', height: SIZE+'px',
+      flexShrink: '0', position: 'relative',
+      borderRadius: '50%',
+      background: '#0a0a0a',
+      border: '1px solid #5fd46355',
+      cursor: 'pointer',
+      padding: '0',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      marginLeft: '8px'
+    }
+  });
+
+  const existing = PersistentTimers.findByStepKey(stepKey);
+  const remaining = existing ? PersistentTimers.remainingSec(existing.id) : null;
+
+  if (existing && !existing.expired && remaining > 0) {
+    // Running — show ring + countdown
+    const fraction = Math.max(0, Math.min(1, remaining / durationSec));
+    const dashOffset = ringCircum * (1 - fraction);
+    const ringSvg = el('div', { style:{position:'absolute',inset:'0',pointerEvents:'none'} });
+    ringSvg.innerHTML = `
+      <svg width="${SIZE}" height="${SIZE}" style="transform:rotate(-90deg)">
+        <circle cx="${SIZE/2}" cy="${SIZE/2}" r="${ringR}" fill="none" stroke="#5fd46322" stroke-width="${ringStroke}"/>
+        <circle cx="${SIZE/2}" cy="${SIZE/2}" r="${ringR}" fill="none" stroke="#5fd463" stroke-width="${ringStroke}" stroke-linecap="round" stroke-dasharray="${ringCircum}" stroke-dashoffset="${dashOffset}" style="transition:stroke-dashoffset 1s linear"/>
+      </svg>
+    `;
+    wrap.appendChild(ringSvg);
+    wrap.appendChild(el('div', {
+      style: {
+        position: 'relative',
+        fontFamily: "'DM Mono',monospace",
+        fontSize: '11px', color: '#5fd463',
+        fontWeight: '700', letterSpacing: '-0.02em'
+      }
+    }, formatTimerDisplay(remaining)));
+    wrap.onclick = (e) => {
+      e.stopPropagation();
+      PersistentTimers.dismiss(existing.id);
+      renderNutrition();
+    };
+  } else {
+    // Idle — show ▶ + duration, click to start
+    const idleText = div({
+      display: 'flex', alignItems: 'center', gap: '2px',
+      fontFamily: "'DM Mono',monospace",
+      fontSize: '10px', color: '#888',
+      fontWeight: '700', letterSpacing: '-0.02em'
+    });
+    idleText.appendChild(el('span', {style:{color:'#5fd463',fontSize:'11px'}}, '▶'));
+    idleText.appendChild(el('span', {}, formatTimerDisplay(durationSec)));
+    wrap.appendChild(idleText);
+    wrap.onclick = (e) => {
+      e.stopPropagation();
+      PersistentTimers.add(label || 'Prep step', '', durationSec, stepKey);
+      renderNutrition();
+    };
+  }
+  return wrap;
+}
+
+function renderPrepTask(task) {
+  const wrap = div({
+    background:'#080808',
+    borderLeft:'2px solid #5fd46355',
+    borderRadius:'3px',
+    padding:'8px 10px',
+    marginBottom:'6px'
+  });
+
+  // ─── Top row: label (flex) + stopwatch widget (right) ───
+  const topRow = div({display:'flex',alignItems:'flex-start',gap:'6px',marginBottom:'5px'});
+  const labelBlock = div({flex:'1',minWidth:'0'});
+  const labelLine = div({display:'flex',alignItems:'flex-start',gap:'6px'});
+  labelLine.appendChild(el('span',{style:{fontSize:'10px',color:'#5fd463',flexShrink:'0',marginTop:'1px'}}, '◆'));
+  labelLine.appendChild(el('div',{
+    style:{flex:'1',fontSize:'11px',color:'#ebebeb',lineHeight:'1.3',fontWeight:'500'}
+  }, task.label));
+  labelBlock.appendChild(labelLine);
+  topRow.appendChild(labelBlock);
+  // Stopwatch on the right (only if task has a positive timer)
+  if (task.timer && task.timer > 0 && task.stepKey) {
+    const sw = renderPrepStopwatch(task.stepKey, task.timer, task.label);
+    if (sw) topRow.appendChild(sw);
+  }
+  wrap.appendChild(topRow);
+
+  // ─── Per-meal portion breakdown (only for grains/roastVeg/marinatedProtein) ───
+  // Shows EXACTLY how much of the batch goes to each meal, e.g.:
+  //   75g × 2 = 150g  →  Tuna & Brown Rice Bowl
+  //   85g × 1 = 85g   →  Tuna Bowl · Heavy Day Portion
+  if (task.portions && Object.keys(task.portions).length) {
+    const portionList = div({
+      marginTop:'6px',marginBottom:'6px',
+      padding:'6px 8px',
+      background:'#0a0a0a',
+      borderLeft:'2px solid #5fd46333',
+      borderRadius:'3px'
+    });
+    portionList.appendChild(el('div',{
+      style:{fontSize:'7px',color:'#5fd463aa',letterSpacing:'0.18em',textTransform:'uppercase',marginBottom:'4px',fontWeight:'700'}
+    }, 'Portion Breakdown'));
+    Object.keys(task.portions).sort().forEach(mealName => {
+      const p = task.portions[mealName];
+      const row = div({
+        display:'flex',gap:'8px',
+        fontSize:'9px',color:'#cfcfcf',lineHeight:'1.5',
+        marginBottom:'2px'
+      });
+      // Build amount label — handle both gram and non-gram measures
+      let amtLabel;
+      if (p.perServingGrams && p.perServingGrams > 0) {
+        const total = p.perServingGrams * p.count;
+        amtLabel = p.count > 1
+          ? Math.round(p.perServingGrams) + 'g × ' + p.count + ' = ' + Math.round(total) + 'g'
+          : Math.round(p.perServingGrams) + 'g';
+      } else if (p.perServingDisplay) {
+        amtLabel = p.count > 1
+          ? p.perServingDisplay + ' × ' + p.count
+          : p.perServingDisplay;
+      } else {
+        amtLabel = p.count > 1 ? '× ' + p.count : '';
+      }
+      row.appendChild(el('span',{
+        style:{color:'#5fd463',fontFamily:"'DM Mono',monospace",fontWeight:'700',flexShrink:'0',minWidth:'72px'}
+      }, amtLabel));
+      row.appendChild(el('span',{style:{color:'#a0a0a0'}}, '→'));
+      row.appendChild(el('span',{style:{flex:'1',color:'#cfcfcf'}}, mealName));
+      portionList.appendChild(row);
+    });
+    wrap.appendChild(portionList);
+  }
+
+  // ─── Covers list (which meals this task feeds) — kept for non-portion tasks ───
+  if ((!task.portions || !Object.keys(task.portions).length) && task.coversMeals && task.coversMeals.length) {
+    const covers = div({fontSize:'8px',marginBottom:'6px',letterSpacing:'0.05em',lineHeight:'1.5'});
+    covers.appendChild(el('span',{style:{textTransform:'uppercase',fontWeight:'700',marginRight:'5px',color:'#5fd463aa'}},'COVERS'));
+    covers.appendChild(el('span',{style:{color:'#888'}}, task.coversMeals.join(' · ')));
+    wrap.appendChild(covers);
+  }
+
+  // ─── Step instruction ───
+  if (task.step) {
+    wrap.appendChild(el('div',{
+      style:{fontSize:'10px',color:'#cfcfcf',lineHeight:'1.5',marginBottom: (task.sensoryCheck || task.mistake || task.tip || task.why) ? '6px' : '0'}
+    }, task.step));
+  }
+
+  // ─── Chef-mode callouts ───
+  function chefRow(label, text, color) {
+    const row = div({display:'flex',gap:'6px',marginTop:'3px',fontSize:'9px',lineHeight:'1.5'});
+    row.appendChild(el('span',{
+      style:{color:color,fontWeight:'700',letterSpacing:'0.08em',textTransform:'uppercase',flexShrink:'0',minWidth:'48px'}
+    }, label));
+    row.appendChild(el('span',{style:{color:'#aaa',flex:'1'}}, text));
+    return row;
+  }
+  if (task.sensoryCheck) wrap.appendChild(chefRow('Sense', task.sensoryCheck, '#5fd463'));
+  if (task.mistake)      wrap.appendChild(chefRow('Avoid', task.mistake,      '#ff9f3b'));
+  if (task.tip)          wrap.appendChild(chefRow('Tip',   task.tip,          '#3b9eff'));
+  if (task.why)          wrap.appendChild(chefRow('Why',   task.why,          '#7c5cff'));
+  return wrap;
+}
+
+
+// ─── MEAL PREP CHEF MODE ────────────────────────────────────────────────────
+// Full-screen immersive chef-mode interface for meal prep, themed identically
+// to the recipe chef mode (warm parchment cream + terracotta), but computed
+// dynamically from the locked week's stage sequence.
+
+async function openMealPrepChefMode() {
+  // Reuse the same wake lock + timer subscription pattern as recipe chef mode
+  if ('wakeLock' in navigator) {
+    try { chefModeWakeLock = await navigator.wakeLock.request('screen'); } catch(e) {}
+  }
+  if (chefModeUnsubscribe) chefModeUnsubscribe();
+  chefModeUnsubscribe = PersistentTimers.subscribe(() => renderMealPrepChefMode());
+  renderMealPrepChefMode();
+}
+
+function renderMealPrepChefMode() {
+  let overlay = document.getElementById('chef-overlay');
+  if (!overlay) {
+    overlay = el('div', {
+      id: 'chef-overlay',
+      style: {
+        position: 'fixed',
+        top: '0', left: '0', right: '0', bottom: '0',
+        zIndex: '5500',
+        background: CHEF_PALETTE.bg,
+        overflow: 'auto',
+        WebkitOverflowScrolling: 'touch',
+        backgroundImage: 'radial-gradient(ellipse 900px 400px at 50% -10%, rgba(196,74,26,0.06) 0%, transparent 65%)'
+      }
+    });
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = '';
+
+  // Compute prep sequence from current state (live, swap-aware)
+  const livePlan = { mealsByDay: buildCurrentPlanSnapshot() };
+  const isLocked = !!getWeekPlan();
+  const stages = buildPrepSequence(livePlan);
+
+  // ── TOP BAR (sticky) ──
+  const topBar = div({
+    position: 'sticky', top: '0',
+    background: CHEF_PALETTE.bg,
+    borderBottom: '1px solid ' + CHEF_PALETTE.border,
+    padding: 'env(safe-area-inset-top, 12px) 16px 10px',
+    zIndex: '20'
+  });
+  const topRow = div({display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px'});
+  const titleCol = div({flex:'1',minWidth:'0'});
+  titleCol.appendChild(el('div',{
+    style:{fontSize:'8px',color:CHEF_PALETTE.primary,letterSpacing:'0.32em',textTransform:'uppercase',fontWeight:'700',marginBottom:'2px'}
+  }, '👨‍🍳 Chef Mode'));
+  titleCol.appendChild(el('div',{
+    style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'18px',color:CHEF_PALETTE.textPrimary,letterSpacing:'0.04em',lineHeight:'1.05',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}
+  }, 'Sunday Prep'));
+  topRow.appendChild(titleCol);
+  topRow.appendChild(el('button',{
+    class:'btn',
+    style:{
+      background:'transparent',color:CHEF_PALETTE.textDim,
+      border:'1px solid '+CHEF_PALETTE.border,
+      padding:'6px 12px',borderRadius:'6px',
+      fontFamily:"'DM Mono',monospace",fontSize:'9px',
+      letterSpacing:'0.15em',textTransform:'uppercase',
+      cursor:'pointer',fontWeight:'700',flexShrink:'0'
+    },
+    onclick:(e)=>{e.stopPropagation();closeChefMode();}
+  }, '✕ Exit'));
+  topBar.appendChild(topRow);
+  overlay.appendChild(topBar);
+
+  // ── BODY ──
+  const body = div({padding:'18px 16px 100px',maxWidth:'720px',margin:'0 auto'});
+
+  // Empty state — no batch opportunities
+  if (!stages || !stages.length) {
+    body.appendChild(div({
+      background: CHEF_PALETTE.cardBright,
+      border: '1px solid ' + CHEF_PALETTE.border,
+      borderRadius: '12px',
+      padding: '32px 24px',
+      textAlign: 'center',
+      marginTop: '40px'
+    },
+      el('div',{style:{fontSize:'40px',marginBottom:'12px'}}, '🍳'),
+      el('div',{style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'22px',color:CHEF_PALETTE.textPrimary,marginBottom:'8px',letterSpacing:'0.02em'}}, 'No batch opportunities'),
+      el('div',{style:{fontSize:'13px',color:CHEF_PALETTE.textDim,lineHeight:'1.5'}}, 'Your current week has no ingredients shared across multiple meals. Each meal is best cooked fresh — no Sunday prep needed.')
+    ));
+    overlay.appendChild(body);
+    return;
+  }
+
+  // Title block
+  const titleBlock = div({marginBottom:'18px'});
+  titleBlock.appendChild(el('div',{
+    style:{
+      fontFamily:"'Bebas Neue',sans-serif",
+      fontSize:'34px',color:CHEF_PALETTE.textPrimary,
+      letterSpacing:'0.02em',lineHeight:'1.1',
+      marginBottom:'10px'
+    }
+  }, 'Sunday Prep'));
+
+  // Compute totals for meta pills
+  const totalTasks = stages.reduce((n, s) => n + s.tasks.length, 0);
+  const totalMeals = new Set();
+  stages.forEach(s => s.tasks.forEach(t => (t.coversMeals || []).forEach(m => totalMeals.add(m))));
+
+  const metaRow = div({display:'flex',gap:'8px',flexWrap:'wrap'});
+  metaRow.appendChild(chefMetaPill(stages.length + ' stages', CHEF_PALETTE.primary));
+  metaRow.appendChild(chefMetaPill(totalTasks + ' tasks', CHEF_PALETTE.textDim));
+  metaRow.appendChild(chefMetaPill(totalMeals.size + ' meals', CHEF_PALETTE.textDim));
+  metaRow.appendChild(chefMetaPill(isLocked ? '🔒 Locked' : '🔓 Preview', isLocked ? CHEF_PALETTE.done : CHEF_PALETTE.info));
+  titleBlock.appendChild(metaRow);
+  body.appendChild(titleBlock);
+
+  // Intro narrative
+  body.appendChild(div({
+    background: CHEF_PALETTE.cardBright,
+    border: '1px solid ' + CHEF_PALETTE.border,
+    borderLeft: '4px solid ' + CHEF_PALETTE.primary,
+    borderRadius: '10px',
+    padding: '16px 18px',
+    marginBottom: '6px'
+  },
+    el('div',{
+      style:{fontSize:'15px',color:CHEF_PALETTE.textPrimary,lineHeight:'1.6',fontStyle:'italic'}
+    }, isLocked
+      ? `Your week's prep flow, computed live from the meals you've locked in. ${totalTasks} tasks across ${stages.length} stages, covering ${totalMeals.size} meals. Stages run roughly in order — Stage B (oven) and C (grains) overlap so you finish faster.`
+      : `Live preview based on your current meal selections. Lock the week to commit. ${totalTasks} batch opportunities identified across ${totalMeals.size} meals.`)
+  ));
+
+  // Render each stage with global task numbering
+  let globalTaskNum = 0;
+  stages.forEach(stage => {
+    body.appendChild(renderPrepChefStageHeader(stage));
+    stage.tasks.forEach(task => {
+      globalTaskNum++;
+      body.appendChild(renderPrepChefTask(task, globalTaskNum, stage.id));
+    });
+  });
+
+  // Done button
+  body.appendChild(el('button',{
+    class:'btn',
+    style:{
+      background: CHEF_PALETTE.done,
+      color: CHEF_PALETTE.onDone,
+      border: 'none',
+      width: '100%',
+      padding: '16px',
+      borderRadius: '10px',
+      fontFamily: "'DM Mono',monospace",
+      fontSize: '12px',
+      letterSpacing: '0.18em',
+      textTransform: 'uppercase',
+      cursor: 'pointer',
+      fontWeight: '700',
+      marginTop: '24px'
+    },
+    onclick: (e) => { e.stopPropagation(); closeChefMode(); }
+  }, '✓ Done with Prep'));
+
+  overlay.appendChild(body);
+}
+
+function renderPrepChefStageHeader(stage) {
+  const wrap = div({ marginTop: '24px', marginBottom: '10px' });
+  const head = div({display:'flex',alignItems:'center',gap:'10px',marginBottom:'6px',flexWrap:'wrap'});
+  head.appendChild(el('div',{
+    style:{
+      background: CHEF_PALETTE.primary,
+      color: CHEF_PALETTE.onPrimary,
+      padding: '4px 10px', borderRadius: '4px',
+      fontFamily: "'DM Mono',monospace",
+      fontSize: '10px', fontWeight: '700',
+      letterSpacing: '0.15em', flexShrink: '0'
+    }
+  }, 'STAGE ' + stage.id));
+  head.appendChild(el('span',{style:{fontSize:'18px',flexShrink:'0'}}, stage.icon));
+  head.appendChild(el('div',{
+    style:{
+      flex:'1',
+      fontFamily:"'Bebas Neue',sans-serif",
+      fontSize:'20px',
+      color:CHEF_PALETTE.textPrimary,
+      letterSpacing:'0.03em',
+      lineHeight:'1.1',
+      minWidth:'0'
+    }
+  }, stage.title));
+  head.appendChild(el('span',{
+    style:{
+      fontSize:'10px', color:CHEF_PALETTE.textMuted,
+      fontFamily:"'DM Mono',monospace",
+      letterSpacing:'0.05em', flexShrink:'0'
+    }
+  }, stage.estTime));
+  wrap.appendChild(head);
+
+  if (stage.sequenceNote) {
+    wrap.appendChild(el('div',{
+      style:{
+        fontSize:'12px',color:CHEF_PALETTE.textDim,
+        lineHeight:'1.5',fontStyle:'italic',
+        paddingLeft:'4px'
+      }
+    }, stage.sequenceNote));
+  }
+  return wrap;
+}
+
+function renderPrepChefTask(task, globalNum, stageId) {
+  const card = div({
+    background: CHEF_PALETTE.cardBright,
+    border: '1px solid ' + CHEF_PALETTE.border,
+    borderRadius: '12px',
+    padding: '20px',
+    marginBottom: '12px',
+    position: 'relative'
+  });
+
+  // Header: step number + label + stopwatch
+  const stepHeader = div({display:'flex',alignItems:'flex-start',gap:'14px',marginBottom:'14px'});
+
+  // Step number badge (terracotta circle, matches recipe chef mode)
+  const numWrap = div({
+    width:'44px',height:'44px',borderRadius:'50%',
+    background: CHEF_PALETTE.primary,
+    border:'2px solid '+CHEF_PALETTE.primary,
+    display:'flex',alignItems:'center',justifyContent:'center',
+    flexShrink:'0',
+    boxShadow:'0 2px 5px rgba(196,74,26,0.2)'
+  });
+  numWrap.appendChild(el('div',{
+    style:{
+      fontFamily:"'Anton','Bebas Neue',sans-serif",
+      fontSize:'24px',color:CHEF_PALETTE.onPrimary,
+      letterSpacing:'-0.02em',lineHeight:'1',fontWeight:'700'
+    }
+  }, globalNum + ''));
+  stepHeader.appendChild(numWrap);
+
+  // Label column
+  const labelCol = div({flex:'1',paddingTop:'6px',minWidth:'0'});
+  labelCol.appendChild(el('div',{
+    style:{
+      fontSize:'9px',color:CHEF_PALETTE.primary,
+      letterSpacing:'0.32em',textTransform:'uppercase',
+      fontWeight:'700'
+    }
+  }, 'Stage ' + stageId + ' · Task ' + globalNum));
+  stepHeader.appendChild(labelCol);
+
+  // Stopwatch on the right
+  if (task.timer && task.timer > 0 && task.stepKey) {
+    stepHeader.appendChild(renderPrepChefStopwatch(task.stepKey, task.timer, task.label));
+  }
+
+  card.appendChild(stepHeader);
+
+  // Task title (large)
+  card.appendChild(el('div',{
+    style:{
+      fontFamily:"'Bebas Neue',sans-serif",
+      fontSize:'22px',color:CHEF_PALETTE.textPrimary,
+      letterSpacing:'0.02em',lineHeight:'1.15',
+      marginBottom:'12px'
+    }
+  }, task.label));
+
+  // Step instruction body
+  if (task.step) {
+    card.appendChild(el('p',{
+      style:{
+        margin:'0 0 14px 0',
+        fontSize:'17px',
+        color:CHEF_PALETTE.textPrimary,
+        lineHeight:'1.5',
+        fontWeight:'500',
+        letterSpacing:'0.005em'
+      }
+    }, task.step));
+  }
+
+  // Portion breakdown card
+  if (task.portions && Object.keys(task.portions).length) {
+    const pCard = div({
+      background: CHEF_PALETTE.bgPanel,
+      border: '1px solid ' + CHEF_PALETTE.border,
+      borderRadius: '8px',
+      padding: '12px 14px',
+      marginBottom: '14px'
+    });
+    pCard.appendChild(el('div',{
+      style:{
+        fontSize:'9px',color:CHEF_PALETTE.primary,
+        letterSpacing:'0.18em',textTransform:'uppercase',
+        marginBottom:'8px',fontWeight:'700'
+      }
+    }, '⚖️ Portion Breakdown'));
+    Object.keys(task.portions).sort().forEach(mealName => {
+      const p = task.portions[mealName];
+      const row = div({
+        display:'flex',gap:'12px',alignItems:'baseline',
+        fontSize:'13px',
+        lineHeight:'1.5',
+        marginBottom:'4px'
+      });
+      let amtLabel;
+      if (p.perServingGrams && p.perServingGrams > 0) {
+        const total = p.perServingGrams * p.count;
+        amtLabel = p.count > 1
+          ? Math.round(p.perServingGrams) + 'g × ' + p.count + ' = ' + Math.round(total) + 'g'
+          : Math.round(p.perServingGrams) + 'g';
+      } else if (p.perServingDisplay) {
+        amtLabel = p.count > 1 ? p.perServingDisplay + ' × ' + p.count : p.perServingDisplay;
+      } else {
+        amtLabel = '';
+      }
+      row.appendChild(el('span',{
+        style:{
+          color:CHEF_PALETTE.primary,
+          fontFamily:"'DM Mono',monospace",
+          fontWeight:'700',flexShrink:'0',minWidth:'92px',
+          fontSize:'13px'
+        }
+      }, amtLabel));
+      row.appendChild(el('span',{style:{color:CHEF_PALETTE.textMuted,flexShrink:'0'}}, '→'));
+      row.appendChild(el('span',{style:{flex:'1',color:CHEF_PALETTE.textPrimary}}, mealName));
+      pCard.appendChild(row);
+    });
+    card.appendChild(pCard);
+  }
+
+  // Callout cards (sensory check / mistake / tip / why)
+  function chefCallout(label, text, color) {
+    const wrap = div({
+      background: CHEF_PALETTE.bgPanel,
+      border: '1px solid ' + color + '44',
+      borderLeft: '3px solid ' + color,
+      borderRadius: '6px',
+      padding: '10px 12px',
+      marginBottom: '8px'
+    });
+    wrap.appendChild(el('div',{
+      style:{
+        fontSize:'8px',color:color,
+        letterSpacing:'0.18em',textTransform:'uppercase',
+        marginBottom:'4px',fontWeight:'700'
+      }
+    }, label));
+    wrap.appendChild(el('div',{
+      style:{fontSize:'13px',color:CHEF_PALETTE.textPrimary,lineHeight:'1.5'}
+    }, text));
+    return wrap;
+  }
+  if (task.sensoryCheck) card.appendChild(chefCallout('👁 Sensory Check', task.sensoryCheck, CHEF_PALETTE.info));
+  if (task.mistake)      card.appendChild(chefCallout('⚠ Common Mistake', task.mistake,    CHEF_PALETTE.warn));
+  if (task.tip)          card.appendChild(chefCallout('💡 Pro Tip',        task.tip,        CHEF_PALETTE.done));
+  if (task.why)          card.appendChild(chefCallout('🧠 Why',            task.why,        CHEF_PALETTE.primary));
+
+  return card;
+}
+
+// Warm-themed stopwatch widget — same 68px size and behaviour as recipe chef stopwatch
+function renderPrepChefStopwatch(stepKey, durationSec, label) {
+  if (!stepKey || !durationSec || durationSec <= 0) return null;
+  const SIZE = 68;
+  const ringStroke = 4;
+  const ringR = (SIZE - ringStroke) / 2;
+  const ringCircum = 2 * Math.PI * ringR;
+
+  const wrap = el('div', {
+    style: {
+      width: SIZE+'px', height: SIZE+'px',
+      flexShrink: '0', position: 'relative',
+      marginTop: '-4px'
+    }
+  });
+
+  const existing = PersistentTimers.findByStepKey(stepKey);
+
+  if (existing && !existing.expired && PersistentTimers.remainingSec(existing.id) > 0) {
+    // Running state
+    const remaining = PersistentTimers.remainingSec(existing.id);
+    const fraction = Math.max(0, Math.min(1, remaining / durationSec));
+    const dashOffset = ringCircum * (1 - fraction);
+
+    const ringSvg = el('div', { style:{position:'absolute',inset:'0',pointerEvents:'none'} });
+    ringSvg.innerHTML = `
+      <svg width="${SIZE}" height="${SIZE}" style="transform:rotate(-90deg)">
+        <circle cx="${SIZE/2}" cy="${SIZE/2}" r="${ringR}" fill="none" stroke="${CHEF_PALETTE.primary}22" stroke-width="${ringStroke}"/>
+        <circle cx="${SIZE/2}" cy="${SIZE/2}" r="${ringR}" fill="none" stroke="${CHEF_PALETTE.primary}" stroke-width="${ringStroke}" stroke-linecap="round" stroke-dasharray="${ringCircum}" stroke-dashoffset="${dashOffset}" style="transition:stroke-dashoffset 1s linear"/>
+      </svg>
+    `;
+    wrap.appendChild(ringSvg);
+
+    const inner = el('button', {
+      class:'btn',
+      style:{
+        position:'absolute',
+        top: ringStroke + 'px', left: ringStroke + 'px',
+        width: (SIZE - ringStroke*2) + 'px', height: (SIZE - ringStroke*2) + 'px',
+        borderRadius:'50%',
+        background:CHEF_PALETTE.cardBright,
+        border:'none',cursor:'pointer',
+        display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
+        padding:'0',gap:'1px'
+      },
+      onclick: (e) => {
+        e.stopPropagation();
+        PersistentTimers.dismiss(existing.id);
+        renderMealPrepChefMode();
+      }
+    });
+    inner.appendChild(el('div', {
+      style:{
+        fontFamily:"'Anton','Bebas Neue',sans-serif",
+        fontSize:'18px',color:CHEF_PALETTE.primary,
+        letterSpacing:'-0.02em',lineHeight:'1',fontWeight:'700'
+      }
+    }, formatTimerDisplay(remaining)));
+    inner.appendChild(el('div', {
+      style:{
+        fontSize:'7px',color:CHEF_PALETTE.textMuted,
+        letterSpacing:'0.18em',textTransform:'uppercase',
+        fontWeight:'700',marginTop:'1px'
+      }
+    }, 'Running'));
+    wrap.appendChild(inner);
+  } else {
+    // Idle state — dashed border, ▶ + duration
+    const btn = el('button', {
+      class:'btn',
+      style:{
+        width: SIZE+'px', height: SIZE+'px',
+        borderRadius:'50%',
+        background:CHEF_PALETTE.cardBright,
+        border:'2px dashed '+CHEF_PALETTE.primaryDim,
+        cursor:'pointer',
+        display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
+        padding:'0',gap:'2px'
+      },
+      onclick: (e) => {
+        e.stopPropagation();
+        PersistentTimers.add(label || 'Prep step', '', durationSec, stepKey);
+        renderMealPrepChefMode();
+      }
+    });
+    btn.appendChild(el('div', {
+      style:{fontSize:'14px',color:CHEF_PALETTE.primary,fontWeight:'700',lineHeight:'1'}
+    }, '▶'));
+    btn.appendChild(el('div', {
+      style:{
+        fontFamily:"'DM Mono',monospace",
+        fontSize:'11px',color:CHEF_PALETTE.textDim,
+        fontWeight:'700',marginTop:'2px'
+      }
+    }, formatTimerDisplay(durationSec)));
+    wrap.appendChild(btn);
+  }
+  return wrap;
+}
 
 
 const PROGRAM = [
@@ -8394,6 +9509,57 @@ const MEAL_ALTERNATIVES = {
         {step:'Blend banana, berries, protein, milk thick.',timer:90},
         {step:'Pour in a bowl, top with granola and chia.',timer:0}
       ]
+    },
+    {name:'Tamago Kake Gohan + Avocado', icon:'🍚', slot:'Breakfast', time:'7:00 AM', tags:['JAPANESE','HIGH PROTEIN'], desc:'Hot rice with raw egg, soy and nori — Japanese breakfast in 5 minutes',
+      ingredients:[
+        {a:1,u:'cup',n:'cooked rice',m:180,mu:'g'},
+        {a:2,u:'large',n:'eggs',m:2,mu:'large'},
+        {a:1,u:'tsp',n:'soy sauce',m:5,mu:'g'},
+        {a:0.3,u:'whole',n:'avocado',m:50,mu:'g'},
+        {a:1,u:'sheet',n:'nori, torn',m:2,mu:'g'},
+        {a:1,u:'tsp',n:'sesame seeds',m:3,mu:'g'},
+        {a:1,u:'tbsp',n:'spring onion, sliced',m:10,mu:'g'}
+      ],
+      instructions:[
+        {step:'Reheat rice steaming hot — must be hot enough to gently cook the egg yolk on contact.',timer:90,sensoryCheck:'Steam should rise vigorously. If it just feels warm, the egg will be raw and slimy instead of silky.',mistake:'Cold or lukewarm rice — the whole technique relies on residual heat to lightly cook the egg.',tip:'Microwave 60-90 seconds with a damp paper towel over the bowl to keep it from drying out.',why:'TKG works because hot rice partially denatures the egg proteins, creating a custard-like coating without scrambling them.'},
+        {step:'Crack eggs into a bowl, whisk briefly with soy sauce until just combined.',timer:20,sensoryCheck:'You want strands of yolk and white still visible — over-whisking gives a flat foamy result.',mistake:'Adding salt or extra soy sauce — eggs and soy are already salty, more will overpower the rice.',tip:'Use the freshest eggs you can find. This dish lives or dies on egg quality since they barely cook.'},
+        {step:'Pour egg mixture over hot rice, stir vigorously for 10 seconds to coat every grain.',timer:30,sensoryCheck:'Rice should turn glossy yellow with no liquid pooling at the bottom.',mistake:'Stirring slowly — you want the egg to coat each grain quickly, not pool and cook into scrambled clumps.',tip:'A wooden spoon or chopsticks work better than a metal spoon — less heat transfer means the egg sets gently.'},
+        {step:'Top with sliced avocado, torn nori, sesame seeds and spring onion.',timer:0,sensoryCheck:'Avocado should be ripe but not mushy — gives gently when pressed.',tip:'Add the toppings AFTER the egg coating sets — placing avocado on raw egg makes it slide off.'}
+      ]
+    },
+    {name:'Korean Kimchi Egg Toast', icon:'🍞', slot:'Breakfast', time:'7:00 AM', tags:['KOREAN','GUT HEALTH'], desc:'Korean street-food breakfast: scrambled eggs, fermented kimchi, sesame on toast',
+      ingredients:[
+        {a:2,u:'slice',n:'sourdough',m:80,mu:'g'},
+        {a:3,u:'large',n:'eggs',m:3,mu:'large'},
+        {a:0.25,u:'cup',n:'kimchi, drained',m:50,mu:'g'},
+        {a:1,u:'tsp',n:'sesame oil',m:5,mu:'g'},
+        {a:1,u:'tbsp',n:'spring onion',m:10,mu:'g'}
+      ],
+      instructions:[
+        {step:'Toast sourdough until golden and crisp on the outside, soft in the middle.',timer:180,sensoryCheck:'A confident "tap" sound when you knock it — soggy toast under wet kimchi is the worst outcome.',tip:'Toast a shade darker than you would normally eat it — the kimchi liquid will soften it slightly.'},
+        {step:'Squeeze excess liquid from kimchi, chop into small pieces.',timer:30,sensoryCheck:'Kimchi should be drained but still moist — bone-dry kimchi loses its punch.',mistake:'Skipping the drain — wet kimchi turns the toast to mush in seconds.',why:'Kimchi liquid is the saltiest most pungent part. Removing it lets the cabbage flavour speak instead of overwhelming the eggs.'},
+        {step:'Whisk eggs with a pinch of salt. Heat sesame oil in pan, low-medium heat.',timer:30,sensoryCheck:'Pan is ready when oil shimmers but does not smoke. Sesame oil burns fast.',mistake:'High heat — sesame oil has a low smoke point. Anything above medium turns it acrid.',tip:'Save half the sesame oil for drizzling at the end. The flavour fades when heated.'},
+        {step:'Add kimchi to pan, fry 30 seconds. Pour in eggs, scramble gently with a spatula until just set.',timer:90,sensoryCheck:'Eggs should look glossy and barely-set — they will continue cooking from residual heat.',mistake:'Scrambling until firm — you want soft curds, not rubber.',tip:'Pull eggs off heat 10 seconds before they look done. Carryover cooking handles the rest.'},
+        {step:'Pile eggs on toast, drizzle remaining sesame oil, top with spring onion.',timer:0}
+      ]
+    },
+    {name:'Indian Masala Scramble + Toast', icon:'🍳', slot:'Breakfast', time:'7:00 AM', tags:['INDIAN','HIGH PROTEIN'], desc:'Spiced Indian-style scramble with tomato and onion (akoori)',
+      ingredients:[
+        {a:3,u:'large',n:'eggs',m:3,mu:'large'},
+        {a:1,u:'slice',n:'sourdough',m:50,mu:'g'},
+        {a:0.5,u:'whole',n:'tomato, diced',m:80,mu:'g'},
+        {a:0.25,u:'whole',n:'onion, diced',m:40,mu:'g'},
+        {a:1,u:'tsp',n:'curry powder',m:3,mu:'g'},
+        {a:1,u:'tsp',n:'olive oil',m:5,mu:'g'},
+        {a:1,u:'tbsp',n:'coriander, chopped',m:5,mu:'g'}
+      ],
+      instructions:[
+        {step:'Dice onion and tomato finely. Heat oil in pan over medium, sauté onion 3 minutes until translucent.',timer:180,sensoryCheck:'Onion should be soft and slightly sweet-smelling, not browning yet.',mistake:'Skipping this step — raw onion in scrambled eggs gives a sharp bite that clashes with the spice.',why:'Sweating the onion first develops sweetness that balances the curry powder.'},
+        {step:'Add curry powder, stir 30 seconds in the hot oil to bloom the spices.',timer:30,sensoryCheck:'Smell should change from raw and dusty to warm and toasted within 20 seconds.',mistake:'Adding spices to the eggs directly — raw spice powder tastes chalky and gritty.',tip:'If it smells burnt or smoky after 30 seconds, pull off heat — you can salvage by adding the tomato immediately.',why:'Blooming activates fat-soluble flavour compounds in the spices that are otherwise locked up.'},
+        {step:'Add diced tomato, cook 2 minutes until liquid releases and reduces.',timer:120,sensoryCheck:'Tomato should break down into a chunky paste — most of the water should evaporate.',mistake:'Adding tomato when too watery means soggy eggs. Reduce until almost dry.'},
+        {step:'Whisk eggs with salt and pinch of black pepper. Pour into pan, scramble gently for 60 seconds until just-set.',timer:90,sensoryCheck:'Curds should be soft and creamy, not dry.',tip:'Pull off heat when slightly underdone — the residual heat sets them perfectly in 20 seconds.'},
+        {step:'Plate eggs onto toasted sourdough, scatter coriander.',timer:0}
+      ]
     }
   ],
 
@@ -8447,6 +9613,127 @@ const MEAL_ALTERNATIVES = {
         {step:'Stir-fry veg + aromatics 2-3 min.',timer:180},
         {step:'Return pork, add soy and sesame oil. Plate over rice.',timer:60}
       ]
+    },
+    {name:'Vietnamese Chicken Pho-Style Bowl', icon:'🍜', slot:'Lunch', time:'12:30 PM', tags:['VIETNAMESE','HIGH PROTEIN','GUT FRIENDLY'], desc:'Aromatic chicken broth with rice noodles and fresh herbs',
+      ingredients:[
+        {a:150,u:'g',n:'chicken breast, sliced',m:150,mu:'g'},
+        {a:140,u:'g',n:'rice noodles, cooked',m:140,mu:'g'},
+        {a:1,u:'cup',n:'chicken stock',m:300,mu:'ml'},
+        {a:1,u:'cup',n:'bean sprouts',m:40,mu:'g'},
+        {a:1,u:'tbsp',n:'spring onion',m:10,mu:'g'},
+        {a:2,u:'tbsp',n:'coriander',m:10,mu:'g'},
+        {a:1,u:'tbsp',n:'mint',m:5,mu:'g'},
+        {a:1,u:'tsp',n:'fish sauce',m:5,mu:'g'},
+        {a:1,u:'tbsp',n:'lime juice',m:10,mu:'g'},
+        {a:1,u:'tsp',n:'sesame oil',m:5,mu:'g'},
+        {a:1,u:'tsp',n:'sesame seeds',m:3,mu:'g'}
+      ],
+      instructions:[
+        {step:'Bring chicken stock to a gentle simmer. Add fish sauce, taste — it should be savoury not salty.',timer:120,sensoryCheck:'Stock should be barely bubbling, not rolling-boiling.',tip:'A piece of bruised ginger and a star anise (if you have it) added to the simmering stock for 5 minutes lifts it from "soup" to "pho".'},
+        {step:'Slice chicken breast thinly across the grain. Add to simmering stock, poach 4-5 minutes until just cooked.',timer:300,sensoryCheck:'Chicken is done when no pink remains — slice the thickest piece to check.',mistake:'Boiling instead of simmering — high heat makes chicken tough and stringy.',tip:'Slicing AGAINST the grain (perpendicular to the muscle fibres) keeps each bite tender.',why:'Poaching chicken in stock infuses both directions — the chicken absorbs flavour, the stock gains body.'},
+        {step:'Cook rice noodles per packet (usually 3-4 min in boiling water). Drain.',timer:240,sensoryCheck:'Noodles should be soft but still have slight bite — they cook another 30 seconds in the hot bowl.',mistake:'Overcooking noodles — they turn to mush in the broth.'},
+        {step:'Pile noodles in a bowl, ladle chicken and stock over.',timer:0,tip:'Save 100ml of the boiling pasta water — if your stock evaporated too much, you can stretch it without diluting flavour.'},
+        {step:'Top with bean sprouts, spring onion, coriander, mint. Drizzle sesame oil and lime juice. Sprinkle sesame seeds.',timer:0,sensoryCheck:'Herbs should be visible and abundant — pho is meant to be 30% herbs by visual area.',tip:'Add lime juice last and at the table — it loses its zing within 60 seconds of hitting hot broth.'}
+      ]
+    },
+    {name:'Korean Bibimbap Bowl', icon:'🥘', slot:'Lunch', time:'12:30 PM', tags:['KOREAN','HIGH PROTEIN','GUT HEALTH'], desc:'Mixed rice bowl with seasoned vegetables, kimchi and gochujang',
+      ingredients:[
+        {a:100,u:'g',n:'beef mince',m:100,mu:'g'},
+        {a:130,u:'g',n:'cooked rice',m:130,mu:'g'},
+        {a:0.5,u:'cup',n:'spinach',m:40,mu:'g'},
+        {a:0.3,u:'cup',n:'kimchi',m:50,mu:'g'},
+        {a:0.5,u:'cup',n:'carrot, julienned',m:50,mu:'g'},
+        {a:1,u:'large',n:'egg, fried',m:1,mu:'large'},
+        {a:1,u:'tbsp',n:'gochujang',m:15,mu:'g'},
+        {a:2,u:'tsp',n:'soy sauce',m:10,mu:'g'},
+        {a:1,u:'tsp',n:'sesame oil',m:5,mu:'g'},
+        {a:1,u:'tsp',n:'sesame seeds',m:3,mu:'g'}
+      ],
+      instructions:[
+        {step:'Brown beef mince in a dry pan over medium-high heat, breaking it up. Add half the soy sauce in the last minute.',timer:300,sensoryCheck:'Listen — should be a strong sizzle, not a quiet hiss. Mince should be deeply browned and crispy at the edges.',mistake:'Adding soy sauce at the start — it draws moisture out and stops the meat from browning.',tip:'Don\u2019t stir for the first 90 seconds — let one side develop a proper crust.',why:'Maillard browning is what makes bibimbap meat taste savoury and complex rather than just "cooked".'},
+        {step:'Blanch carrot julienne in boiling water 60 seconds, then ice bath. Same with spinach (30s blanch, squeeze dry).',timer:120,sensoryCheck:'Carrot should be bright orange and slightly tender. Spinach should be vivid green, not olive.',mistake:'Skipping the ice bath — vegetables keep cooking from residual heat and turn dull.',tip:'Squeeze the spinach hard — wet spinach makes a watery bowl.'},
+        {step:'Toss spinach with half the sesame oil and a pinch of salt. Toss carrot with the remaining sesame oil.',timer:30,tip:'Each vegetable should be seasoned individually — that\u2019s what separates real bibimbap from a stir-fry.'},
+        {step:'Fry the egg sunny-side-up, white set but yolk runny.',timer:180,sensoryCheck:'Edges should be crisp and lacy, yolk a glossy orange.',tip:'Cover the pan with a lid for the last 30 seconds to set the top of the white without overcooking the yolk.'},
+        {step:'Pile rice in bowl. Arrange beef, spinach, carrot, kimchi in separate sections around the rim. Top centre with egg.',timer:0,sensoryCheck:'Should look like a colourful clock-face — each component visible.',tip:'Take a photo before mixing. The visual contrast is half the joy.'},
+        {step:'Add gochujang and remaining soy. Mix vigorously at the table to combine everything.',timer:30,why:'The mixing is part of the eating — the egg yolk binds everything into a glossy sauce.'}
+      ]
+    },
+    {name:'Thai Chicken Larb', icon:'🌿', slot:'Lunch', time:'12:30 PM', tags:['THAI','HIGH PROTEIN','LOW CARB'], desc:'Spicy minced chicken salad with lime, herbs and toasted rice',
+      ingredients:[
+        {a:170,u:'g',n:'chicken breast, minced',m:170,mu:'g'},
+        {a:150,u:'g',n:'cooked rice',m:150,mu:'g'},
+        {a:2,u:'tbsp',n:'lime juice',m:20,mu:'g'},
+        {a:2,u:'tsp',n:'fish sauce',m:10,mu:'g'},
+        {a:1,u:'small',n:'red chili, minced',m:3,mu:'g'},
+        {a:2,u:'tbsp',n:'coriander',m:10,mu:'g'},
+        {a:2,u:'tbsp',n:'mint',m:10,mu:'g'},
+        {a:1,u:'tbsp',n:'spring onion',m:10,mu:'g'},
+        {a:2,u:'tsp',n:'sesame oil',m:10,mu:'g'},
+        {a:2,u:'tsp',n:'peanut, crushed',m:8,mu:'g'},
+        {a:3,u:'leaves',n:'cabbage (lettuce cups)',m:40,mu:'g'}
+      ],
+      instructions:[
+        {step:'Mince chicken breast finely with a knife (don\u2019t use a food processor — pasty texture).',timer:120,sensoryCheck:'You want pea-sized pieces, not a paste.',mistake:'Buying pre-minced chicken — too smooth a texture. Hand-cut breast has bite.',tip:'Partially freeze the breast for 20 minutes before mincing — easier to slice cleanly.'},
+        {step:'Brown chicken mince in dry pan over high heat, breaking it up.',timer:300,sensoryCheck:'Mince should be deeply browned with crispy bits, no pink remaining.',mistake:'Crowding the pan — it steams instead of sears, giving you grey wet chicken.',tip:'Cook in two batches if your pan is small. Better to take an extra 3 minutes than ruin the texture.'},
+        {step:'Off heat, add lime juice, fish sauce, chili. Stir to coat — the chicken should glisten.',timer:30,sensoryCheck:'Smell hits a high note: bright, sour, hot.',mistake:'Adding sauces while still on the heat — fish sauce reduces and turns harsh.',why:'Larb is meant to taste fresh and punchy. Hot sauces lose their lift.'},
+        {step:'Fold in mint, coriander, spring onion. Serve in lettuce cups with rice on the side and crushed peanuts on top.',timer:0,sensoryCheck:'Herbs should still be vibrant green, not wilted from residual heat.',tip:'Build each bite at the table: lettuce cup, spoonful of larb, pinch of rice, peanut sprinkle.'}
+      ]
+    },
+    {name:'Tuna Bowl · Heavy Day Portion', icon:'🐟', slot:'Lunch', time:'12:00 PM', tags:['HIGH PROTEIN','HEAVY DAY','BATCH COOK'], desc:'Tuna Bowl with larger rice portion. Tuned for Legs/Full Body day macros (~610 kcal).',
+      ingredients:[
+        {a:150,u:'g',n:'tuna in spring water',m:150,mu:'g'},
+        {a:85,u:'g',n:'brown rice (dry)',m:85,mu:'g'},
+        {a:0.5,u:'medium',n:'avocado, sliced',m:75,mu:'g'},
+        {a:80,u:'g',n:'cucumber, diced',m:80,mu:'g'},
+        {a:60,u:'g',n:'frozen edamame',m:60,mu:'g'},
+        {a:1,u:'tbsp',n:'soy sauce',m:15,mu:'ml'},
+        {a:1,u:'tsp',n:'sesame oil',m:4,mu:'ml'},
+        {a:0.5,u:'whole',n:'lemon',m:0.5,mu:'whole'},
+        {a:0.5,u:'tsp',n:'olive oil',m:3,mu:'g'}
+      ],
+      instructions:[
+        {step:'Cook brown rice (rinse, simmer in 2:1 water 25-30 min, lid on).',timer:1500},
+        {step:'Drain tuna, flake into a bowl with a splash of soy and lemon.',timer:30},
+        {step:'Steam edamame 4 min (microwave is fine).',timer:240},
+        {step:'Build: rice base, cucumber, edamame, sliced avocado, tuna on top.',timer:60},
+        {step:'Whisk sesame oil and olive oil into remaining soy. Drizzle over.',timer:30}
+      ]
+    },
+    {name:'Tuna Bowl · Skill Day Portion', icon:'🐟', slot:'Lunch', time:'12:30 PM', tags:['HIGH PROTEIN','LOWER CARB','BATCH COOK'], desc:'Tuna Bowl with less rice and more tuna. Tuned for Skills day macros (~590 kcal).',
+      ingredients:[
+        {a:165,u:'g',n:'tuna in spring water',m:165,mu:'g'},
+        {a:60,u:'g',n:'brown rice (dry)',m:60,mu:'g'},
+        {a:0.5,u:'medium',n:'avocado, sliced',m:75,mu:'g'},
+        {a:80,u:'g',n:'cucumber, diced',m:80,mu:'g'},
+        {a:60,u:'g',n:'frozen edamame',m:60,mu:'g'},
+        {a:1,u:'tbsp',n:'soy sauce',m:15,mu:'ml'},
+        {a:1,u:'tsp',n:'sesame oil',m:4,mu:'ml'},
+        {a:0.5,u:'whole',n:'lemon',m:0.5,mu:'whole'},
+        {a:1,u:'tsp',n:'olive oil',m:5,mu:'g'}
+      ],
+      instructions:[
+        {step:'Cook brown rice (rinse, simmer in 2:1 water 25-30 min, lid on).',timer:1500},
+        {step:'Drain tuna, flake into a bowl with a splash of soy and lemon.',timer:30},
+        {step:'Steam edamame 4 min (microwave is fine).',timer:240},
+        {step:'Build: rice base, cucumber, edamame, sliced avocado, tuna on top.',timer:60},
+        {step:'Whisk sesame oil and olive oil into remaining soy. Drizzle over.',timer:30}
+      ]
+    },
+    {name:'Tuna Avocado Bowl · Rest Day', icon:'🐟', slot:'Lunch', time:'1:00 PM', tags:['HIGH PROTEIN','LOW CARB','REST DAY'], desc:'Rice-free variant for rest days. Avocado and olive oil drive healthy fats while keeping carbs low (~495 kcal).',
+      ingredients:[
+        {a:175,u:'g',n:'tuna in spring water',m:175,mu:'g'},
+        {a:0.5,u:'medium',n:'avocado, sliced',m:75,mu:'g'},
+        {a:80,u:'g',n:'cucumber, diced',m:80,mu:'g'},
+        {a:1,u:'tbsp',n:'soy sauce',m:15,mu:'ml'},
+        {a:1,u:'tsp',n:'sesame oil',m:5,mu:'ml'},
+        {a:0.5,u:'whole',n:'lemon',m:0.5,mu:'whole'},
+        {a:2.5,u:'tsp',n:'olive oil',m:11,mu:'g'}
+      ],
+      instructions:[
+        {step:'Drain tuna, flake into bowl.',timer:30},
+        {step:'Slice avocado, dice cucumber, arrange on top.',timer:60},
+        {step:'Whisk soy, sesame oil, olive oil and lemon into a dressing. Pour over.',timer:30}
+      ]
     }
   ],
 
@@ -8478,6 +9765,59 @@ const MEAL_ALTERNATIVES = {
         {step:'Cook oats with milk 2 min.',timer:120},
         {step:'Stir in whey off-heat (never reheat with protein in).',timer:30},
         {step:'Top with berries, honey, cinnamon.',timer:0}
+      ]
+    },
+    {name:'Tuna Onigiri (Rice Balls)', icon:'🍙', slot:'Pre-Workout', time:'4:30 PM', tags:['JAPANESE','PRE-WORKOUT','PORTABLE'], desc:'Japanese rice balls with tuna — easy carbs, easy protein',
+      ingredients:[
+        {a:150,u:'g',n:'cooked rice',m:150,mu:'g'},
+        {a:50,u:'g',n:'tuna',m:50,mu:'g'},
+        {a:1,u:'tsp',n:'soy sauce',m:5,mu:'g'},
+        {a:1,u:'sheet',n:'nori',m:3,mu:'g'},
+        {a:1,u:'tsp',n:'sesame seeds',m:3,mu:'g'},
+        {a:0.5,u:'whole',n:'banana',m:0.5,mu:'large'}
+      ],
+      instructions:[
+        {step:'Cook rice slightly stickier than usual (extra 10ml water). Cool until just warm to handle.',timer:600,sensoryCheck:'Rice should clump when pressed but not stick to your hands like glue.',mistake:'Using cold leftover rice — it won\u2019t hold together. Reheat with a splash of water if needed.',why:'Onigiri rice needs to be warm and slightly sticky. Cold rice has set starches that won\u2019t bind.'},
+        {step:'Mix drained tuna with soy sauce in a small bowl.',timer:30,tip:'A teaspoon of mayo adds richness — Japanese tuna onigiri usually has it.'},
+        {step:'Wet your hands with cold water and a pinch of salt. Take a small handful of rice, flatten in your palm.',timer:30,sensoryCheck:'Wet hands prevent rice from sticking — should slide off cleanly.',mistake:'Dry hands — rice glues to your palm and you can\u2019t shape anything.',tip:'Keep a bowl of salted water nearby. Re-wet hands between each onigiri.'},
+        {step:'Place a teaspoon of tuna in the centre, fold rice around to enclose. Press into a triangle shape.',timer:60,sensoryCheck:'Rice should fully cover the filling with no gaps. Triangle shape is tradition but a ball works.',tip:'Don\u2019t overstuff — too much filling and the onigiri falls apart on first bite.'},
+        {step:'Wrap with a strip of nori, sprinkle sesame seeds. Eat with banana 30-60 minutes pre-workout.',timer:0,why:'Rice + tuna gives fast and slow carbs with lean protein. Banana adds quick glucose for the workout.'}
+      ]
+    },
+    {name:'Korean Tteok + Chicken (Spicy Rice Cakes)', icon:'🍡', slot:'Pre-Workout', time:'4:30 PM', tags:['KOREAN','PRE-WORKOUT','HIGH CARB'], desc:'Chewy rice cakes with sweet-spicy gochujang glaze and shredded chicken',
+      ingredients:[
+        {a:4,u:'each',n:'rice cakes',m:4,mu:'each'},
+        {a:80,u:'g',n:'chicken breast, shredded',m:80,mu:'g'},
+        {a:1,u:'tsp',n:'gochujang',m:5,mu:'g'},
+        {a:1,u:'tsp',n:'honey',m:7,mu:'g'},
+        {a:1,u:'tsp',n:'soy sauce',m:5,mu:'g'},
+        {a:1,u:'whole',n:'banana',m:1,mu:'large'},
+        {a:1,u:'tsp',n:'sesame seeds',m:3,mu:'g'}
+      ],
+      instructions:[
+        {step:'Pan-sear pre-cooked chicken breast (or shred from leftover) in a dry pan, 90 seconds to crisp the edges.',timer:90,sensoryCheck:'Edges should be golden, chicken still juicy.',tip:'If using fresh chicken, poach 8 minutes in water with a slice of ginger first.'},
+        {step:'In a small bowl, whisk gochujang, honey and soy sauce into a glossy paste.',timer:30,sensoryCheck:'Should be the consistency of jam — thick but pourable.',mistake:'Skipping the honey — gochujang alone is too one-dimensionally hot. Honey rounds it out.',why:'Gochujang has umami and chili heat but lacks sweetness. Honey balances the flavour profile.'},
+        {step:'Add rice cakes and 2 tbsp water to the pan with chicken. Cook 60 seconds covered to soften the rice cakes.',timer:60,sensoryCheck:'Rice cakes should be chewy-soft, not rock-hard.',mistake:'Skipping water — rice cakes burn dry instantly.'},
+        {step:'Pour sauce over, toss to coat. Cook 30 seconds until glossy.',timer:30,sensoryCheck:'Sauce should cling to each rice cake, not pool at the bottom.'},
+        {step:'Plate, sprinkle sesame seeds. Eat with banana 30-60 minutes before training.',timer:0,why:'Sweet potato carbs from rice cakes give quick-but-sustained energy. Banana adds a fast-glucose boost for the first 20 minutes of the session.'}
+      ]
+    },
+    {name:'Indian Chickpea Toast (Chana Masala-Style)', icon:'🫓', slot:'Pre-Workout', time:'4:30 PM', tags:['INDIAN','PRE-WORKOUT','VEGETARIAN'], desc:'Spiced chickpeas on sourdough — fibre and protein for sustained energy',
+      ingredients:[
+        {a:1,u:'slice',n:'sourdough',m:60,mu:'g'},
+        {a:100,u:'g',n:'chickpeas',m:100,mu:'g'},
+        {a:50,u:'g',n:'cooked rice',m:50,mu:'g'},
+        {a:1,u:'tsp',n:'curry powder',m:3,mu:'g'},
+        {a:1,u:'tsp',n:'olive oil',m:5,mu:'g'},
+        {a:2,u:'tbsp',n:'natural yogurt',m:30,mu:'g'},
+        {a:1,u:'tbsp',n:'coriander',m:5,mu:'g'},
+        {a:0.25,u:'whole',n:'onion',m:30,mu:'g'}
+      ],
+      instructions:[
+        {step:'Drain and rinse chickpeas. Heat oil in a small pan, add diced onion, cook 2 minutes until soft.',timer:120,sensoryCheck:'Onion translucent and starting to gild around the edges.',tip:'A pinch of salt added now (not later) draws moisture out and speeds the softening.'},
+        {step:'Add curry powder, stir 30 seconds in the oil. Add chickpeas, mash about half of them with a fork.',timer:60,sensoryCheck:'Curry should smell warm and toasted. Chickpea mixture should be a chunky paste, not whole beans or fully smooth.',mistake:'Mashing all of them — you lose the textural contrast that makes this filling.',why:'Half-mashed chickpeas give the binding of a paste with the bite of whole beans.'},
+        {step:'Add 2 tbsp water, simmer 60 seconds to bring it together. Stir in chopped coriander.',timer:60,sensoryCheck:'Should be moist and spreadable but not soupy.'},
+        {step:'Toast sourdough. Pile chickpea mixture on top, dollop yogurt over, scatter remaining coriander.',timer:120,tip:'Eat the rice on the side or pile it on the toast for extra carbs — depends how heavy the workout is.'}
       ]
     }
   ],
@@ -8535,6 +9875,73 @@ const MEAL_ALTERNATIVES = {
         {step:'Cook rice as per packet.',timer:900},
         {step:'Wilt spinach in curry, finish with lime.',timer:60}
       ]
+    },
+    {name:'Japanese Chicken Katsu Don', icon:'🍱', slot:'Post-Workout Dinner', time:'7:30 PM', tags:['JAPANESE','POST-WORKOUT','HIGH PROTEIN'], desc:'Crispy panko chicken with soy-mirin glazed eggs over rice',
+      ingredients:[
+        {a:130,u:'g',n:'chicken breast',m:130,mu:'g'},
+        {a:22,u:'g',n:'panko',m:22,mu:'g'},
+        {a:1,u:'large',n:'egg (for binding)',m:1,mu:'large'},
+        {a:140,u:'g',n:'cooked rice',m:140,mu:'g'},
+        {a:1,u:'large',n:'eggs (for omelette)',m:1,mu:'large'},
+        {a:0.25,u:'whole',n:'onion',m:40,mu:'g'},
+        {a:2,u:'tbsp',n:'soy sauce',m:30,mu:'g'},
+        {a:1,u:'tbsp',n:'mirin',m:15,mu:'g'},
+        {a:2,u:'tsp',n:'olive oil',m:10,mu:'g'},
+        {a:1,u:'tbsp',n:'spring onion',m:10,mu:'g'}
+      ],
+      instructions:[
+        {step:'Pound chicken breast to even 1cm thickness between baking paper. Season both sides with salt 10 minutes before cooking.',timer:600,sensoryCheck:'Chicken should be uniformly thick — thicker spots cook unevenly and dry out.',mistake:'Skipping the rest — salt needs 10+ minutes to penetrate the meat. Salt right before cooking gives a salty surface and bland inside.',why:'Even thickness = even cooking. The pounding also breaks fibres slightly, giving more tender texture.'},
+        {step:'Set up dredge: beat binding egg in one bowl, panko in another. Coat chicken in egg, then press firmly into panko.',timer:60,sensoryCheck:'Coating should be even and complete — no bare spots.',tip:'Press the panko on with the back of a spoon — it sticks better than your fingers.',mistake:'Thin coating — wet egg-only chicken won\u2019t crisp.'},
+        {step:'Heat oil in pan, medium-high. Pan-fry chicken 4-5 min per side until golden and 74°C internal.',timer:540,sensoryCheck:'Listen — should be a confident sizzle. The crust turns deep golden brown, not pale.',mistake:'Flipping early — you\u2019ll lose half the crust to the pan. Wait until you can lift it cleanly.',tip:'A meat thermometer is the only way to know it\u2019s done without cutting in. Pull at 71°C — carryover hits 74°C in the next minute.',why:'74°C internal kills pathogens and gives juicy chicken. Above 80°C and the breast turns dry.'},
+        {step:'Slice cooked chicken into strips. Set aside on wire rack to keep crust crisp.',timer:60,mistake:'Resting on a plate — steam softens the crust. Wire rack lets air circulate.'},
+        {step:'In the same pan: thinly slice onion. Add soy sauce, mirin, and 60ml water. Simmer 2 min until onion is soft.',timer:120,sensoryCheck:'Onion should be translucent and the sauce slightly reduced — like a thin gravy.'},
+        {step:'Beat the second egg lightly. Pour into the simmering pan, swirl. Cook 30 seconds until just-set, pull off heat.',timer:30,sensoryCheck:'Egg should be barely set with some glossy uncooked parts — it cooks more from residual heat.',mistake:'Cooking until firm — the magic of katsu don is the soft custardy egg.'},
+        {step:'Pile rice in bowl. Lay sliced chicken on top, spoon egg-onion mixture over, scatter spring onion.',timer:0,why:'The hot egg-onion sauce slightly soaks the panko underneath, creating that classic Japanese rice-bowl texture: crisp top, sauce-soaked bottom.'}
+      ]
+    },
+    {name:'Korean Galbi Beef + Rice', icon:'🥩', slot:'Post-Workout Dinner', time:'7:30 PM', tags:['KOREAN','POST-WORKOUT','HIGH PROTEIN'], desc:'Sweet-savoury marinated beef strips with sesame, garlic and ginger',
+      ingredients:[
+        {a:140,u:'g',n:'beef rump, sliced',m:140,mu:'g'},
+        {a:160,u:'g',n:'cooked rice',m:160,mu:'g'},
+        {a:0.7,u:'cup',n:'kimchi',m:60,mu:'g'},
+        {a:2,u:'cups',n:'bok choy',m:120,mu:'g'},
+        {a:2,u:'tbsp',n:'soy sauce',m:30,mu:'g'},
+        {a:1,u:'tbsp',n:'honey',m:21,mu:'g'},
+        {a:2,u:'tsp',n:'sesame oil',m:10,mu:'g'},
+        {a:2,u:'cloves',n:'garlic',m:10,mu:'g'},
+        {a:1,u:'tbsp',n:'ginger, grated',m:10,mu:'g'},
+        {a:1,u:'tsp',n:'sesame seeds',m:3,mu:'g'}
+      ],
+      instructions:[
+        {step:'Slice rump steak across the grain into 0.5cm strips.',timer:120,sensoryCheck:'Strips should bend without breaking and be uniformly thin.',mistake:'Slicing with the grain — chewy stringy beef.',tip:'Partially freeze the steak for 20 min — much easier to slice paper-thin.'},
+        {step:'Mince garlic and grate ginger. Whisk with soy sauce, honey and half the sesame oil — this is the marinade.',timer:60,sensoryCheck:'Honey should be fully dissolved, marinade looking glossy.',tip:'Use fresh ginger, not the jarred paste. Grate on a microplane for the best texture.'},
+        {step:'Add beef strips to marinade, toss to coat. Rest 15 minutes (or up to 1 hour in fridge).',timer:900,sensoryCheck:'Meat should look glossy and slightly darker — proteins are tenderising.',mistake:'Marinating beef longer than 2 hours — soy sauce starts to cure the meat texture, like jerky.',why:'Even 15 min lets the soy and sugars start to penetrate. Beyond 90 min there are diminishing returns and risk of texture damage.'},
+        {step:'Halve the bok choy. Heat 1 tsp sesame oil in pan over medium-high, sear bok choy cut-side down 90 seconds.',timer:90,sensoryCheck:'Cut side should be charred-golden, leaves still bright green.',tip:'Don\u2019t move the bok choy — it needs contact with the pan to develop colour.'},
+        {step:'Add 2 tbsp water, cover for 60 seconds to steam through. Remove to a plate.',timer:60,sensoryCheck:'Stems should be tender but not floppy.'},
+        {step:'Get the pan smoking hot. Add beef in a single layer (in batches if needed). Sear 60 seconds per side without moving.',timer:120,sensoryCheck:'Listen for an aggressive sizzle. Beef should be deeply caramelised on each side.',mistake:'Crowding the pan — beef steams instead of sears, no caramelisation.',why:'High heat + brief contact creates Maillard browning without overcooking the inside. The marinade sugars caramelise into a glaze in seconds.'},
+        {step:'Plate rice, beef, bok choy, kimchi side by side. Top beef with sesame seeds.',timer:0,tip:'Don\u2019t toss it all together. Eating in alternating bites — beef, rice, kimchi — is the point.'}
+      ]
+    },
+    {name:'Indian Butter Chicken (Lightened)', icon:'🍛', slot:'Post-Workout Dinner', time:'7:30 PM', tags:['INDIAN','POST-WORKOUT','HIGH PROTEIN'], desc:'Yogurt-marinated chicken in tomato sauce — restaurant flavour, healthier macros',
+      ingredients:[
+        {a:150,u:'g',n:'chicken thigh',m:150,mu:'g'},
+        {a:150,u:'g',n:'cooked rice',m:150,mu:'g'},
+        {a:150,u:'g',n:'tinned tomato',m:150,mu:'g'},
+        {a:3,u:'tbsp',n:'natural yogurt',m:45,mu:'g'},
+        {a:1,u:'tbsp',n:'garam masala',m:8,mu:'g'},
+        {a:1,u:'tsp',n:'turmeric',m:3,mu:'g'},
+        {a:2,u:'tsp',n:'olive oil',m:10,mu:'g'},
+        {a:2,u:'cloves',n:'garlic',m:10,mu:'g'},
+        {a:1,u:'tbsp',n:'ginger',m:10,mu:'g'},
+        {a:2,u:'tbsp',n:'coriander',m:10,mu:'g'}
+      ],
+      instructions:[
+        {step:'Cube chicken thigh into 2cm pieces. Mix half the yogurt with half the garam masala, half the turmeric, salt. Marinate chicken 15 min.',timer:900,sensoryCheck:'Chicken should be uniformly coated in yellow-orange paste.',mistake:'Marinating less than 15 min — spices don\u2019t penetrate, yogurt doesn\u2019t tenderise.',why:'Yogurt is acidic enough to break down surface proteins (tenderising) and carry fat-soluble spices into the meat.'},
+        {step:'Mince garlic and grate ginger. Heat oil in pan, medium heat. Add garlic and ginger, fry 60 seconds.',timer:60,sensoryCheck:'Should smell pungent and slightly sweet within 30 seconds. Don\u2019t let it brown.',mistake:'Browning the garlic — bitter and harsh. Pull off heat the moment it turns gold.'},
+        {step:'Add remaining garam masala and turmeric, stir 20 seconds to bloom. Add tinned tomato, simmer 5 minutes.',timer:300,sensoryCheck:'Tomato should reduce by a third, oil starts to separate at the edges — sign of a properly cooked masala.',why:'Indian curries are about cooking the masala until oil separates. Undercooked masala tastes raw and acidic.'},
+        {step:'Add chicken with all its marinade. Simmer 8-10 min, stirring occasionally, until chicken is cooked through.',timer:540,sensoryCheck:'Chicken juices run clear when pierced. Sauce thick enough to coat a spoon.',mistake:'High heat — yogurt curdles. Keep at a gentle simmer.',tip:'Add a splash of water if it gets too thick before chicken cooks through.'},
+        {step:'Off heat, stir in remaining yogurt. Plate over rice, scatter coriander.',timer:30,sensoryCheck:'Final sauce should be glossy and creamy, not curdled.',mistake:'Adding cold yogurt to hot sauce on the burner — instant split. Off heat is essential.',why:'The yogurt at the end gives that classic creamy mouth-feel without using cream or butter.'}
+      ]
     }
   ],
 
@@ -8574,6 +9981,56 @@ const MEAL_ALTERNATIVES = {
       ],
       instructions:[
         {step:'Blend everything until smooth, 60 sec.',timer:60}
+      ]
+    },
+    {name:'Edamame + Miso Yogurt Dip', icon:'🫛', slot:'Snack', time:'3:00 PM', tags:['JAPANESE','HIGH PROTEIN','LOW CARB'], desc:'Salted soybean pods with savoury miso dip — easy plant protein',
+      ingredients:[
+        {a:150,u:'g',n:'edamame, shelled',m:150,mu:'g'},
+        {a:1,u:'tsp',n:'miso paste',m:5,mu:'g'},
+        {a:1,u:'tbsp',n:'natural yogurt',m:15,mu:'g'},
+        {a:1,u:'tsp',n:'sesame oil',m:5,mu:'g'},
+        {a:1,u:'pinch',n:'sesame seeds',m:2,mu:'g'}
+      ],
+      instructions:[
+        {step:'Steam frozen edamame for 4-5 minutes (in pods or shelled).',timer:300,sensoryCheck:'Pods should be bright green, beans tender but with bite.',mistake:'Boiling — leaches flavour and turns them mushy. Steam keeps the beany sweetness.'},
+        {step:'Sprinkle salt on the hot edamame, toss.',timer:20,tip:'Sea salt flakes work better than fine salt — sticks to the pods better, gives bursts of saltiness as you bite.'},
+        {step:'Whisk miso paste with yogurt and sesame oil in a small bowl until smooth.',timer:30,sensoryCheck:'Should be the consistency of thick cream, no lumps of miso visible.',mistake:'Skipping the whisk — miso paste clumps and you get salty pockets in an otherwise mild dip.'},
+        {step:'Sprinkle sesame seeds over the dip. Eat edamame straight from pods, dip the bean ends if desired.',timer:0,tip:'Bite the pod, slide the beans into your mouth, discard the pod. Do not eat the pods themselves.'}
+      ]
+    },
+    {name:'Korean Tuna + Seaweed Snack', icon:'🍱', slot:'Snack', time:'3:00 PM', tags:['KOREAN','HIGH PROTEIN','PORTABLE'], desc:'Quick savoury snack — tuna, seaweed, rice, sesame',
+      ingredients:[
+        {a:80,u:'g',n:'tuna',m:80,mu:'g'},
+        {a:5,u:'g',n:'seaweed (snack pack)',m:5,mu:'g'},
+        {a:50,u:'g',n:'cooked rice',m:50,mu:'g'},
+        {a:1,u:'tsp',n:'sesame oil',m:5,mu:'g'},
+        {a:1,u:'tsp',n:'soy sauce',m:5,mu:'g'},
+        {a:1,u:'tsp',n:'sesame seeds',m:3,mu:'g'}
+      ],
+      instructions:[
+        {step:'Drain tuna well. Mix with sesame oil and soy sauce.',timer:30,sensoryCheck:'Tuna should be moistened but not swimming in sauce.',mistake:'Skipping the drain — watery tuna won\u2019t hold together when scooped.'},
+        {step:'Warm or microwave rice for 30 seconds.',timer:30,tip:'Rice is best slightly warm, not hot or cold. Let leftover fridge rice sit at room temp 5 min if microwaving feels excessive.'},
+        {step:'Use seaweed sheets to scoop up rice and tuna together. Sprinkle sesame seeds over.',timer:0,sensoryCheck:'Seaweed should be crisp and snappy, not bendy.',tip:'Korean seaweed snacks come in single-serve packs at Coles — usually pre-salted with sesame oil.',why:'This is a deconstructed kimbap — the salty seaweed wrap, savoury tuna, neutral rice. Snacks like this hit a balanced macro profile that\u2019s hard to overeat.'}
+      ]
+    },
+    {name:'Vietnamese Rice Paper Rolls', icon:'🥢', slot:'Snack', time:'3:00 PM', tags:['VIETNAMESE','LIGHT','FRESH'], desc:'Fresh rolls with prawns, herbs and rice noodles',
+      ingredients:[
+        {a:2,u:'sheets',n:'rice paper',m:25,mu:'g'},
+        {a:60,u:'g',n:'prawns, cooked',m:60,mu:'g'},
+        {a:30,u:'g',n:'rice noodles, cooked',m:30,mu:'g'},
+        {a:0.5,u:'cup',n:'cucumber, julienned',m:50,mu:'g'},
+        {a:2,u:'tbsp',n:'mint',m:10,mu:'g'},
+        {a:2,u:'tbsp',n:'coriander',m:10,mu:'g'},
+        {a:1,u:'tbsp',n:'peanut butter',m:10,mu:'g'},
+        {a:1,u:'tsp',n:'soy sauce',m:5,mu:'g'}
+      ],
+      instructions:[
+        {step:'Cook rice noodles per packet (usually 3 min in boiling water). Drain, rinse cold to stop cooking.',timer:180,sensoryCheck:'Noodles should be soft but separated, not stuck in clumps.',mistake:'Skipping the cold rinse — noodles keep cooking from residual heat and turn to mush.',tip:'Toss drained noodles with a tiny drop of sesame oil to prevent sticking.'},
+        {step:'Slice cucumber into matchsticks. Pick mint and coriander leaves off stems.',timer:120,sensoryCheck:'Cucumber should be 4-5cm long matchsticks — too thick is awkward to roll, too thin disappears.'},
+        {step:'Fill a wide shallow bowl with warm water. Submerge one rice paper for 8-10 seconds.',timer:10,sensoryCheck:'Rice paper should be pliable but still slightly firm — fully soft means it\u2019ll tear when you roll.',mistake:'Soaking too long — the paper turns to glue and rips on contact.',tip:'It keeps softening on your work surface. Pull it out earlier than feels right.'},
+        {step:'Lay paper flat. In the bottom third: 2 prawns split lengthwise, then noodles, cucumber, herbs.',timer:60,sensoryCheck:'Filling should fit in a 6cm wide strip — too much and the roll bursts.',mistake:'Overstuffing — the cardinal sin of rice paper rolls. Less is more.'},
+        {step:'Fold the bottom over the filling, fold in the sides, roll tight to seal. Repeat for second roll.',timer:90,sensoryCheck:'Roll should look tight and translucent, with herbs and prawn visible through the wrapper.',tip:'Place herbs against the wrapper so they\u2019re visible — looks much better.'},
+        {step:'Whisk peanut butter with soy sauce and 1 tsp warm water for the dip.',timer:30,sensoryCheck:'Sauce should be the consistency of pourable yogurt. Add water gradually.',tip:'A pinch of sugar or squeeze of lime balances the saltiness if you want.'}
       ]
     }
   ],
@@ -8628,6 +10085,72 @@ const MEAL_ALTERNATIVES = {
         {step:'Steam broccoli 4 min.',timer:240},
         {step:'Plate, drizzle oil + crushed garlic.',timer:60}
       ]
+    },
+    {name:'Japanese Miso Salmon + Rice', icon:'🐟', slot:'Dinner', time:'7:00 PM', tags:['JAPANESE','OMEGA-3','HIGH PROTEIN'], desc:'Sweet-savoury miso-glazed salmon with steamed bok choy and rice',
+      ingredients:[
+        {a:150,u:'g',n:'salmon',m:150,mu:'g'},
+        {a:150,u:'g',n:'cooked rice',m:150,mu:'g'},
+        {a:2,u:'cups',n:'bok choy',m:120,mu:'g'},
+        {a:1,u:'tbsp',n:'miso paste',m:18,mu:'g'},
+        {a:1,u:'tbsp',n:'mirin',m:15,mu:'g'},
+        {a:1,u:'tsp',n:'soy sauce',m:5,mu:'g'},
+        {a:1,u:'tsp',n:'sesame oil',m:5,mu:'g'},
+        {a:1,u:'tsp',n:'ginger',m:5,mu:'g'},
+        {a:1,u:'tsp',n:'sesame seeds',m:3,mu:'g'}
+      ],
+      instructions:[
+        {step:'Whisk miso, mirin, soy sauce and grated ginger into a glaze. Pat salmon dry with paper towel, coat thickly.',timer:60,sensoryCheck:'Glaze should be the consistency of yogurt — if too thick, thin with 1 tsp warm water.',mistake:'Marinating salmon in miso for hours — the salt cures the fish and gives it a sashimi-meets-jerky texture. 5-10 min max.',tip:'White miso is sweeter, red miso is funkier. White is the safer bet for salmon.',why:'Miso\u2019s salt and sugars draw moisture from the salmon surface, then re-cling as a glaze when heated.'},
+        {step:'Heat sesame oil in a non-stick pan over medium-high. Place salmon SKIN-SIDE DOWN. Press flat with a spatula for 20 seconds.',timer:240,sensoryCheck:'Listen — should be a confident sizzle, not a quiet hiss. Flesh visibly turns opaque from the bottom up.',mistake:'Flipping early. The first side needs 3-4 min to crisp the skin and sear the glaze without burning the sugars.',tip:'The 20-second press eliminates the curl that happens when skin contracts on hot metal. Difference between flat-crispy and curled-flabby skin.',why:'Miso has a high sugar content. Medium-high is the upper limit before it burns and turns acrid.'},
+        {step:'Flip salmon, cook 2-3 minutes more until just-cooked through (60°C internal for medium).',timer:180,sensoryCheck:'Flesh should flake gently when pressed but still look moist in the centre.',mistake:'Overcooking — salmon goes from juicy to dry in 60 seconds at high heat. Pull early.'},
+        {step:'Halve bok choy. Steam in a covered pan with 2 tbsp water, 90 seconds.',timer:90,sensoryCheck:'Stems tender, leaves bright green and slightly wilted.',mistake:'Boiling — leaches flavour and turns it grey-green.'},
+        {step:'Plate rice, salmon, bok choy. Drizzle pan juices over salmon. Sprinkle sesame seeds.',timer:0,tip:'Pour the leftover glaze from the pan over the rice — it\u2019s liquid gold.'}
+      ]
+    },
+    {name:'Thai Basil Chicken (Pad Krapow)', icon:'🌶️', slot:'Dinner', time:'7:00 PM', tags:['THAI','HIGH PROTEIN','SPICY'], desc:'Spicy stir-fried chicken with holy basil — Thailand\u2019s most-eaten dish',
+      ingredients:[
+        {a:130,u:'g',n:'chicken breast, minced',m:130,mu:'g'},
+        {a:120,u:'g',n:'cooked rice',m:120,mu:'g'},
+        {a:1,u:'cup',n:'green beans',m:80,mu:'g'},
+        {a:3,u:'cloves',n:'garlic',m:15,mu:'g'},
+        {a:1,u:'small',n:'red chili',m:5,mu:'g'},
+        {a:1,u:'cup',n:'thai basil',m:20,mu:'g'},
+        {a:1,u:'tbsp',n:'soy sauce',m:15,mu:'g'},
+        {a:2,u:'tsp',n:'oyster sauce',m:10,mu:'g'},
+        {a:1,u:'tsp',n:'fish sauce',m:5,mu:'g'},
+        {a:2,u:'tsp',n:'olive oil',m:10,mu:'g'},
+        {a:1,u:'large',n:'egg, fried',m:1,mu:'large'}
+      ],
+      instructions:[
+        {step:'Roughly mince garlic and red chili together (with the seeds for heat).',timer:60,sensoryCheck:'You want a coarse mince, not a paste. Each piece should be visible.',mistake:'Mincing too fine — burns instantly in the hot wok. Coarse mince gives you flavour without bitter charring.',tip:'Use a Thai pestle and mortar if you have one — bruising releases more flavour than chopping.'},
+        {step:'Top and tail the green beans, slice into 2cm pieces.',timer:60,tip:'Thai pad krapow uses long beans (yardlong beans). Regular green beans are the closest mainstream substitute and work fine.'},
+        {step:'Heat oil in a wok or large pan over highest heat. Add garlic-chili mince, fry 15 seconds until fragrant.',timer:15,sensoryCheck:'Garlic should be just turning gold and the air should sting your eyes from the chili.',mistake:'Letting garlic brown — bitter and burnt. 15 seconds is the maximum.',why:'Aromatics in hot oil release fat-soluble flavour compounds. Cold pan + slow heat = muted dish.'},
+        {step:'Add chicken mince, break up with spatula. Cook 3 minutes until no pink remains.',timer:180,sensoryCheck:'Chicken should be deeply browned in spots, not grey and steamed.',mistake:'Crowding the wok — chicken steams. If your pan is small, cook in 2 batches.',tip:'Don\u2019t stir constantly — let the meat sit in contact with the metal for 30-60 seconds at a time.'},
+        {step:'Add green beans, soy sauce, oyster sauce, fish sauce. Stir-fry 90 seconds until beans are tender-crisp.',timer:90,sensoryCheck:'Beans should still have a snap. Sauce should glaze the chicken, not pool.'},
+        {step:'Off heat, throw in basil leaves whole. Stir 10 seconds — they should wilt but stay vivid green.',timer:10,mistake:'Adding basil while still on heat — turns black and bitter.',why:'Thai basil\u2019s anise-pepper flavour comes from volatile oils that vaporise above 80°C. Add at the end to keep the punch.'},
+        {step:'Fry an egg in a separate pan with crispy edges. Plate chicken over rice, top with the egg.',timer:180,tip:'Pierce the yolk so it bleeds into the chicken. The runny egg yolk is non-negotiable for proper pad krapow.'}
+      ]
+    },
+    {name:'Indian Tandoori Chicken + Basmati', icon:'🍗', slot:'Dinner', time:'7:00 PM', tags:['INDIAN','HIGH PROTEIN','SPICED'], desc:'Yogurt-marinated chicken with garam masala, lemon and basmati rice',
+      ingredients:[
+        {a:150,u:'g',n:'chicken breast',m:150,mu:'g'},
+        {a:130,u:'g',n:'basmati rice, cooked',m:130,mu:'g'},
+        {a:3,u:'tbsp',n:'natural yogurt',m:45,mu:'g'},
+        {a:1,u:'tbsp',n:'garam masala',m:8,mu:'g'},
+        {a:1,u:'tsp',n:'turmeric',m:3,mu:'g'},
+        {a:1,u:'tsp',n:'curry powder',m:3,mu:'g'},
+        {a:1,u:'tbsp',n:'lemon juice',m:10,mu:'g'},
+        {a:2,u:'tsp',n:'olive oil',m:10,mu:'g'},
+        {a:1,u:'cup',n:'spinach',m:80,mu:'g'},
+        {a:1,u:'tbsp',n:'coriander',m:5,mu:'g'}
+      ],
+      instructions:[
+        {step:'Score chicken breast with shallow diagonal cuts (3-4 across each side, 1cm deep).',timer:60,sensoryCheck:'Cuts should be visible but not deep enough to butterfly the meat.',mistake:'Skipping the scoring — marinade only flavours the surface. Cuts let it penetrate deep.',why:'Tandoori was traditionally cooked on skewers, scoring helps heat and flavour reach the centre fast.'},
+        {step:'Whisk yogurt with garam masala, turmeric, curry powder, lemon juice, half the oil, salt.',timer:60,sensoryCheck:'Marinade should be a deep golden-orange colour, smells warm and complex.',tip:'Add a clove of grated garlic and fresh ginger if you have them — pushes this from "good" to "restaurant-level".'},
+        {step:'Coat chicken thoroughly in marinade, including in the score-cuts. Rest 20 minutes (or up to overnight).',timer:1200,sensoryCheck:'Chicken should be uniformly orange.',mistake:'Less than 20 min — yogurt needs time to tenderise and spices need time to penetrate.',why:'Yogurt\u2019s lactic acid breaks down surface proteins, allowing fat-soluble spices to penetrate deep into the meat.'},
+        {step:'Heat remaining oil in a heavy pan over medium-high. Sear chicken 4-5 min per side until charred-spotted and 74°C internal.',timer:540,sensoryCheck:'Surface should have dark char marks where the marinade has caramelised. Don\u2019t panic — that\u2019s correct, not burnt.',mistake:'Lower heat — gives you "cooked" chicken, not "tandoori" chicken. The char is the point.',tip:'A meat thermometer is the only safe way to know it\u2019s done given the dark surface.',why:'Real tandoori cooks at 480°C+ in clay ovens. A hot pan with thick yogurt marinade is the closest home approximation.'},
+        {step:'Wilt spinach in the same pan with any leftover oil, 60 seconds.',timer:60,sensoryCheck:'Spinach should be just wilted, still vivid green.'},
+        {step:'Slice chicken across the grain. Plate with rice and spinach. Scatter coriander.',timer:60,tip:'Resting the chicken for 3 minutes before slicing keeps the juice IN the meat instead of on the cutting board.'}
+      ]
     }
   ],
 
@@ -8667,6 +10190,64 @@ const MEAL_ALTERNATIVES = {
         {step:'Stir whey into yogurt for protein boost.',timer:30},
         {step:'Top with berries and walnuts.',timer:0}
       ]
+    },
+    {name:'Miso Soup + Tofu + Spinach', icon:'🍵', slot:'Wind Down', time:'9:30 PM', tags:['JAPANESE','LIGHT','OVERNIGHT REPAIR'], desc:'Warming miso broth with silky tofu, spinach and a casein boost',
+      ingredients:[
+        {a:1,u:'cup',n:'chicken stock',m:300,mu:'ml'},
+        {a:80,u:'g',n:'firm tofu, cubed',m:80,mu:'g'},
+        {a:1,u:'cup',n:'spinach',m:80,mu:'g'},
+        {a:1,u:'tbsp',n:'miso paste',m:15,mu:'g'},
+        {a:1,u:'sheet',n:'nori, torn',m:3,mu:'g'},
+        {a:1,u:'tbsp',n:'spring onion',m:10,mu:'g'},
+        {a:0.7,u:'scoop',n:'casein protein',m:22,mu:'g'},
+        {a:1,u:'tsp',n:'sesame oil',m:5,mu:'g'}
+      ],
+      instructions:[
+        {step:'Heat stock to a gentle simmer (not a rolling boil).',timer:120,sensoryCheck:'Tiny bubbles forming around the edge, not breaking the surface vigorously.',mistake:'Boiling — denatures miso\u2019s probiotic cultures and gives a flatter flavour.',why:'Miso is a living fermented food. Boiling kills the gut-friendly bacteria and degrades the umami compounds.'},
+        {step:'Cube tofu into 1cm pieces. Add to the stock, simmer 60 seconds.',timer:60,sensoryCheck:'Tofu should warm through but not break apart. Cubes still hold their shape.',mistake:'Stirring vigorously — breaks the tofu into mush.'},
+        {step:'Add spinach, simmer 30 seconds until just wilted.',timer:30,sensoryCheck:'Spinach should be vivid green and limp, not olive-coloured.'},
+        {step:'Pull off heat. Whisk miso paste with 2 tbsp of the hot broth in a small bowl until smooth, then stir back into the pot.',timer:60,sensoryCheck:'Miso should fully dissolve — no clumps. Broth turns cloudy and tan.',mistake:'Adding miso paste directly to the pot — it forms stubborn clumps that won\u2019t dissolve.',tip:'A traditional Japanese miso strainer makes this easier, but a small bowl and whisk does the job.'},
+        {step:'Whisk casein with 60ml warm water in a separate cup until smooth. Stir into the soup off the heat.',timer:60,sensoryCheck:'Casein should be fully dissolved before adding — clumps form if added dry.',mistake:'Adding casein to hot soup — proteins seize and turn gluey. Only add to warm-not-hot liquid.',why:'Casein is a slow-release overnight protein. The miso soup base is calorie-light, leaving room for the casein\u2019s amino acids without overloading pre-bed digestion.'},
+        {step:'Pour into a bowl, top with spring onion and torn nori, drizzle sesame oil.',timer:0}
+      ]
+    },
+    {name:'Korean Banchan Plate', icon:'🥬', slot:'Wind Down', time:'9:30 PM', tags:['KOREAN','GUT HEALTH','OVERNIGHT REPAIR'], desc:'Small Korean side dishes — tofu, kimchi, sprouts, casein-boosted',
+      ingredients:[
+        {a:80,u:'g',n:'firm tofu, pan-fried',m:80,mu:'g'},
+        {a:0.5,u:'cup',n:'kimchi',m:80,mu:'g'},
+        {a:1,u:'cup',n:'bean sprouts, blanched',m:80,mu:'g'},
+        {a:30,u:'g',n:'cooked rice (small portion)',m:30,mu:'g'},
+        {a:1,u:'tsp',n:'soy sauce',m:5,mu:'g'},
+        {a:1,u:'tsp',n:'sesame oil',m:5,mu:'g'},
+        {a:1,u:'tsp',n:'sesame seeds',m:3,mu:'g'},
+        {a:0.5,u:'scoop',n:'casein protein',m:15,mu:'g'},
+        {a:1,u:'tbsp',n:'spring onion',m:10,mu:'g'}
+      ],
+      instructions:[
+        {step:'Press tofu: wrap in paper towel, weight with a plate, 10 minutes to remove water.',timer:600,sensoryCheck:'Paper towel should be visibly wet. Tofu surface should be drier and slightly firmer.',mistake:'Skipping the press — wet tofu won\u2019t crisp, just steams.',why:'Tofu is mostly water. Pressing creates space for surface browning, which is where the flavour comes from.'},
+        {step:'Cube tofu, pan-fry in 1 tsp sesame oil over medium-high until golden on at least 2 sides, about 4 minutes total.',timer:240,sensoryCheck:'Edges should be deeply golden and crisp. Inside still soft.',mistake:'Flipping too often — let each side crust before turning. 60-90 seconds per side.',tip:'Don\u2019t crowd the pan — tofu needs space to crisp.'},
+        {step:'Drizzle remaining sesame oil and half the soy sauce over hot tofu, toss.',timer:30},
+        {step:'Blanch bean sprouts in boiling water 30 seconds, drain. Toss with remaining soy sauce, sesame seeds and a pinch of salt.',timer:30,sensoryCheck:'Sprouts should still be crunchy, not floppy.',mistake:'Boiling longer — they turn limp.'},
+        {step:'Whisk casein with 60ml cold milk or water until smooth. Drink alongside the plate, or pour into a small dish.',timer:60,mistake:'Mixing casein with hot liquid — gummy clumps. Always cold or warm-not-hot.'},
+        {step:'Plate tofu, kimchi, sprouts, rice in 4 small portions on one plate. Sprinkle spring onion over.',timer:0,tip:'Korean banchan is meant to be small — each component is a "taste", not a portion. Eat slowly, alternating.',why:'The probiotics from kimchi support gut health overnight; tofu and casein give a slow protein release for muscle repair.'}
+      ]
+    },
+    {name:'Indian Spiced Yogurt + Almonds', icon:'🥣', slot:'Wind Down', time:'9:30 PM', tags:['INDIAN','OVERNIGHT REPAIR','PROBIOTICS'], desc:'Lassi-inspired yogurt with warm spices, casein and crunch',
+      ingredients:[
+        {a:0.7,u:'cup',n:'natural yogurt',m:170,mu:'g'},
+        {a:0.5,u:'scoop',n:'casein protein',m:15,mu:'g'},
+        {a:1.5,u:'tbsp',n:'almonds, chopped',m:15,mu:'g'},
+        {a:1,u:'tsp',n:'honey',m:7,mu:'g'},
+        {a:0.5,u:'tsp',n:'turmeric',m:2,mu:'g'},
+        {a:1,u:'pinch',n:'cinnamon',m:1,mu:'g'},
+        {a:1,u:'pinch',n:'garam masala',m:1,mu:'g'}
+      ],
+      instructions:[
+        {step:'Toast chopped almonds in a dry pan over medium heat for 3-4 minutes, shaking often.',timer:240,sensoryCheck:'Almonds should turn golden and smell nutty within 3 minutes — pull immediately.',mistake:'Walking away — they go from perfect to burnt in 30 seconds.',why:'Toasting nuts before eating doubles the flavour and gives them a satisfying crunch the raw version lacks.'},
+        {step:'Whisk casein into a small splash of milk or water until smooth (no lumps).',timer:30,mistake:'Mixing casein into yogurt directly — clumps that you can\u2019t whisk out. Pre-dissolve in liquid first.'},
+        {step:'In a bowl, combine yogurt, dissolved casein, turmeric, cinnamon and garam masala. Stir until uniformly tinted.',timer:30,sensoryCheck:'Should be a pale gold colour with no streaks of spice.',tip:'A pinch of black pepper unlocks turmeric\u2019s curcumin absorption. Worth adding.',why:'Turmeric\u2019s active compound, curcumin, is poorly absorbed alone. Black pepper increases bioavailability by ~2000% (yes really).'},
+        {step:'Drizzle honey over, scatter toasted almonds on top.',timer:0,sensoryCheck:'Honey should sit on top in pretty droplets — don\u2019t stir, the visual is nice.'}
+      ]
     }
   ]
 };
@@ -8683,6 +10264,7 @@ const INGREDIENT_NUTRITION = {
   'granola':            {per:100, kcal:471, p:10,   c:64,   f:20},
   'mixed berries':      {per:100, kcal:43,  p:0.7,  c:10,   f:0.3},
   'walnut':             {per:100, kcal:654, p:15,   c:14,   f:65},
+  'avocado':            {per:100, kcal:160, p:2,    c:9,    f:15},
   'almond':             {per:100, kcal:579, p:21,   c:22,   f:50},
   'spinach':            {per:100, kcal:23,  p:2.9,  c:3.6,  f:0.4},
   'cherry tomato':      {per:100, kcal:18,  p:0.9,  c:3.9,  f:0.2},
@@ -8740,7 +10322,70 @@ const INGREDIENT_NUTRITION = {
   'rice cake':          {perUnit:'each',  kcal:35,  p:0.7,  c:7.3,  f:0.3},
   'lime':               {perUnit:'whole', kcal:20,  p:0.5,  c:7,    f:0.1},
   'lemon':              {perUnit:'whole', kcal:17,  p:0.6,  c:5.4,  f:0.2},
-  'tuna in olive oil':  {perUnit:'can',   kcal:200, p:25,   c:0,    f:11}
+  'tuna in olive oil':  {perUnit:'can',   kcal:200, p:25,   c:0,    f:11},
+  'lime juice':         {per:100, kcal:25,  p:0.4,  c:8,    f:0.1},
+  'lemon juice':        {per:100, kcal:22,  p:0.4,  c:7,    f:0.2},
+  // ─── Asian-specific (per 100g unless noted) ───
+  'salmon':             {per:100, kcal:208, p:20,   c:0,    f:13},
+  'salmon fillet':      {per:100, kcal:208, p:20,   c:0,    f:13},
+  'white fish':         {per:100, kcal:96,  p:21,   c:0,    f:1},
+  'barramundi':         {per:100, kcal:96,  p:21,   c:0,    f:1},
+  'prawns':             {per:100, kcal:99,  p:24,   c:0,    f:0.3},
+  'shrimp':             {per:100, kcal:99,  p:24,   c:0,    f:0.3},
+  'tofu':               {per:100, kcal:144, p:17,   c:3,    f:9},
+  'firm tofu':          {per:100, kcal:144, p:17,   c:3,    f:9},
+  'silken tofu':        {per:100, kcal:55,  p:6,    c:2,    f:3},
+  'edamame':            {per:100, kcal:122, p:11,   c:10,   f:5},
+  'kimchi':             {per:100, kcal:23,  p:1.4,  c:4,    f:0.5},
+  'sauerkraut':         {per:100, kcal:19,  p:0.9,  c:4,    f:0.1},
+  'miso paste':         {per:100, kcal:198, p:12,   c:25,   f:6},
+  'miso':               {per:100, kcal:198, p:12,   c:25,   f:6},
+  'gochujang':          {per:100, kcal:230, p:5,    c:46,   f:1},
+  'sriracha':           {per:100, kcal:93,  p:1.9,  c:19,   f:0.9},
+  'fish sauce':         {per:100, kcal:35,  p:5,    c:4,    f:0},
+  'oyster sauce':       {per:100, kcal:130, p:4,    c:27,   f:0.3},
+  'rice vinegar':       {per:100, kcal:18,  p:0,    c:0,    f:0},
+  'mirin':              {per:100, kcal:240, p:0.3,  c:43,   f:0},
+  'sake':               {per:100, kcal:134, p:0.5,  c:5,    f:0},
+  'panko':              {per:100, kcal:380, p:14,   c:71,   f:5},
+  'breadcrumbs':        {per:100, kcal:380, p:14,   c:71,   f:5},
+  'rice noodles':       {per:100, kcal:108, p:1.8,  c:25,   f:0.2},  // cooked
+  'udon':               {per:100, kcal:127, p:3.4,  c:25,   f:0.4},  // cooked
+  'soba':               {per:100, kcal:99,  p:5,    c:21,   f:0.1},  // cooked
+  'rice paper':         {per:100, kcal:333, p:1,    c:81,   f:0.5},  // dry
+  'nori':               {per:100, kcal:35,  p:6,    c:5,    f:0.3},
+  'seaweed':            {per:100, kcal:35,  p:6,    c:5,    f:0.3},
+  'shiitake':           {per:100, kcal:34,  p:2.2,  c:7,    f:0.5},
+  'mushroom':           {per:100, kcal:22,  p:3.1,  c:3.3,  f:0.3},
+  'bok choy':           {per:100, kcal:13,  p:1.5,  c:2.2,  f:0.2},
+  'pak choi':           {per:100, kcal:13,  p:1.5,  c:2.2,  f:0.2},
+  'cabbage':            {per:100, kcal:25,  p:1.3,  c:6,    f:0.1},
+  'carrot':             {per:100, kcal:41,  p:0.9,  c:10,   f:0.2},
+  'green beans':        {per:100, kcal:31,  p:1.8,  c:7,    f:0.1},
+  'snow peas':          {per:100, kcal:42,  p:2.8,  c:7,    f:0.2},
+  'bean sprouts':       {per:100, kcal:30,  p:3,    c:6,    f:0.2},
+  'spring onion':       {per:100, kcal:32,  p:1.8,  c:7,    f:0.2},
+  'coriander':          {per:100, kcal:23,  p:2.1,  c:3.7,  f:0.5},
+  'thai basil':         {per:100, kcal:23,  p:3.2,  c:2.7,  f:0.6},
+  'mint':               {per:100, kcal:44,  p:3.3,  c:8,    f:0.7},
+  'lemongrass':         {per:100, kcal:99,  p:1.8,  c:25,   f:0.5},
+  'chili':              {per:100, kcal:40,  p:1.9,  c:9,    f:0.4},
+  'chilli':             {per:100, kcal:40,  p:1.9,  c:9,    f:0.4},
+  'red chili':          {per:100, kcal:40,  p:1.9,  c:9,    f:0.4},
+  'sesame seeds':       {per:100, kcal:573, p:18,   c:23,   f:50},
+  'peanut':             {per:100, kcal:567, p:26,   c:16,   f:49},
+  'cashew':             {per:100, kcal:553, p:18,   c:30,   f:44},
+  'peanut butter':      {per:100, kcal:588, p:25,   c:20,   f:50},
+  'curry powder':       {per:100, kcal:325, p:14,   c:55,   f:14},
+  'turmeric':           {per:100, kcal:312, p:9.7,  c:67,   f:3.3},
+  'garam masala':       {per:100, kcal:380, p:13,   c:51,   f:14},
+  'chickpeas':          {per:100, kcal:164, p:9,    c:27,   f:2.6},  // canned, drained
+  'lentils':            {per:100, kcal:116, p:9,    c:20,   f:0.4},  // cooked
+  'red lentils':        {per:100, kcal:116, p:9,    c:20,   f:0.4},
+  'greek yogurt natural':{per:100, kcal:97, p:9,    c:4,    f:5},
+  'natural yogurt':     {per:100, kcal:61,  p:3.5,  c:4.7,  f:3.3},
+  'chicken stock':      {per:100, kcal:7,   p:1,    c:0.5,  f:0.2},
+  'beef stock':         {per:100, kcal:7,   p:1,    c:0.5,  f:0.2}
 };
 
 // Map ingredient.u (American/imperial unit) to a metric weight in grams
@@ -9201,6 +10846,21 @@ function renderMealPrepSection() {
 
   if (isOpen) {
     wrap.appendChild(el('div',{style:{height:'1px',background:'#1a1a1a',margin:'12px 0'}}));
+
+    // ─── Phase 1: Cross-meal batch sequence — always live, always visible ───
+    // Reads from buildCurrentPlanSnapshot() so it stays in sync with every swap.
+    // The lock state is a commitment marker, not a data gate.
+    try {
+      const livePlan = { mealsByDay: buildCurrentPlanSnapshot() };
+      const isLocked = !!getWeekPlan();
+      const stages = buildPrepSequence(livePlan);
+      if (stages && stages.length) {
+        const seqUI = renderPrepSequence(stages, isLocked);
+        if (seqUI) wrap.appendChild(seqUI);
+      }
+    } catch (e) {
+      console.warn('Prep sequence build failed:', e);
+    }
 
     // Aggregate every distinct meal across all profiles into 3 strategy buckets.
     // Use meal name as dedup key (a salmon meal that appears in multiple
@@ -11150,10 +12810,10 @@ function normalizeIngredientName(name) {
 function buildShoppingList() {
   const items = {};
 
-  // Prefer the locked week plan if one exists. Otherwise fall back to current
-  // state (originals + active swaps) so the list still works pre-lock.
-  const plan = getWeekPlan();
-  const mealsByDay = plan ? plan.mealsByDay : buildCurrentPlanSnapshot();
+  // Always use live state (originals + active swaps). The locked plan is a
+  // commitment marker for drift detection — not a freezer for the data. This
+  // way, a swap made AFTER locking immediately updates what you need to buy.
+  const mealsByDay = buildCurrentPlanSnapshot();
 
   Object.keys(mealsByDay).forEach(dayNum => {
     const meals = mealsByDay[dayNum] || [];
