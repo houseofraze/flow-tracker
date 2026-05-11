@@ -471,7 +471,13 @@ const HEAVY_COMPOUND_DBIDS = new Set([
   'Close-Grip_Barbell_Bench_Press',
   'Pin_Presses',
   'Leg_Press',
-  'Pendlay_Row'  // not in DB but reserved
+  'Pendlay_Row',  // not in DB but reserved
+  // Sport-style additions — Olympic-lift variants count as heavy compounds
+  // for rest-timer + progression logic. Cleans/hang cleans are explosive but
+  // still hit posterior chain + quads + traps as heavy as a deadlift session.
+  'Clean',          // hang clean / power clean
+  'Power_Clean',
+  'Hang_Clean'
 ]);
 function isHeavyCompound(ex) {
   if (!ex) return false;
@@ -4825,6 +4831,208 @@ const CALISTHENICS_TEMPLATES = {
 };
 
 
+// ─── ENDURANCE TEMPLATES ──────────────────────────────────────────────────
+// For runners, cyclists, rowers, triathletes. Primary stimulus is cardiovascular;
+// strength is maintenance only, focused on injury prevention. Cardio sessions
+// use zone-based descriptors ("Z2", "threshold") so users without HR monitors
+// can rely on effort/breathing cues ("conversational pace", "hard but sustainable").
+//
+// Slot mapping (deliberately picked to play nice with TRAINING_SPLITS):
+//   push    → Upper Strength Maintenance (1×/week pressing + pulling balance)
+//   pull    → Posterior Chain Strength (hamstring/glute/back — injury prev)
+//   legs    → Long Endurance Effort (longest session of the week)
+//   skills  → Threshold / Intervals (highest-quality cardio day)
+//   fullBody → Z2 Base Session (default workout — aerobic base building)
+//
+// At 1-3 days/week the user only gets Z2 Base (fullBody) → appropriate for
+// absolute beginners. At 4+ days the strength days kick in. At 5+ intervals
+// arrive. Doesn't force runners onto strength they don't want.
+//
+// Cardio exercises use category:"Cardio" and no dbId — the cardio modality
+// (run, ride, row, swim) is up to the user. Frames intervals by EFFORT, not
+// by gear-specific protocols.
+const ENDURANCE_TEMPLATES = {
+  push: {day:1,label:"Day 1",title:"Upper Strength",subtitle:"Maintenance Lifts · Injury Prevention",accent:"#e8ff3b",nutriType:"mod",exercises:[
+    {id:"end_bench",dbId:"Barbell_Bench_Press_-_Medium_Grip",name:"Bench Press",sets:3,reps:"5-6",tempo:"3-1-1-0",tempoDesc:"3s lower, 1s pause, 1s press · maintenance load (RPE 7)",category:"Gym"},
+    {id:"end_pullup",dbId:"Pullups",name:"Pull-Up",sets:3,reps:"5-8",tempo:"2-1-2-0",tempoDesc:"Full ROM, 2s lower · upper-back balance for runners/cyclists",category:"Gym/Park"},
+    {id:"end_dbpress",dbId:"Seated_Dumbbell_Press",name:"DB Shoulder Press",sets:3,reps:"8-10",tempo:"2-1-1-0",tempoDesc:"2s lower, 1s pause, 1s press · postural strength",category:"Gym"},
+    {id:"end_row",dbId:"Seated_Cable_Rows",name:"Seated Cable Row",sets:3,reps:"8-10",tempo:"2-1-2-0",tempoDesc:"2s pull, 1s squeeze, 2s return · counter the hunched cycling posture",category:"Gym"},
+    {id:"end_facepull",dbId:"Face_Pull",name:"Face Pull",sets:3,reps:"12-15",tempo:"1-2-2-0",tempoDesc:"1s pull, 2s hold, 2s return · rotator cuff health",category:"Gym"},
+    {id:"end_plank",dbId:"Plank",name:"Plank",sets:3,reps:"30-45 sec",tempo:"Isometric",tempoDesc:"Anti-extension core stability — critical for running mechanics",category:"Home/Gym"}
+  ]},
+
+  pull: {day:2,label:"Day 2",title:"Posterior Strength",subtitle:"Hinge · Hamstrings · Hip Health",accent:"#3bffe8",nutriType:"mod",exercises:[
+    {id:"end_rdl",dbId:"Romanian_Deadlift",name:"Romanian Deadlift",sets:3,reps:"5-6",tempo:"3-1-1-0",tempoDesc:"3s hinge, 1s stretch, 1s drive · hamstring strength for stride power",category:"Gym"},
+    {id:"end_slrdl",dbId:"Single_Leg_Glute_Bridge",name:"Single-Leg RDL",sets:3,reps:"8 each",tempo:"2-1-2-0",tempoDesc:"2s hinge, 1s pause, 2s up · unilateral hip stability",category:"Gym/Home"},
+    {id:"end_revlunge",dbId:"Dumbbell_Lunges",name:"Reverse Lunge",sets:3,reps:"10 each",tempo:"2-1-1-0",tempoDesc:"2s lower, 1s pause, 1s drive · knee-friendly unilateral",category:"Gym/Home"},
+    {id:"end_pulldown",dbId:"Wide-Grip_Lat_Pulldown",name:"Lat Pulldown",sets:3,reps:"8-10",tempo:"2-1-2-0",tempoDesc:"2s pull, 1s squeeze, 2s return · upper-back posture",category:"Gym"},
+    {id:"end_birddog",name:"Bird Dog",primaryMuscles:["lower back","abdominals"],sets:3,reps:"10 each",tempo:"2-2-2-0",tempoDesc:"Opposite arm + leg extend slowly · anti-rotation",category:"Home"},
+    {id:"end_sideplank",name:"Side Plank",primaryMuscles:["obliques","abdominals"],sets:3,reps:"30 sec each",tempo:"Isometric",tempoDesc:"Hip stacked, body straight · anti-lateral flexion",category:"Home"}
+  ]},
+
+  legs: {day:3,label:"Day 3",title:"Long Effort",subtitle:"Long Z2 Run / Ride / Row",accent:"#ff7b3b",nutriType:"high",exercises:[
+    {id:"end_long_z2",name:"Long Z2 Cardio",primaryMuscles:["cardio"],sets:1,reps:"60-90 min",tempo:"Conversational",tempoDesc:"Pick your sport — run, ride, row, swim. Keep effort conversational (you can speak full sentences). This builds aerobic capacity — the foundation everything else stands on.",category:"Cardio"},
+    {id:"end_long_mob",name:"Cool-Down Mobility",primaryMuscles:["full body"],sets:1,reps:"10 min",tempo:"Easy",tempoDesc:"Hip flexors, calves, hamstrings, thoracic — light dynamic + static stretches",category:"Home"}
+  ]},
+
+  skills: {day:4,label:"Day 4",title:"Intervals",subtitle:"Threshold or VO2 Max Work",accent:"#b03bff",nutriType:"high",exercises:[
+    {id:"end_int_warmup",name:"Warm-Up",primaryMuscles:["cardio"],sets:1,reps:"10-15 min",tempo:"Easy",tempoDesc:"Start very easy, build to moderate over 10 min. Add 3-4 strides at the end if running.",category:"Cardio"},
+    {id:"end_int_main",name:"Threshold Intervals",primaryMuscles:["cardio"],sets:5,reps:"3-5 min @ threshold",tempo:"Hard-but-sustainable",tempoDesc:"Pace you could hold for ~1 hour all-out. Breathing labored but controlled. 2-3 min easy between intervals. Alternative: 5×800m @ T-pace if running, 5×4min @ FTP if cycling.",category:"Cardio"},
+    {id:"end_int_cool",name:"Cool-Down",primaryMuscles:["cardio"],sets:1,reps:"10 min",tempo:"Easy",tempoDesc:"Bring heart rate down gradually · 5 min easy movement + 5 min mobility",category:"Cardio"}
+  ]},
+
+  fullBody: {day:5,label:"Day 5",title:"Z2 Base",subtitle:"Aerobic Base Building",accent:"#ff3b7b",nutriType:"mod",exercises:[
+    {id:"end_z2_main",name:"Z2 Cardio Session",primaryMuscles:["cardio"],sets:1,reps:"45-60 min",tempo:"Conversational",tempoDesc:"Pick your sport — run, ride, row, swim. Effort: conversational pace — you can speak a full sentence without gasping. This is the bread-and-butter aerobic stimulus.",category:"Cardio"},
+    {id:"end_z2_strides",name:"Strides (if running)",primaryMuscles:["cardio"],sets:4,reps:"20 sec",tempo:"Fast but relaxed",tempoDesc:"Optional: 4× 20-second strides at the end. Fast leg turnover, relaxed form. Skip if cycling/rowing.",category:"Cardio"},
+    {id:"end_z2_mob",name:"Mobility Finisher",primaryMuscles:["full body"],sets:1,reps:"10 min",tempo:"Easy",tempoDesc:"Calves, hamstrings, hip flexors — keep tissues happy",category:"Home"}
+  ]}
+};
+
+
+// ─── SPORT-SPECIFIC TEMPLATES ─────────────────────────────────────────────
+// Designed for athletes whose sport IS the main stimulus — climbers, BJJ,
+// rugby, martial arts, racket sports, team sports. Strength training is
+// power expression + injury prevention only. The user's sport practice
+// happens on the "skills" day (intentionally a placeholder — we don't try
+// to encode every sport).
+//
+// Slot mapping:
+//   push    → Upper Power (Olympic-lift variant + plyos + pressing)
+//   pull    → Posterior Power (hang clean / trap bar / pulling)
+//   legs    → Lower Power (box jump + squat + plyos + adductor health)
+//   skills  → Sport Practice Placeholder (user fills with their sport)
+//   fullBody → Mixed Power Circuit (movement quality + integrated patterns)
+//
+// Rep ranges stay low (3-5) because power development is the goal, NOT
+// hypertrophy or maximal strength. Plyometrics use 3-5 reps with full
+// recovery. Multi-planar work (lateral bounds, Cossack squats) acknowledges
+// that sports happen in all three planes of motion.
+const SPORT_TEMPLATES = {
+  push: {day:1,label:"Day 1",title:"Upper Power",subtitle:"Olympic Variants · Plyos · Pressing",accent:"#e8ff3b",nutriType:"mod",exercises:[
+    {id:"sport_pushpress",dbId:"Push_Press",name:"Push Press",sets:4,reps:"3-5",tempo:"1-0-X-0",tempoDesc:"Dip-drive-press explosive · full hip+leg drive into bar",category:"Gym"},
+    {id:"sport_mbthrow",name:"Medicine Ball Chest Pass",primaryMuscles:["chest","triceps","shoulders"],sets:4,reps:"5",tempo:"Explosive",tempoDesc:"Throw against wall as hard as possible · upper-body plyometric · full recovery between sets",category:"Gym/Park"},
+    {id:"sport_incdb",dbId:"Incline_Dumbbell_Press",name:"Incline DB Press",sets:3,reps:"6-8",tempo:"2-1-1-0",tempoDesc:"2s lower, 1s pause, 1s press · pressing strength reserve",category:"Gym"},
+    {id:"sport_dbrow",dbId:"One-Arm_Dumbbell_Row",name:"Single-Arm DB Row",sets:3,reps:"8 each",tempo:"2-1-2-0",tempoDesc:"2s pull, 1s squeeze, 2s lower · anti-rotation pulling",category:"Gym"},
+    {id:"sport_pullapart",name:"Band Pull-Apart",primaryMuscles:["upper back","rear delts"],sets:3,reps:"15",tempo:"1-2-2-0",tempoDesc:"1s pull, 2s hold at chest, 2s return · shoulder prehab",category:"Home/Gym"},
+    {id:"sport_pallof",name:"Pallof Press",primaryMuscles:["abdominals","obliques"],sets:3,reps:"8 each",tempo:"2-2-2-0",tempoDesc:"Press out, hold, return · anti-rotation core — directly transferable to sport",category:"Gym/Home"}
+  ]},
+
+  pull: {day:2,label:"Day 2",title:"Posterior Power",subtitle:"Hinge Power · Pulls · Grip",accent:"#3bffe8",nutriType:"mod",exercises:[
+    {id:"sport_hangclean",dbId:"Clean",name:"Hang Clean (or High Pull)",sets:4,reps:"3-5",tempo:"1-0-X-0",tempoDesc:"Triple extension explosive · regress to high pull if technique is learning curve",category:"Gym"},
+    {id:"sport_trapbar",name:"Trap Bar Deadlift",primaryMuscles:["glutes","quadriceps","lower back"],sets:4,reps:"5",tempo:"2-0-X-0",tempoDesc:"2s lower, then explosive up · safer hinge with athletic carryover",category:"Gym"},
+    {id:"sport_wchin",dbId:"Weighted_Pull_Ups",name:"Weighted Chin-Up",sets:3,reps:"6-8",tempo:"2-1-2-0",tempoDesc:"Add weight if bodyweight pull-ups are easy · 2s lower",category:"Gym"},
+    {id:"sport_slrdl",name:"Single-Leg RDL (DB)",primaryMuscles:["hamstrings","glutes"],sets:3,reps:"6 each",tempo:"2-1-2-0",tempoDesc:"DB in opposite hand · hinge, return · unilateral posterior chain",category:"Gym/Home"},
+    {id:"sport_suitcase",name:"Suitcase Carry",primaryMuscles:["forearms","obliques"],sets:3,reps:"30 sec each",tempo:"Steady walking",tempoDesc:"Heavy DB one hand · walk standing tall · grip + anti-lateral-flexion core",category:"Gym"},
+    {id:"sport_glutebridge",dbId:"Barbell_Glute_Bridge",name:"Glute Bridge",sets:3,reps:"12",tempo:"2-2-1-0",tempoDesc:"2s lower, 2s squeeze, 1s drive · glute strength for sprint power",category:"Gym/Home"}
+  ]},
+
+  legs: {day:3,label:"Day 3",title:"Lower Power",subtitle:"Plyometrics · Squat Power · Multi-Plane",accent:"#ff7b3b",nutriType:"high",exercises:[
+    {id:"sport_boxjump",name:"Box Jump",primaryMuscles:["quadriceps","glutes","calves"],sets:5,reps:"3",tempo:"Explosive",tempoDesc:"Step DOWN, don't jump down · land soft, full recovery between sets · pure power",category:"Gym/Park"},
+    {id:"sport_frontsq",dbId:"Front_Barbell_Squat",name:"Front Squat",sets:4,reps:"3-5",tempo:"3-0-X-0",tempoDesc:"3s descent, explosive drive · upright torso · transfers to athletic position",category:"Gym"},
+    {id:"sport_latbound",name:"Lateral Bound",primaryMuscles:["quadriceps","glutes","adductors"],sets:3,reps:"5 each",tempo:"Explosive",tempoDesc:"Push off one leg, land on other · multi-planar power · stick the landing",category:"Park/Home"},
+    {id:"sport_revlunge",dbId:"Dumbbell_Lunges",name:"Reverse Lunge",sets:3,reps:"8 each",tempo:"2-1-1-0",tempoDesc:"Knee-friendly unilateral · holds DBs at sides",category:"Gym/Home"},
+    {id:"sport_calf",dbId:"Standing_Calf_Raises",name:"Calf Raise",sets:3,reps:"12-15",tempo:"1-2-3-0",tempoDesc:"1s up, 2s squeeze, 3s lower · Achilles tendon health",category:"Gym/Home"},
+    {id:"sport_copen",name:"Copenhagen Plank",primaryMuscles:["adductors","obliques"],sets:3,reps:"30 sec each",tempo:"Isometric",tempoDesc:"Top leg on bench, side plank · adductor strength = groin injury prevention",category:"Gym/Home"}
+  ]},
+
+  skills: {day:4,label:"Day 4",title:"Sport Practice",subtitle:"Your Sport-Specific Session",accent:"#b03bff",nutriType:"high",exercises:[
+    {id:"sport_practice",name:"Sport-Specific Practice",primaryMuscles:["skill","sport-specific"],sets:1,reps:"60-90 min",tempo:"Variable",tempoDesc:"Your sport IS the primary stimulus. Climbing session, BJJ rolling, rugby drills, tennis match, MMA pad work, dance class — whatever your sport is. Train it here.",category:"Sport"},
+    {id:"sport_mob_post",name:"Sport-Specific Mobility",primaryMuscles:["full body"],sets:1,reps:"15 min",tempo:"Easy",tempoDesc:"Whatever your sport leaves tight — shoulders for climbers, hips for grapplers, ankles for runners",category:"Home"}
+  ]},
+
+  fullBody: {day:5,label:"Day 5",title:"Power Circuit",subtitle:"Mixed Lifts · Mobility · Injury Prev",accent:"#ff3b7b",nutriType:"mod",exercises:[
+    {id:"sport_fb_goblet",name:"Goblet Squat",primaryMuscles:["quadriceps","glutes"],sets:3,reps:"8",tempo:"2-1-1-0",tempoDesc:"DB or KB at chest · movement quality focus · keeps upright torso position",category:"Gym/Home"},
+    {id:"sport_fb_pushup",dbId:"Pushups",name:"Push-Up",sets:3,reps:"10-12",tempo:"2-0-1-0",tempoDesc:"Full ROM, controlled · pressing baseline",category:"Park/Home"},
+    {id:"sport_fb_row",dbId:"Bent_Over_Barbell_Row",name:"Bent Row",sets:3,reps:"8-10",tempo:"2-1-2-0",tempoDesc:"2s pull, 1s squeeze, 2s lower · pulling balance",category:"Gym"},
+    {id:"sport_fb_swing",name:"Kettlebell Swing",primaryMuscles:["glutes","hamstrings","lower back"],sets:3,reps:"15",tempo:"Explosive hinge",tempoDesc:"Hip-driven · arms are ropes · 15-30s rest between sets · hip power + conditioning",category:"Gym/Home"},
+    {id:"sport_fb_tgu",name:"Turkish Get-Up",primaryMuscles:["full body","abdominals","shoulders"],sets:3,reps:"3 each",tempo:"Slow",tempoDesc:"Move slowly through every position · full-body integration · DB or KB",category:"Gym/Home"},
+    {id:"sport_fb_cossack",name:"Cossack Squat",primaryMuscles:["adductors","quadriceps"],sets:3,reps:"6 each",tempo:"2-1-2-0",tempoDesc:"Shift weight side to side · hip mobility + adductor strength · bodyweight first",category:"Gym/Home"}
+  ]}
+};
+
+
+// ─── HYBRID TRAINING TEMPLATES ────────────────────────────────────────────
+// Hybrid styles combine philosophies from multiple single styles. Each
+// hybrid has a clear stimulus thesis — not "random mix" but a deliberate
+// combination that solves a real-world programming need.
+//
+// Three hybrids ship in this phase:
+//   • hybrid_cali_strength       → strength compounds + dedicated calisthenics
+//                                  skill day + conditioning. The original
+//                                  FLOW plan structure. Resolved at call time
+//                                  from PROGRAM_DEFAULT_SNAPSHOT to guarantee
+//                                  it stays in sync with the canonical plan.
+//   • hybrid_powerbuilding       → strength rep ranges on big lifts (3-5)
+//                                  paired with hypertrophy accessories (8-12).
+//                                  The most popular hybrid in lifting culture.
+//                                  Standalone template set defined below.
+//   • hybrid_endurance_strength  → endurance schedule (Z2 base + intervals)
+//                                  with HEAVY strength legs (not Z2 legs).
+//                                  Best for cyclists/runners who refuse to
+//                                  let strength regress while training cardio.
+//                                  Resolved at call time from ENDURANCE +
+//                                  STRENGTH template sets.
+//
+// Slot mapping is deliberate per hybrid — see each style's resolver in
+// getTemplateSetForStyle below.
+
+// Powerbuilding: heavy compound work (3-5 reps) anchoring each day, paired
+// with hypertrophy accessories (8-12 reps). Targets strength AND visible
+// muscle development. Day-type mapping:
+//   push    → heavy bench + incline DB + lateral raise + tricep isolation
+//   pull    → heavy deadlift + barbell row + seated row + curl variations
+//   legs    → heavy squat + RDL + leg press + lunges + leg curl + calves
+//   skills  → arms & weak points (heavy CGBP + isolation curls/tris)
+//   fullBody → compound strength (squat/bench/row × 5) + hypertrophy
+//             accessories (DB press, DB curl, split squat)
+const POWERBUILDING_TEMPLATES = {
+  push: {day:1,label:"Day 1",title:"Push",subtitle:"Heavy Press + Hypertrophy",accent:"#e8ff3b",nutriType:"mod",exercises:[
+    {id:"pb_bench",dbId:"Barbell_Bench_Press_-_Medium_Grip",name:"Barbell Bench Press",sets:4,reps:"3-5",tempo:"3-1-1-0",tempoDesc:"3s lower, 1s pause at chest, 1s drive · heavy strength anchor",category:"Gym"},
+    {id:"pb_incdb",dbId:"Incline_Dumbbell_Press",name:"Incline Dumbbell Press",sets:4,reps:"8-10",tempo:"3-1-1-0",tempoDesc:"3s lower, 1s pause, 1s press · hypertrophy rep range",category:"Gym"},
+    {id:"pb_dbpress",dbId:"Seated_Dumbbell_Press",name:"Seated DB Shoulder Press",sets:3,reps:"8-10",tempo:"2-1-1-0",tempoDesc:"2s lower, 1s pause, 1s press",category:"Gym"},
+    {id:"pb_lateral",dbId:"Cable_Seated_Lateral_Raise",name:"Cable Lateral Raise",sets:4,reps:"12-15",tempo:"1-2-2-0",tempoDesc:"1s lift, 2s hold, 2s lower · pure isolation volume",category:"Gym"},
+    {id:"pb_pushdown",dbId:"Triceps_Pushdown",name:"Tricep Pushdown",sets:3,reps:"10-12",tempo:"2-1-1-0",tempoDesc:"2s lower, 1s squeeze, 1s extend",category:"Gym"},
+    {id:"pb_skull",dbId:"Lying_Triceps_Press",name:"Skullcrushers",sets:3,reps:"10-12",tempo:"3-1-1-0",tempoDesc:"3s lower, 1s pause, 1s extend",category:"Gym"}
+  ]},
+
+  pull: {day:2,label:"Day 2",title:"Pull",subtitle:"Heavy Pull + Hypertrophy",accent:"#3bffe8",nutriType:"mod",exercises:[
+    {id:"pb_dl",dbId:"Barbell_Deadlift",name:"Barbell Deadlift",sets:4,reps:"3-5",tempo:"1-1-2-0",tempoDesc:"1s drive, 1s hold at top, 2s lower · heavy strength anchor",category:"Gym"},
+    {id:"pb_bbrow",dbId:"Bent_Over_Barbell_Row",name:"Barbell Row",sets:4,reps:"6-8",tempo:"1-1-2-0",tempoDesc:"1s pull, 1s hold, 2s lower · upper-back strength",category:"Gym"},
+    {id:"pb_pulldown",dbId:"Wide-Grip_Lat_Pulldown",name:"Lat Pulldown",sets:4,reps:"10-12",tempo:"2-1-2-0",tempoDesc:"2s pull, 1s squeeze, 2s return",category:"Gym"},
+    {id:"pb_seatedrow",dbId:"Seated_Cable_Rows",name:"Seated Cable Row",sets:3,reps:"10-12",tempo:"2-1-2-0",tempoDesc:"2s pull, 1s squeeze, 2s return",category:"Gym"},
+    {id:"pb_curl",dbId:"Dumbbell_Bicep_Curl",name:"DB Bicep Curl",sets:3,reps:"10-12",tempo:"1-1-3-0",tempoDesc:"1s curl, 1s squeeze, 3s lower",category:"Gym"},
+    {id:"pb_facepull",dbId:"Face_Pull",name:"Face Pull",sets:3,reps:"15",tempo:"1-2-2-0",tempoDesc:"1s pull, 2s hold, 2s return · shoulder health",category:"Gym"}
+  ]},
+
+  legs: {day:3,label:"Day 3",title:"Legs",subtitle:"Heavy Squat + Hypertrophy",accent:"#ff7b3b",nutriType:"high",exercises:[
+    {id:"pb_squat",dbId:"Barbell_Squat",name:"Barbell Squat",sets:4,reps:"3-5",tempo:"3-1-1-0",tempoDesc:"3s descent, 1s pause, 1s drive · heavy strength anchor",category:"Gym"},
+    {id:"pb_rdl",dbId:"Romanian_Deadlift",name:"Romanian Deadlift",sets:4,reps:"6-8",tempo:"3-1-1-0",tempoDesc:"3s hinge, 1s stretch, 1s up · hamstring strength",category:"Gym"},
+    {id:"pb_legpress",dbId:"Leg_Press",name:"Leg Press",sets:3,reps:"10-12",tempo:"2-1-1-0",tempoDesc:"2s lower, 1s pause, 1s press · quad volume",category:"Gym"},
+    {id:"pb_lunges",dbId:"Dumbbell_Lunges",name:"Walking Lunges",sets:3,reps:"10 each",tempo:"2-0-1-0",tempoDesc:"2s lower, 1s drive up",category:"Gym"},
+    {id:"pb_legcurl",dbId:"Lying_Leg_Curls",name:"Lying Leg Curl",sets:3,reps:"12-15",tempo:"2-1-2-0",tempoDesc:"2s curl, 1s squeeze, 2s return",category:"Gym"},
+    {id:"pb_calves",dbId:"Standing_Calf_Raises",name:"Calf Raise",sets:4,reps:"15-20",tempo:"1-2-3-0",tempoDesc:"1s raise, 2s squeeze, 3s lower",category:"Gym"}
+  ]},
+
+  skills: {day:4,label:"Day 4",title:"Arms & Weak Points",subtitle:"Heavy + Isolation Mix",accent:"#b03bff",nutriType:"low",exercises:[
+    {id:"pb_cgbp",dbId:"Close-Grip_Barbell_Bench_Press",name:"Close-Grip Bench",sets:4,reps:"5-6",tempo:"3-1-1-0",tempoDesc:"3s lower, 1s pause, 1s press · heavy tricep compound",category:"Gym"},
+    {id:"pb_bbcurl",dbId:"Barbell_Curl",name:"Barbell Curl",sets:4,reps:"6-8",tempo:"1-1-2-0",tempoDesc:"1s curl, 1s squeeze, 2s lower · heavy bicep work",category:"Gym"},
+    {id:"pb_preacher",dbId:"Preacher_Curl",name:"Preacher Curl",sets:3,reps:"10-12",tempo:"2-1-3-0",tempoDesc:"2s curl, 1s squeeze, 3s lower",category:"Gym"},
+    {id:"pb_overhead_tri",dbId:"Standing_Overhead_Barbell_Triceps_Extension",name:"Overhead Tricep Extension",sets:3,reps:"10-12",tempo:"3-1-1-0",tempoDesc:"3s lower, 1s stretch, 1s press",category:"Gym"},
+    {id:"pb_hammer",dbId:"Alternate_Hammer_Curl",name:"Hammer Curl",sets:3,reps:"10-12",tempo:"2-1-2-0",tempoDesc:"2s curl, 1s hold, 2s lower",category:"Gym"},
+    {id:"pb_kickback",dbId:"Tricep_Dumbbell_Kickback",name:"Tricep Kickback",sets:3,reps:"12-15 each",tempo:"2-2-2-0",tempoDesc:"2s extend, 2s squeeze, 2s lower",category:"Gym"}
+  ]},
+
+  fullBody: {day:5,label:"Day 5",title:"Full Body",subtitle:"Compound + Accessories",accent:"#ff3b7b",nutriType:"high",exercises:[
+    {id:"pb_fb_squat",dbId:"Barbell_Squat",name:"Barbell Squat",sets:4,reps:"5",tempo:"3-1-1-0",tempoDesc:"3s descent, 1s pause, 1s drive · strength rep",category:"Gym"},
+    {id:"pb_fb_bench",dbId:"Barbell_Bench_Press_-_Medium_Grip",name:"Barbell Bench Press",sets:4,reps:"5",tempo:"3-1-1-0",tempoDesc:"3s lower, 1s pause, 1s press · strength rep",category:"Gym"},
+    {id:"pb_fb_row",dbId:"Bent_Over_Barbell_Row",name:"Barbell Row",sets:4,reps:"6-8",tempo:"1-1-2-0",tempoDesc:"1s pull, 1s hold, 2s lower",category:"Gym"},
+    {id:"pb_fb_dbpress",dbId:"Seated_Dumbbell_Press",name:"DB Shoulder Press",sets:3,reps:"10-12",tempo:"2-1-1-0",tempoDesc:"2s lower, 1s pause, 1s press · accessory",category:"Gym"},
+    {id:"pb_fb_curl",dbId:"Dumbbell_Bicep_Curl",name:"DB Curl",sets:3,reps:"10-12",tempo:"1-1-3-0",tempoDesc:"1s curl, 1s squeeze, 3s lower",category:"Gym"},
+    {id:"pb_fb_split",dbId:"Split_Squat_with_Dumbbells",name:"Bulgarian Split Squat",sets:3,reps:"10 each",tempo:"2-1-1-0",tempoDesc:"2s lower, 1s pause, 1s drive · unilateral accessory",category:"Gym"}
+  ]}
+};
+
+
 // ─── FOCUS AREA MODULES ───────────────────────────────────────────────────
 // When user selects focus areas in the wizard, these accessory exercises
 // are APPENDED to relevant training days. Each module specifies which day-
@@ -4949,6 +5157,41 @@ function getTemplateSetForStyle(style) {
   if (style === 'strength') return STRENGTH_TEMPLATES;
   if (style === 'powerlifting') return POWERLIFTING_TEMPLATES;
   if (style === 'calisthenics') return CALISTHENICS_TEMPLATES;
+  if (style === 'endurance') return ENDURANCE_TEMPLATES;
+  if (style === 'sport') return SPORT_TEMPLATES;
+
+  // ── HYBRIDS ──
+  // hybrid_cali_strength: resolved at call time from PROGRAM_DEFAULT_SNAPSHOT
+  // so the hybrid stays identical to the canonical original plan. If someone
+  // ever updates PROGRAM, the hybrid moves with it. PROGRAM_DEFAULT_SNAPSHOT
+  // indices match TEMPLATE_INDEX: [0]=push, [1]=pull, [2]=legs, [3]=skills,
+  // [4]=fullBody. Returns null if snapshot isn't ready yet (defensive — falls
+  // through to default snapshot anyway).
+  if (style === 'hybrid_cali_strength') {
+    if (!PROGRAM_DEFAULT_SNAPSHOT) return null;
+    return {
+      push:     PROGRAM_DEFAULT_SNAPSHOT[0],
+      pull:     PROGRAM_DEFAULT_SNAPSHOT[1],
+      legs:     PROGRAM_DEFAULT_SNAPSHOT[2],
+      skills:   PROGRAM_DEFAULT_SNAPSHOT[3],
+      fullBody: PROGRAM_DEFAULT_SNAPSHOT[4]
+    };
+  }
+  // hybrid_powerbuilding: dedicated template set
+  if (style === 'hybrid_powerbuilding') return POWERBUILDING_TEMPLATES;
+  // hybrid_endurance_strength: endurance schedule with strength legs swapped in.
+  // Composed from existing template sets at call time — single source of
+  // truth (if endurance push template changes, this hybrid moves with it).
+  if (style === 'hybrid_endurance_strength') {
+    return {
+      push:     ENDURANCE_TEMPLATES.push,    // upper strength maintenance
+      pull:     ENDURANCE_TEMPLATES.pull,    // posterior strength maintenance
+      legs:     STRENGTH_TEMPLATES.legs,     // HEAVY squat day (not Z2)
+      skills:   ENDURANCE_TEMPLATES.skills,  // threshold intervals
+      fullBody: ENDURANCE_TEMPLATES.fullBody // Z2 base
+    };
+  }
+
   // 'general' or unset → fall through to default PROGRAM snapshot
   return null;
 }
@@ -14841,7 +15084,31 @@ const FAT_TARGET_PCT_BY_STYLE = {
   strength:     0.24,  // -3% kcal → ~+19g carbs (1.07× carbs)
   hypertrophy:  0.27,  // baseline
   calisthenics: 0.28,  // +1% kcal fat → -6g carbs (slightly leaner toward oxidative metabolism)
-  general:      0.27   // baseline (same as default)
+  general:      0.27,  // baseline (same as default)
+  // Endurance: lowest fat % of all styles. Glycogen is the dominant fuel for
+  // threshold + interval work; carbs replenish faster than fat oxidizes during
+  // hard sessions. Fat floor (0.8 g/kg bw) still protects hormonal health for
+  // smaller athletes.
+  endurance:    0.20,  // -7% kcal → ~+44g carbs at 2500 kcal — major glycogen support
+  // Sport: similar to strength. Power + plyometric work is glycolytic;
+  // explosive efforts demand carbs. Slightly leaner than hypertrophy but not
+  // as aggressive as endurance.
+  sport:        0.24,  // -3% kcal → matches strength split
+
+  // ── HYBRIDS ──
+  // Blends are NOT simple averages — each is chosen to honor the dominant
+  // stimulus. Cali-strength biases toward strength's higher-carb need because
+  // the conditioning days (sprints) and heavy compound work demand glycogen
+  // more than the skill day demands a calisthenics-style lean split.
+  hybrid_cali_strength:      0.26,  // between calisthenics 0.28 and strength 0.24, leans strength
+  // Powerbuilding: between strength (0.24) and hypertrophy (0.27). Heavy 3-5
+  // rep main lifts need glycogen, but the 8-12 rep hypertrophy accessory
+  // volume tolerates a touch more fat than pure strength.
+  hybrid_powerbuilding:      0.25,
+  // Endurance-strength: between endurance (0.20) and strength (0.24).
+  // Threshold intervals and Z2 base remain the most metabolically demanding
+  // sessions; heavy legs day adds a glycolytic spike. Still very carb-heavy.
+  hybrid_endurance_strength: 0.22
 };
 
 function getFatTargetPctForStyle(style) {
@@ -14996,6 +15263,156 @@ function saveGoalProfile(profile) {
 
 function clearGoalProfile() {
   try { localStorage.removeItem(GOAL_PROFILE_KEY); } catch(e) {}
+}
+
+// ─── HYBRID UPGRADE MIGRATION ─────────────────────────────────────────────
+// Existing users locked in with style='general' are running what is now
+// formally the "hybrid_cali_strength" preset (the original FLOW plan). Offer
+// a one-time prompt to upgrade their label so they get proper preview cards,
+// macro blend, and a first-class hybrid identity. The plan itself doesn't
+// change — same exercises, same rep schemes, just a better label and a
+// 1% fat-target shift (general 0.27 → hybrid_cali_strength 0.26).
+//
+// The migration is OPT-IN: dismissing it sets a flag so we don't ask again.
+// Local data (week plans, logs, metrics) is untouched in either case.
+function shouldOfferHybridUpgrade() {
+  const profile = getGoalProfile();
+  if (!profile || !profile.lockedAt) return false;
+  if (profile.trainingStyle !== 'general') return false;
+  if (profile._hybridUpgradeOffered) return false;  // already prompted once
+  return true;
+}
+
+function recordHybridUpgradeOffered(accepted) {
+  const profile = getGoalProfile();
+  if (!profile) return;
+  profile._hybridUpgradeOffered = true;
+  if (accepted) {
+    profile.trainingStyle = 'hybrid_cali_strength';
+    profile._trainingStyleManuallyPicked = true;
+    // Recompute macros under the new fat target — kcal/protein stay anchored,
+    // fat drops slightly, carbs come up. Use the existing pure compute.
+    try {
+      const inputs = {
+        weight: profile.inputs && profile.inputs.weight,
+        bodyFat: profile.inputs && profile.inputs.bodyFat,
+        height: profile.inputs && profile.inputs.height,
+        age: profile.inputs && profile.inputs.age,
+        sex: profile.inputs && profile.inputs.sex,
+        activityId: profile.inputs && profile.inputs.activityId,
+        goalTypeId: profile.inputs && profile.inputs.goalTypeId,
+        ratePctBw: profile.inputs && profile.inputs.ratePctBw,
+        targetBodyFat: profile.inputs && profile.inputs.targetBodyFat,
+        targetWeight: profile.inputs && profile.inputs.targetWeight,
+        trainingDaysPerWeek: profile.trainingDaysPerWeek,
+        trainingStyle: 'hybrid_cali_strength',
+        focusAreas: profile.focusAreas || []
+      };
+      if (inputs.weight && inputs.height && inputs.age) {
+        const fresh = computeGoalProfile(inputs);
+        // Carry over the new macro split + style; preserve other locked-in
+        // fields (lockedAt, durationWeeks, etc.) so we don't reset the goal.
+        profile.proteinG = fresh.proteinG;
+        profile.fatG = fresh.fatG;
+        profile.carbsG = fresh.carbsG;
+        profile.targetKcal = fresh.targetKcal;
+      }
+    } catch(e) { /* macro recalc is best-effort */ }
+  }
+  saveGoalProfile(profile);
+  // Rebuild PROGRAM to use the new style's template set
+  try { syncProgramToProfile(); } catch(e) {}
+}
+
+function showHybridUpgradeModal() {
+  if (typeof document === 'undefined') return;
+  const overlay = el('div', {
+    style: {
+      position:'fixed', top:'0', left:'0', right:'0', bottom:'0',
+      background:'rgba(0,0,0,0.85)',
+      display:'flex', alignItems:'flex-start', justifyContent:'center',
+      zIndex:'10001', padding:'40px 16px 16px', overflow:'auto'
+    }
+  });
+  const modal = el('div', {
+    style: {
+      background:'#0e0e0e',
+      border:'1px solid #b03bff66',
+      borderRadius:'14px', padding:'18px', maxWidth:'480px', width:'100%',
+      boxShadow:'0 12px 40px rgba(0,0,0,0.85)'
+    }
+  });
+  modal.appendChild(el('div',{style:{fontSize:'8px',color:'#b03bff',letterSpacing:'0.25em',textTransform:'uppercase',fontWeight:'700',marginBottom:'4px'}}, '◈ New: Hybrid Programming'));
+  modal.appendChild(el('div',{style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'22px',color:'#ebebeb',letterSpacing:'0.04em',marginBottom:'14px'}}, 'Upgrade your plan label?'));
+
+  modal.appendChild(el('div',{style:{fontSize:'12px',color:'#ccc',lineHeight:'1.6',marginBottom:'12px'}},
+    'Your current plan matches the new Calisthenics + Strength Hybrid preset — heavy bench/squat/deadlift days plus a dedicated calisthenics skill day plus sprint conditioning. Switch to it for proper preview cards, macro blend, and a first-class label.'));
+
+  // What changes / what stays
+  const changes = div({background:'#0a0a0a',border:'1px solid #1a1a1a',borderRadius:'8px',padding:'12px 14px',marginBottom:'14px'});
+  changes.appendChild(el('div',{style:{fontSize:'9px',color:'#06d6a0',letterSpacing:'0.18em',textTransform:'uppercase',fontWeight:'700',marginBottom:'8px'}}, '✓ Stays the same'));
+  [
+    'Your locked goal profile',
+    'All week plans + workout logs',
+    'Body composition history',
+    'Total calorie target'
+  ].forEach(line => {
+    changes.appendChild(el('div',{style:{fontSize:'10px',color:'#aaa',marginBottom:'4px',lineHeight:'1.5'}}, '• ' + line));
+  });
+  changes.appendChild(el('div',{style:{fontSize:'9px',color:'#fbbf24',letterSpacing:'0.18em',textTransform:'uppercase',fontWeight:'700',marginTop:'10px',marginBottom:'8px'}}, '↻ Updates'));
+  [
+    'Style label: General → Calisthenics + Strength Hybrid',
+    'Macro split: fat 27% → 26% (about -3g fat, +3g carbs)',
+    'Preview cards in goal wizard'
+  ].forEach(line => {
+    changes.appendChild(el('div',{style:{fontSize:'10px',color:'#aaa',marginBottom:'4px',lineHeight:'1.5'}}, '• ' + line));
+  });
+  modal.appendChild(changes);
+
+  // Buttons
+  const btnRow = div({display:'flex',gap:'8px'});
+  btnRow.appendChild(el('button',{
+    class:'btn',
+    style:{
+      flex:'1', background:'transparent', color:'#888',
+      border:'1px solid #2a2a2a', padding:'12px', borderRadius:'8px',
+      fontFamily:"'DM Mono',monospace", fontSize:'10px',
+      letterSpacing:'0.15em', textTransform:'uppercase',
+      cursor:'pointer', fontWeight:'700'
+    },
+    onclick: () => {
+      recordHybridUpgradeOffered(false);
+      overlay.remove();
+    }
+  }, 'Keep general'));
+  btnRow.appendChild(el('button',{
+    class:'btn',
+    style:{
+      flex:'2', background:'#b03bff', color:'#000', border:'none',
+      padding:'12px', borderRadius:'8px',
+      fontFamily:"'DM Mono',monospace", fontSize:'10px',
+      letterSpacing:'0.15em', textTransform:'uppercase',
+      cursor:'pointer', fontWeight:'700'
+    },
+    onclick: () => {
+      recordHybridUpgradeOffered(true);
+      overlay.remove();
+      try { showToast('✓ Upgraded to Calisthenics + Strength Hybrid'); } catch(e) {}
+      try { render(); } catch(e) {}
+    }
+  }, '◈ Switch to hybrid'));
+  modal.appendChild(btnRow);
+
+  overlay.appendChild(modal);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+}
+
+function maybeOfferHybridUpgrade() {
+  if (!shouldOfferHybridUpgrade()) return;
+  // Defer slightly so the app renders first and the prompt doesn't compete
+  // with first-paint UI
+  setTimeout(showHybridUpgradeModal, 1500);
 }
 
 // ─── Per-day-type macro distribution ──────────────────────────────────────
@@ -15240,6 +15657,8 @@ function renderSettingsModal(section) {
     body.appendChild(renderProfileSection());
   } else if (section === 'about') {
     body.appendChild(renderAboutSection());
+  } else if (section === 'sync') {
+    body.appendChild(renderCloudSyncSection());
   } else {
     body.appendChild(renderSettingsMenu());
   }
@@ -15358,6 +15777,7 @@ function renderSettingsMenu() {
   const items = [
     { id:'profile', icon:'👤', label:'Profile',          desc:'Your name, nickname, program label' },
     { id:'goals',   icon:'🎯', label:'Goals',           desc:'Body composition goals + macro targets' },
+    { id:'sync',    icon:'☁',  label:'Cloud Sync',       desc:'Optional: sync across devices via Google Drive' },
     { id:'about',   icon:'ℹ',  label:'About this app',  desc:'Storage, install, version info' },
     { id:'units',   icon:'📏', label:'Units',           desc:'Coming soon — toggle metric/imperial', disabled:true },
     { id:'reset',   icon:'🔄', label:'Reset App Data',  desc:'Coming soon — wipe local storage', disabled:true }
@@ -16295,7 +16715,8 @@ const TRAINING_STYLES = [
     description: '8-12 rep ranges, more isolation work, higher set counts. Optimal for building muscle and recomposition. Default for most cuts, recomps, and lean bulks.',
     previewExamples: ['DB Bench Press × 8-10', 'Cable Lateral Raise × 12-15', 'Bulgarian Split Squat × 10-12'],
     macroHint: 'Balanced macros · standard fat split',
-    status: 'live'
+    status: 'live',
+    tier: 'top'
   },
   {
     id: 'strength',
@@ -16305,7 +16726,8 @@ const TRAINING_STYLES = [
     description: '3-6 rep range on big lifts (squat/bench/deadlift/OHP/row), 6-10 on accessories. Linear progression friendly — clean +2.5kg/+5kg jumps signal real gains.',
     previewExamples: ['Barbell Bench × 3-5', 'Back Squat × 3-5', 'Weighted Pull-Up × 4-6'],
     macroHint: 'Slightly higher carbs · supports glycogen for heavy sets',
-    status: 'live'
+    status: 'live',
+    tier: 'top'
   },
   {
     id: 'powerlifting',
@@ -16315,7 +16737,8 @@ const TRAINING_STYLES = [
     description: '1-5 rep range on the big three, paused variants, accessories tuned to weak points (lockout, off-the-floor, hip hinge). Competition-style.',
     previewExamples: ['Comp Bench × 1-3 (3s pause)', 'Comp Squat × 1-3', 'Comp Deadlift × 1-3'],
     macroHint: 'Higher carbs · maximal glycogen for max-effort lifts',
-    status: 'live'
+    status: 'live',
+    tier: 'top'
   },
   {
     id: 'calisthenics',
@@ -16325,7 +16748,64 @@ const TRAINING_STYLES = [
     description: 'Pull/push/squat hierarchies with skill work (planche, lever, handstand) and density. Less load-driven, more rep- and skill-focused.',
     previewExamples: ['Pull-Up × max reps', 'Pistol Squat × 4-6 each', 'L-Sit Hold × max time'],
     macroHint: 'Slightly leaner carb split · more flexible fueling',
-    status: 'live'
+    status: 'live',
+    tier: 'top'
+  },
+  {
+    id: 'endurance',
+    label: 'Endurance',
+    icon: '🏃',
+    short: 'Run / cycle / row · cardio focus',
+    description: 'Zone-based cardio (Z2 base + threshold intervals + long efforts) with strength maintenance to prevent injury. Pick your sport — efforts framed by effort, not gear (no HR monitor needed).',
+    previewExamples: ['Z2 Cardio × 45-60 min (conversational)', '5×3-5 min @ threshold', 'Romanian Deadlift × 5-6'],
+    macroHint: 'Higher carbs · maximal glycogen support for intervals',
+    status: 'live',
+    tier: 'top'
+  },
+  {
+    id: 'sport',
+    label: 'Sport-Specific',
+    icon: '⛹',
+    short: 'Your sport drives the plan',
+    description: 'Strength as injury prevention + power expression. Olympic-lift variants, plyometrics, multi-planar work. Your sport practice IS the primary stimulus — schedule it on the practice day.',
+    previewExamples: ['Hang Clean × 3-5 (power)', 'Box Jump × 3 (full recovery)', 'Sport Practice × 60-90 min'],
+    macroHint: 'Slightly higher carbs · supports glycolytic power demands',
+    status: 'live',
+    tier: 'top'
+  },
+  // ── HYBRIDS (tier: 'hybrid') — surfaced via the Hybrid category card ──
+  {
+    id: 'hybrid_cali_strength',
+    label: 'Calisthenics + Strength',
+    icon: '⚡🤸',
+    short: 'Heavy compounds + skill day + conditioning',
+    description: 'The original FLOW plan philosophy. Heavy bench/squat/deadlift days, a dedicated calisthenics skill day (muscle-ups, planche, L-sit, lever), and sprint intervals on legs. Built for advanced lifters who refuse to choose between strength numbers and bodyweight skill.',
+    previewExamples: ['Bench Press × 6-8 + Push-Up finisher', 'Muscle-Up Progressions × 3-5', 'Squat × 6-8 + Sprint Intervals × 6×40m'],
+    macroHint: 'Strength-leaning carbs · supports compound + conditioning load',
+    status: 'live',
+    tier: 'hybrid'
+  },
+  {
+    id: 'hybrid_powerbuilding',
+    label: 'Powerbuilding',
+    icon: '⚡💪',
+    short: 'Heavy strength + hypertrophy volume',
+    description: 'The most popular hybrid in lifting. Heavy 3-5 rep main lifts anchor each day; 8-12 rep hypertrophy accessories drive visible muscle. Best for intermediates who want a stronger squat AND bigger arms.',
+    previewExamples: ['Barbell Bench × 3-5 + Incline DB × 8-10', 'Deadlift × 3-5 + Barbell Row × 6-8', 'Squat × 3-5 + Leg Press × 10-12'],
+    macroHint: 'Moderate carbs · between strength and hypertrophy splits',
+    status: 'live',
+    tier: 'hybrid'
+  },
+  {
+    id: 'hybrid_endurance_strength',
+    label: 'Endurance + Strength',
+    icon: '⚡🏃',
+    short: 'Cardio schedule + heavy legs',
+    description: 'For runners and cyclists who refuse to let strength regress. Endurance-style schedule (Z2 base + threshold intervals + posterior chain maintenance) but legs day is HEAVY squats and RDLs, not Z2. Best for hybrid athletes chasing both a sub-3 marathon AND a 1.5x bodyweight squat.',
+    previewExamples: ['Z2 Cardio × 45-60 min', '5×3-5 min @ threshold', 'Barbell Squat × 3-5 (heavy)'],
+    macroHint: 'High carbs · supports both glycogen and heavy lifting',
+    status: 'live',
+    tier: 'hybrid'
   },
   {
     id: 'general',
@@ -16335,9 +16815,17 @@ const TRAINING_STYLES = [
     description: 'The original FLOW program — balanced strength, hypertrophy, and conditioning. Sits between the others. This is what the app uses if you skip this step.',
     previewExamples: ['Mixed: compound + isolation', 'Strength + hypertrophy blend', 'Standard volume across patterns'],
     macroHint: 'Balanced macros · standard fat split',
-    status: 'default'
+    status: 'default',
+    tier: 'top'
   }
 ];
+
+// Hybrid style IDs — used by the two-tier picker and migration logic
+const HYBRID_STYLE_IDS = ['hybrid_cali_strength', 'hybrid_powerbuilding', 'hybrid_endurance_strength'];
+
+function isHybridStyle(styleId) {
+  return HYBRID_STYLE_IDS.indexOf(styleId) !== -1;
+}
 
 function renderWizStep4TrainingStyle() {
   const wrap = div({});
@@ -16348,7 +16836,18 @@ function renderWizStep4TrainingStyle() {
   // common pairing without taking the choice away.
   const suggested = suggestedStyleForGoal(wizardState.goalTypeId);
 
-  TRAINING_STYLES.forEach(ts => {
+  // Two-tier picker: top-level styles render directly. Hybrid styles are
+  // hidden behind a "Hybrid" category card that expands inline on tap.
+  // Auto-expand if the current selection IS a hybrid (so the user can see
+  // their choice highlighted).
+  const currentIsHybrid = isHybridStyle(wizardState.trainingStyle);
+  if (currentIsHybrid && wizardState._hybridExpanded == null) {
+    wizardState._hybridExpanded = true;
+  }
+  const hybridExpanded = !!wizardState._hybridExpanded;
+
+  // Helper to render a single style card (shared between top-tier and hybrid sub-tier)
+  function renderStyleCard(ts) {
     const isSelected = wizardState.trainingStyle === ts.id;
     const isAvailable = ts.status === 'live' || ts.status === 'default';
     const isSuggested = ts.id === suggested && !isSelected;
@@ -16369,7 +16868,6 @@ function renderWizStep4TrainingStyle() {
           return;
         }
         wizardState.trainingStyle = ts.id;
-        // Phase C: explicit choice — goal-type changes no longer auto-override
         wizardState._trainingStyleManuallyPicked = true;
         renderSettingsModal('goal_wizard');
       }
@@ -16386,13 +16884,11 @@ function renderWizStep4TrainingStyle() {
     }, ts.short));
     topRow.appendChild(titleCol);
 
-    // Status badges — selected, suggested, or coming soon, in priority order
     if (ts.status === 'coming_soon') {
       topRow.appendChild(el('span',{
         style:{fontSize:'8px',color:'#fbbf24',background:'#fbbf2422',padding:'2px 6px',borderRadius:'4px',letterSpacing:'0.1em',textTransform:'uppercase',fontWeight:'700',flexShrink:'0'}
       }, 'Soon'));
     } else if (isSuggested) {
-      // "Suggested for your goal" indicator — cyan to match other recommendation cues
       topRow.appendChild(el('span',{
         style:{fontSize:'8px',color:'#3bdfff',background:'#3bdfff18',padding:'2px 6px',borderRadius:'4px',letterSpacing:'0.1em',textTransform:'uppercase',fontWeight:'700',flexShrink:'0'}
       }, '✦ Suggested'));
@@ -16407,9 +16903,6 @@ function renderWizStep4TrainingStyle() {
       style:{fontSize:'10px',color:'#777',lineHeight:'1.5',marginTop:'4px'}
     }, ts.description));
 
-    // Phase C: example exercises preview — gives users a concrete sense of what
-    // the style looks like in practice before they commit. Three example rows
-    // capture the flavor (rep range, exercise type, intensity).
     if (Array.isArray(ts.previewExamples) && ts.previewExamples.length) {
       const examples = div({
         marginTop:'10px',
@@ -16433,9 +16926,6 @@ function renderWizStep4TrainingStyle() {
       card.appendChild(examples);
     }
 
-    // Phase C: macro hint — surfaces the carb/fat shift for this style.
-    // Subtle, single-line; the wizard's macro summary at the review step
-    // shows the actual numbers.
     if (ts.macroHint) {
       card.appendChild(el('div',{
         style:{
@@ -16447,8 +16937,87 @@ function renderWizStep4TrainingStyle() {
       }, '⊕ ' + ts.macroHint));
     }
 
-    wrap.appendChild(card);
+    return card;
+  }
+
+  // Render: top-level single styles (skip 'general' — it goes at the bottom)
+  TRAINING_STYLES.forEach(ts => {
+    if (ts.tier !== 'top') return;
+    if (ts.id === 'general') return;
+    wrap.appendChild(renderStyleCard(ts));
   });
+
+  // ── Hybrid category card ──
+  // Gradient-bordered card that expands inline to show all three hybrid presets.
+  // Highlights as "selected-state" when a hybrid is the current pick.
+  const hybridCategoryCard = el('button', {
+    class: 'btn',
+    style: {
+      display: 'block', width: '100%', textAlign: 'left',
+      background: currentIsHybrid
+        ? 'linear-gradient(135deg, rgba(176,59,255,0.14), rgba(59,223,255,0.06))'
+        : 'linear-gradient(135deg, rgba(176,59,255,0.08), rgba(59,223,255,0.03))',
+      border: '1px solid ' + (currentIsHybrid ? '#b03bff' : '#3bdfff44'),
+      borderRadius: '12px', padding: '14px 16px', marginBottom: '8px',
+      cursor: 'pointer', transition: 'all 0.18s ease'
+    },
+    onclick: () => {
+      wizardState._hybridExpanded = !hybridExpanded;
+      renderSettingsModal('goal_wizard');
+    }
+  });
+  const hybridTop = div({display:'flex',alignItems:'baseline',gap:'10px',marginBottom:'4px'});
+  hybridTop.appendChild(el('span',{style:{fontSize:'18px',flexShrink:'0'}}, '◈'));
+  const hybridTitleCol = div({flex:'1'});
+  hybridTitleCol.appendChild(el('div',{
+    style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'16px',color: currentIsHybrid ? '#b03bff' : '#e0e0e0',letterSpacing:'0.03em'}
+  }, 'Hybrid Programming'));
+  hybridTitleCol.appendChild(el('div',{
+    style:{fontSize:'9px',color:'#888',letterSpacing:'0.05em',marginTop:'2px'}
+  }, '3 presets · combine multiple philosophies in one plan'));
+  hybridTop.appendChild(hybridTitleCol);
+  // Expand/collapse indicator
+  hybridTop.appendChild(el('span', {
+    style: {fontSize: '14px', color: '#888', flexShrink: '0', transition: 'transform 0.18s ease', transform: hybridExpanded ? 'rotate(90deg)' : 'rotate(0deg)'}
+  }, '›'));
+  hybridCategoryCard.appendChild(hybridTop);
+  hybridCategoryCard.appendChild(el('div',{
+    style:{fontSize:'10px',color:'#999',lineHeight:'1.5',marginTop:'4px'}
+  }, 'For advanced trainees running multiple disciplines at once — strength compounds + calisthenics skills, or endurance + heavy lifting. Tap to expand.'));
+  // Show currently-selected hybrid badge if relevant
+  if (currentIsHybrid) {
+    const selectedHybrid = TRAINING_STYLES.find(ts => ts.id === wizardState.trainingStyle);
+    if (selectedHybrid) {
+      hybridCategoryCard.appendChild(el('div',{
+        style:{
+          fontSize:'9px', color:'#b03bff', marginTop:'8px',
+          fontFamily:"'DM Mono',monospace", letterSpacing:'0.08em',
+          background:'#b03bff15', padding:'4px 8px', borderRadius:'4px',
+          display:'inline-block'
+        }
+      }, '◇ Selected: ' + selectedHybrid.label));
+    }
+  }
+  wrap.appendChild(hybridCategoryCard);
+
+  // ── Hybrid sub-options (rendered inside an indented section when expanded) ──
+  if (hybridExpanded) {
+    const subSection = div({
+      marginLeft: '12px',
+      paddingLeft: '12px',
+      borderLeft: '2px solid #b03bff44',
+      marginBottom: '8px'
+    });
+    TRAINING_STYLES.forEach(ts => {
+      if (ts.tier !== 'hybrid') return;
+      subSection.appendChild(renderStyleCard(ts));
+    });
+    wrap.appendChild(subSection);
+  }
+
+  // ── General Fitness at the bottom (the no-opinion fallback) ──
+  const general = TRAINING_STYLES.find(ts => ts.id === 'general');
+  if (general) wrap.appendChild(renderStyleCard(general));
 
   return wrap;
 }
@@ -20351,9 +20920,24 @@ function registerServiceWorker() {
       });
     });
   }).catch(err => {
-    // Registration can fail on private browsing, certain WebViews, etc.
-    // Fail silently — the app still works without SW, just no offline.
-    console.warn('[PWA] Service worker registration failed:', err);
+    // Registration can fail in several contexts. We classify the failure
+    // and log appropriately:
+    //   • 404 (SW file missing): the HTML is being viewed outside its
+    //     deployment context (Claude preview, ad-hoc upload, etc). Expected
+    //     and harmless — log as info, not warning.
+    //   • Anything else (private browsing, security policy, WebView limits,
+    //     network error): legitimate runtime issue worth surfacing.
+    // The app still works fully in either case — service worker only adds
+    // offline support + update banners; everything else is local-first.
+    const msg = err && err.message ? err.message : String(err);
+    const isMissingFile = msg.indexOf('404') >= 0 ||
+                          msg.indexOf('bad HTTP response') >= 0 ||
+                          msg.indexOf('not found') >= 0;
+    if (isMissingFile) {
+      console.info('[PWA] Service worker not registered — service-worker.js not found at this URL. Expected when viewing outside the deployed site.');
+    } else {
+      console.warn('[PWA] Service worker registration failed:', err);
+    }
   });
 
   // Reload when the new SW takes control (after user taps "Update")
@@ -20368,6 +20952,12 @@ function registerServiceWorker() {
 // ─── INIT ────────────────────────────────────────────────────────────
 registerServiceWorker();
 renderOfflineIndicator();
+// Auto-pull from cloud if sync is enabled (no-op when off — costs nothing
+// for users who haven't opted in). Runs 2s after boot so app renders first.
+initCloudSync();
+// Offer the one-time Hybrid upgrade to existing 'general' style users.
+// Silent for everyone else (already on a named style, or no locked profile).
+maybeOfferHybridUpgrade();
 // Defer iOS hint: wait until after first paint + user has had a moment to
 // see the app. 4 seconds is enough to load and orient, not so long that
 // they've already navigated away.
@@ -20449,6 +21039,895 @@ document.addEventListener('visibilitychange', () => {
     render();
   }
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ─── CLOUD SYNC ────────────────────────────────────────────────────────────
+// Optional Google Drive sync. Keeps your data on YOUR Google account in the
+// app's private folder (invisible to your normal Drive contents). Default
+// OFF — when disabled, the entire system is dormant and app behavior is
+// identical to pre-sync local-only mode.
+//
+// Architecture:
+//   • Per-key last-write-wins. Each localStorage key has its own cloud-side
+//     timestamp. Conflicts (both local and remote changed since last sync)
+//     surface a modal for user resolution.
+//   • Dirty-set tracking. localStorage.setItem is wrapped to mark syncable
+//     keys as "needs push". The wrap is transparent — pre-sync code paths
+//     don't know it exists. Non-syncable keys (UI state, scaling caches) are
+//     ignored by the wrap.
+//   • One cloud file (flow-sync.json) holds all entries. Reduces API quota
+//     usage vs one file per key. ~50-100 KB for an active user.
+//   • Debounced auto-push: 30s after the last write, batch-push everything
+//     dirty. Manual "Sync Now" forces an immediate pull+push.
+//
+// What's deliberately NOT in scope:
+//   • Client-side passphrase encryption (Google's at-rest encryption is the
+//     v1 threat model; can add zero-knowledge layer later)
+//   • Service worker offline queue (failed pushes leave keys dirty, retry on
+//     next attempt — simpler than SW message-passing)
+//   • Real-time collaboration (eventual consistency only — you push, your
+//     partner pulls)
+
+const SYNC_FILE_NAME = 'flow-sync.json';
+const SYNC_SCHEMA_VERSION = 1;
+const SYNC_DEBOUNCE_MS = 30000;  // 30s after last write before auto-push
+const GOOGLE_DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+const GOOGLE_GIS_SRC = 'https://accounts.google.com/gsi/client';
+
+// Allowlist of localStorage key prefixes that should sync. Anything not
+// matching is treated as per-device state (UI prefs, scaling caches, etc).
+// Add new prefixes here when introducing new persistent data.
+const SYNC_KEY_PREFIXES = [
+  'fraser_goal_profile_v1',
+  'fraser_user_profile_v1',
+  'fraser_metrics_',
+  'fraser_weekplan_',
+  'fraser_workout_',
+  'fraser_nutri_',
+  'fraser_water_',
+  'fraser_mealswap_',
+  'fraser_dayorder_',
+  'fraser_exswap_',
+  'fraser_custom_exercises_v1',
+  'fraser_meal_keep_',
+  'fraser_carry_check_',
+  'fraser_pantry_',
+  'fraser_shopping_',
+  'fraser_shopping_settings_v1',
+  'fraser_prepflag_'
+];
+
+function isSyncableKey(key) {
+  if (typeof key !== 'string') return false;
+  return SYNC_KEY_PREFIXES.some(p => key.indexOf(p) === 0);
+}
+
+// ─── SYNC STATE ────────────────────────────────────────────────────────────
+// Persisted across sessions. Survives reload; doesn't sync itself (recursion).
+// Holds:
+//   • enabled        — toggle for the whole subsystem
+//   • clientId       — user's Google OAuth client ID (one-time setup)
+//   • accessToken    — short-lived (1hr) Google API token; null when expired
+//   • tokenExpiresAt — epoch ms when the access token expires
+//   • lastSyncAt     — epoch ms of this device's last successful sync
+//   • email          — user's Google email (for display)
+//   • deviceId       — random ID for this device (helps trace which device wrote what)
+//   • dirtyKeys      — array of key names that have changed since last push
+const SYNC_STATE_KEY = '_flow_sync_state_v1';
+
+function getCloudSyncState() {
+  try {
+    const raw = localStorage.getItem(SYNC_STATE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return Object.assign({
+      enabled: false,
+      clientId: null,
+      accessToken: null,
+      tokenExpiresAt: 0,
+      lastSyncAt: 0,
+      email: null,
+      deviceId: null,
+      dirtyKeys: []
+    }, parsed);
+  } catch(e) {
+    return { enabled: false, clientId: null, accessToken: null, tokenExpiresAt: 0, lastSyncAt: 0, email: null, deviceId: null, dirtyKeys: [] };
+  }
+}
+
+function setCloudSyncState(patch) {
+  const cur = getCloudSyncState();
+  const next = Object.assign({}, cur, patch);
+  try { localStorage.setItem(SYNC_STATE_KEY, JSON.stringify(next)); } catch(e) {}
+  return next;
+}
+
+function ensureDeviceId() {
+  const s = getCloudSyncState();
+  if (s.deviceId) return s.deviceId;
+  // Random short ID — not cryptographically meaningful, just for trace logging
+  const id = 'd-' + Math.random().toString(36).slice(2, 10);
+  setCloudSyncState({ deviceId: id });
+  return id;
+}
+
+// ─── DIRTY KEY TRACKING ────────────────────────────────────────────────────
+// Wraps localStorage.setItem at app boot. Every write to a syncable key gets
+// added to the dirty set in sync state. The wrap is a no-op for non-syncable
+// keys and for users who never enable sync — it just checks the prefix and
+// the enabled flag. ~microsecond overhead, no measurable impact.
+//
+// The wrap is installed exactly once at boot (guard against double-wrap on
+// hot reload). The suppress flag is honored to prevent pull-applied writes
+// from being re-marked dirty (which would cause echo-pushes).
+let _syncSuppressDirty = false;
+function withSuppressedDirty(fn) {
+  _syncSuppressDirty = true;
+  try { fn(); }
+  finally { _syncSuppressDirty = false; }
+}
+(function installSyncWriteHook() {
+  if (Storage.prototype._flowSyncWrapped) return;
+  // Capture the TRUE native setItem before we touch the prototype.
+  // This reference is closed over by the wrapper so suppress mode can call
+  // through cleanly without re-entering the dirty-tracking logic.
+  const _origSetItem = Storage.prototype.setItem;
+  Storage.prototype._flowSyncWrapped = true;
+  Storage.prototype.setItem = function(key, value) {
+    // Always write through to the real backing store first
+    _origSetItem.call(this, key, value);
+    // Skip tracking if we're inside a pull-apply (avoids echo-pushes)
+    if (_syncSuppressDirty) return;
+    // Only track writes to localStorage (not sessionStorage)
+    if (this !== localStorage) return;
+    if (!isSyncableKey(key)) return;
+    // Defensive try/catch — sync state corruption shouldn't break writes
+    try {
+      const s = getCloudSyncState();
+      if (!s.enabled) return;
+      if (s.dirtyKeys.indexOf(key) !== -1) return;
+      const nextDirty = s.dirtyKeys.concat([key]);
+      setCloudSyncState({ dirtyKeys: nextDirty });
+      schedulePushDebounced();
+    } catch(e) {
+      // Silent — the write itself already succeeded
+    }
+  };
+})();
+
+function getDirtyKeys() {
+  return getCloudSyncState().dirtyKeys.slice();
+}
+
+function clearDirtyKeys(keysToClear) {
+  const s = getCloudSyncState();
+  if (!keysToClear) {
+    setCloudSyncState({ dirtyKeys: [] });
+    return;
+  }
+  const set = new Set(keysToClear);
+  const remaining = s.dirtyKeys.filter(k => !set.has(k));
+  setCloudSyncState({ dirtyKeys: remaining });
+}
+
+// ─── SERIALIZATION ─────────────────────────────────────────────────────────
+// Build the payload to push to cloud. For each dirty key, take its current
+// localStorage value and timestamp it as "now". Non-dirty keys are not
+// touched — they remain at whatever the cloud already has.
+function serializeDirtyForPush(currentRemoteEntries) {
+  const dirtyKeys = getDirtyKeys();
+  const now = Date.now();
+  const deviceId = ensureDeviceId();
+  const entries = Object.assign({}, currentRemoteEntries || {});
+  dirtyKeys.forEach(key => {
+    const value = localStorage.getItem(key);
+    if (value === null) {
+      // Local key was deleted — mark as tombstoned (null value) so other
+      // devices know to delete on pull
+      entries[key] = { value: null, updatedAt: now, device: deviceId, deleted: true };
+    } else {
+      entries[key] = { value: value, updatedAt: now, device: deviceId };
+    }
+  });
+  return entries;
+}
+
+// Apply a remote payload to localStorage. Categorizes each remote key as:
+//   • new        — key not in localStorage; just write it
+//   • newer      — remote.updatedAt > our lastSyncAt; write it
+//   • conflict   — remote changed AND we have it dirty locally
+//   • unchanged  — remote.updatedAt <= our lastSyncAt; skip
+// Returns conflict list for user resolution.
+function classifyRemoteEntries(remoteEntries) {
+  const s = getCloudSyncState();
+  const lastSync = s.lastSyncAt || 0;
+  const dirtyKeys = new Set(s.dirtyKeys);
+  const conflicts = [];
+  const toApply = [];
+  const tombstones = [];
+  Object.keys(remoteEntries || {}).forEach(key => {
+    const entry = remoteEntries[key];
+    if (!entry || typeof entry !== 'object') return;
+    const remoteUpdatedAt = entry.updatedAt || 0;
+    const remoteChanged = remoteUpdatedAt > lastSync;
+    const localDirty = dirtyKeys.has(key);
+    if (remoteChanged && localDirty) {
+      conflicts.push({ key, remoteEntry: entry, localValue: localStorage.getItem(key) });
+    } else if (remoteChanged) {
+      if (entry.deleted) {
+        tombstones.push(key);
+      } else {
+        toApply.push({ key, value: entry.value });
+      }
+    }
+    // else: unchanged remote, no action
+  });
+  return { conflicts, toApply, tombstones };
+}
+
+// Suppress dirty-tracking during a programmatic write (we don't want
+// pull-applied writes to flag those keys as needing push). The suppress
+// flag and withSuppressedDirty are defined above with the single hook —
+// applyRemoteEntries and applyTombstones use it directly.
+
+function applyRemoteEntries(entries) {
+  withSuppressedDirty(() => {
+    entries.forEach(({ key, value }) => {
+      if (value === null || value === undefined) {
+        localStorage.removeItem(key);
+      } else {
+        localStorage.setItem(key, value);
+      }
+    });
+  });
+}
+
+function applyTombstones(keys) {
+  withSuppressedDirty(() => {
+    keys.forEach(key => localStorage.removeItem(key));
+  });
+}
+
+// ─── GOOGLE IDENTITY / DRIVE CLIENT ────────────────────────────────────────
+// Lazy-loaded — only fetched when user actually enables sync. Default-off
+// users never pull Google's tracker bundle.
+let _gisLoaded = false;
+let _gisLoadPromise = null;
+
+function loadGoogleIdentityServices() {
+  if (_gisLoaded) return Promise.resolve();
+  if (_gisLoadPromise) return _gisLoadPromise;
+  _gisLoadPromise = new Promise((resolve, reject) => {
+    if (window.google && window.google.accounts) { _gisLoaded = true; resolve(); return; }
+    const s = document.createElement('script');
+    s.src = GOOGLE_GIS_SRC;
+    s.async = true; s.defer = true;
+    s.onload = () => { _gisLoaded = true; resolve(); };
+    s.onerror = () => reject(new Error('Failed to load Google Identity Services'));
+    document.head.appendChild(s);
+  });
+  return _gisLoadPromise;
+}
+
+// Request a fresh Google access token. Uses GIS popup auth; if the user is
+// already signed in to Google in this browser, this is silent (no popup).
+// Tokens are 1hr-lived. We don't get refresh tokens (client-side flow).
+function requestGoogleAccessToken(clientId, prompt) {
+  return loadGoogleIdentityServices().then(() => new Promise((resolve, reject) => {
+    if (!window.google || !window.google.accounts || !window.google.accounts.oauth2) {
+      reject(new Error('GIS not available')); return;
+    }
+    const tokenClient = window.google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: GOOGLE_DRIVE_SCOPE,
+      callback: (resp) => {
+        if (resp && resp.access_token) {
+          resolve({
+            accessToken: resp.access_token,
+            expiresAt: Date.now() + (resp.expires_in ? resp.expires_in * 1000 : 3600 * 1000)
+          });
+        } else {
+          reject(new Error('Token response missing access_token'));
+        }
+      },
+      error_callback: (err) => reject(err || new Error('OAuth error'))
+    });
+    // prompt='' allows silent re-auth if session is valid; 'consent' forces dialog
+    tokenClient.requestAccessToken({ prompt: prompt || '' });
+  }));
+}
+
+// Wrapper: get a valid access token, requesting a new one if expired.
+function getValidAccessToken() {
+  const s = getCloudSyncState();
+  if (!s.clientId) return Promise.reject(new Error('No client ID configured'));
+  // 60s safety buffer — refresh if expiring soon
+  if (s.accessToken && s.tokenExpiresAt > Date.now() + 60000) {
+    return Promise.resolve(s.accessToken);
+  }
+  return requestGoogleAccessToken(s.clientId).then(tok => {
+    setCloudSyncState({ accessToken: tok.accessToken, tokenExpiresAt: tok.expiresAt });
+    return tok.accessToken;
+  });
+}
+
+// Drive API helpers — minimal surface, no gapi.client dependency
+function driveFetch(url, opts) {
+  return getValidAccessToken().then(token => {
+    const merged = Object.assign({}, opts || {});
+    merged.headers = Object.assign({}, (opts && opts.headers) || {}, {
+      'Authorization': 'Bearer ' + token
+    });
+    return fetch(url, merged).then(r => {
+      if (!r.ok) throw new Error('Drive API ' + r.status + ': ' + r.statusText);
+      return r;
+    });
+  });
+}
+
+// Find our sync file in AppDataFolder. Returns fileId or null.
+function driveFindSyncFile() {
+  const q = encodeURIComponent("name='" + SYNC_FILE_NAME + "' and trashed=false");
+  const url = 'https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=' + q + '&fields=files(id,name,modifiedTime)';
+  return driveFetch(url).then(r => r.json()).then(data => {
+    if (data.files && data.files.length > 0) return data.files[0].id;
+    return null;
+  });
+}
+
+function driveReadSyncFile(fileId) {
+  return driveFetch('https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media').then(r => r.json());
+}
+
+function driveCreateSyncFile(content) {
+  // Multipart upload — metadata + content in one request
+  const boundary = '-------flow-sync-boundary-' + Date.now();
+  const meta = { name: SYNC_FILE_NAME, parents: ['appDataFolder'] };
+  const body =
+    '--' + boundary + '\r\n' +
+    'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+    JSON.stringify(meta) + '\r\n' +
+    '--' + boundary + '\r\n' +
+    'Content-Type: application/json\r\n\r\n' +
+    JSON.stringify(content) + '\r\n' +
+    '--' + boundary + '--';
+  return driveFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+    method: 'POST',
+    headers: { 'Content-Type': 'multipart/related; boundary="' + boundary + '"' },
+    body: body
+  }).then(r => r.json()).then(data => data.id);
+}
+
+function driveUpdateSyncFile(fileId, content) {
+  return driveFetch('https://www.googleapis.com/upload/drive/v3/files/' + fileId + '?uploadType=media', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(content)
+  }).then(r => r.json()).then(data => data.id);
+}
+
+function driveGetUserEmail() {
+  // Drive's `about` endpoint exposes the user's email; we use this to display
+  // "Connected as foo@example.com" in settings.
+  return driveFetch('https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)').then(r => r.json())
+    .then(data => (data && data.user && data.user.emailAddress) || null);
+}
+
+// ─── PULL / PUSH ORCHESTRATION ─────────────────────────────────────────────
+// Public surface: cloudSyncNow() does both directions. cloudSyncPull() and
+// cloudSyncPush() are exposed for granular control.
+let _syncInProgress = false;
+let _pushDebounceTimer = null;
+
+function schedulePushDebounced() {
+  if (_pushDebounceTimer) clearTimeout(_pushDebounceTimer);
+  _pushDebounceTimer = setTimeout(() => {
+    _pushDebounceTimer = null;
+    if (getCloudSyncState().enabled && !_syncInProgress) {
+      cloudSyncPush().catch(() => {/* silent — failed pushes leave keys dirty */});
+    }
+  }, SYNC_DEBOUNCE_MS);
+}
+
+function cloudSyncPull() {
+  if (_syncInProgress) return Promise.reject(new Error('Sync already in progress'));
+  _syncInProgress = true;
+  return driveFindSyncFile().then(fileId => {
+    if (!fileId) {
+      // No remote file yet — first device. Nothing to pull.
+      _syncInProgress = false;
+      return { conflicts: [], applied: 0, tombstoned: 0 };
+    }
+    return driveReadSyncFile(fileId).then(remote => {
+      const { conflicts, toApply, tombstones } = classifyRemoteEntries(remote.entries || {});
+      if (conflicts.length === 0) {
+        applyRemoteEntries(toApply);
+        applyTombstones(tombstones);
+      }
+      _syncInProgress = false;
+      return { conflicts, applied: toApply.length, tombstoned: tombstones.length, fileId, remote };
+    });
+  }).catch(err => {
+    _syncInProgress = false;
+    throw err;
+  });
+}
+
+function cloudSyncPush() {
+  if (_syncInProgress) return Promise.reject(new Error('Sync already in progress'));
+  _syncInProgress = true;
+  const snapshotDirty = getDirtyKeys();
+  return driveFindSyncFile().then(fileId => {
+    const readPromise = fileId ? driveReadSyncFile(fileId).catch(() => ({})) : Promise.resolve({});
+    return readPromise.then(remote => {
+      const updatedEntries = serializeDirtyForPush(remote.entries || {});
+      const payload = { version: SYNC_SCHEMA_VERSION, entries: updatedEntries };
+      const writePromise = fileId
+        ? driveUpdateSyncFile(fileId, payload)
+        : driveCreateSyncFile(payload);
+      return writePromise.then(() => {
+        // Clear ONLY the keys we just pushed (preserves any writes that came
+        // in DURING the network call)
+        clearDirtyKeys(snapshotDirty);
+        setCloudSyncState({ lastSyncAt: Date.now() });
+        _syncInProgress = false;
+        return { pushed: snapshotDirty.length };
+      });
+    });
+  }).catch(err => {
+    _syncInProgress = false;
+    throw err;
+  });
+}
+
+// Full sync cycle. Pull first to catch remote changes, then push our dirty.
+// On conflicts, returns the conflict list — caller surfaces a modal.
+function cloudSyncNow() {
+  return cloudSyncPull().then(pullResult => {
+    if (pullResult.conflicts.length > 0) {
+      // Stop here — UI will prompt user to resolve, then re-call cloudSyncNow
+      return { phase: 'conflicts', conflicts: pullResult.conflicts };
+    }
+    return cloudSyncPush().then(pushResult => ({
+      phase: 'complete',
+      applied: pullResult.applied,
+      tombstoned: pullResult.tombstoned,
+      pushed: pushResult.pushed
+    }));
+  });
+}
+
+// Conflict resolution — pass an array of { key, choice: 'local'|'remote' }
+function resolveConflicts(resolutions) {
+  if (!resolutions || resolutions.length === 0) return Promise.resolve();
+  // Apply 'remote' choices to localStorage; 'local' choices are no-ops
+  // (they'll be pushed in the next sync since they're still in dirtyKeys).
+  // For 'remote' choices, also clear those keys from dirtyKeys.
+  const remoteChosen = resolutions.filter(r => r.choice === 'remote');
+  const localChosen = resolutions.filter(r => r.choice === 'local');
+  applyRemoteEntries(remoteChosen.map(r => ({ key: r.key, value: r.remoteValue })));
+  clearDirtyKeys(remoteChosen.map(r => r.key));
+  // 'local' choices: keys stay dirty, will overwrite remote on next push
+  return Promise.resolve({ remote: remoteChosen.length, local: localChosen.length });
+}
+
+// ─── SYNC ENABLE / DISABLE ─────────────────────────────────────────────────
+function enableCloudSync(clientId) {
+  if (!clientId || !clientId.trim()) return Promise.reject(new Error('Client ID required'));
+  return requestGoogleAccessToken(clientId.trim(), 'consent').then(tok => {
+    setCloudSyncState({
+      enabled: true,
+      clientId: clientId.trim(),
+      accessToken: tok.accessToken,
+      tokenExpiresAt: tok.expiresAt,
+      lastSyncAt: 0,
+      dirtyKeys: []
+    });
+    ensureDeviceId();
+    return driveGetUserEmail().then(email => {
+      setCloudSyncState({ email: email });
+      return email;
+    });
+  });
+}
+
+// Disable: tears down local sync state and (optionally) purges the cloud
+// file. Local data stays intact — the user keeps everything they have.
+function disableCloudSync(purgeCloud) {
+  const finish = () => {
+    setCloudSyncState({
+      enabled: false,
+      accessToken: null,
+      tokenExpiresAt: 0,
+      lastSyncAt: 0,
+      email: null,
+      dirtyKeys: []
+    });
+  };
+  if (!purgeCloud) { finish(); return Promise.resolve(); }
+  return driveFindSyncFile().then(fileId => {
+    if (!fileId) { finish(); return; }
+    return driveFetch('https://www.googleapis.com/drive/v3/files/' + fileId, { method: 'DELETE' })
+      .then(() => finish())
+      .catch(() => finish());  // best-effort — disable locally either way
+  });
+}
+
+// ─── SETTINGS UI ───────────────────────────────────────────────────────────
+function renderCloudSyncSection() {
+  const wrap = div({});
+  const s = getCloudSyncState();
+
+  // Header / status card
+  const status = div({
+    background:'#0e0e0e',
+    border:'1px solid ' + (s.enabled ? '#06d6a055' : '#1e1e1e'),
+    borderRadius:'10px', padding:'14px 16px', marginBottom:'10px'
+  });
+  status.appendChild(el('div',{
+    style:{fontSize:'8px',color:s.enabled?'#06d6a0':'#3bdfff',letterSpacing:'0.25em',textTransform:'uppercase',fontWeight:'700',marginBottom:'4px'}
+  }, '☁ Cloud Sync · ' + (s.enabled ? 'Enabled' : 'Off')));
+  if (s.enabled) {
+    if (s.email) {
+      status.appendChild(el('div', {style:{fontSize:'12px',color:'#ccc',fontFamily:"'DM Mono',monospace",marginBottom:'4px'}}, s.email));
+    }
+    const lastSyncTxt = s.lastSyncAt
+      ? 'Last synced ' + formatRelativeTime(s.lastSyncAt)
+      : 'Not synced yet';
+    status.appendChild(el('div', {style:{fontSize:'10px',color:'#888',lineHeight:'1.5'}}, lastSyncTxt));
+    const dirtyCount = s.dirtyKeys.length;
+    if (dirtyCount > 0) {
+      status.appendChild(el('div', {
+        style:{fontSize:'9px',color:'#fbbf24',marginTop:'4px',fontFamily:"'DM Mono',monospace"}
+      }, '◐ ' + dirtyCount + ' change' + (dirtyCount===1?'':'s') + ' pending push'));
+    }
+  } else {
+    status.appendChild(el('div', {style:{fontSize:'10px',color:'#888',lineHeight:'1.55'}},
+      'Off by default. Your data is on this device only. Turn on to sync across your devices via your Google account.'));
+  }
+  wrap.appendChild(status);
+
+  if (s.enabled) {
+    // Sync Now button
+    const syncBtn = el('button',{
+      class:'btn',
+      style:{
+        width:'100%', background:'#06d6a0', color:'#000', border:'none',
+        padding:'14px', borderRadius:'10px', marginBottom:'8px',
+        fontFamily:"'DM Mono',monospace", fontSize:'11px',
+        letterSpacing:'0.18em', textTransform:'uppercase',
+        cursor:'pointer', fontWeight:'700'
+      },
+      onclick: () => {
+        syncBtn.textContent = '⟳ Syncing…';
+        syncBtn.disabled = true;
+        cloudSyncNow().then(result => {
+          if (result.phase === 'conflicts') {
+            showConflictResolutionModal(result.conflicts);
+          } else {
+            showToast('✓ Sync complete · ' + result.applied + ' pulled, ' + result.pushed + ' pushed');
+            renderSettingsModal('sync');
+          }
+        }).catch(err => {
+          showToast('✗ Sync failed: ' + (err.message || 'unknown error'));
+          renderSettingsModal('sync');
+        });
+      }
+    }, '⟳ Sync Now');
+    wrap.appendChild(syncBtn);
+
+    // Disable button
+    const disableBtn = el('button',{
+      class:'btn',
+      style:{
+        width:'100%', background:'transparent', color:'#888',
+        border:'1px solid #2a2a2a', padding:'12px',
+        borderRadius:'10px', marginBottom:'8px',
+        fontFamily:"'DM Mono',monospace", fontSize:'10px',
+        letterSpacing:'0.18em', textTransform:'uppercase',
+        cursor:'pointer', fontWeight:'700'
+      },
+      onclick: async () => {
+        const purge = await showConfirm('Disable sync? Your local data stays. Also delete cloud copy?');
+        // showConfirm returns true/false — for tri-state we'd need a custom modal.
+        // For v1: disable + purge IF user confirms.
+        if (purge !== false) {
+          disableCloudSync(true).then(() => {
+            showToast('Sync disabled. Cloud data purged.');
+            renderSettingsModal('sync');
+          });
+        }
+      }
+    }, 'Disable Sync (purges cloud)');
+    wrap.appendChild(disableBtn);
+  } else {
+    // Setup flow
+    const setupBtn = el('button',{
+      class:'btn',
+      style:{
+        width:'100%', background:'#3bdfff', color:'#000', border:'none',
+        padding:'14px', borderRadius:'10px', marginBottom:'12px',
+        fontFamily:"'DM Mono',monospace", fontSize:'11px',
+        letterSpacing:'0.18em', textTransform:'uppercase',
+        cursor:'pointer', fontWeight:'700'
+      },
+      onclick: () => openSyncSetupModal()
+    }, '☁ Enable Cloud Sync');
+    wrap.appendChild(setupBtn);
+  }
+
+  // Privacy note
+  const privacy = div({
+    background:'#0a0a0a', border:'1px solid #1a1a1a',
+    borderRadius:'10px', padding:'12px 14px', marginBottom:'10px'
+  });
+  privacy.appendChild(el('div', {style:{fontSize:'8px',color:'#888',letterSpacing:'0.22em',textTransform:'uppercase',fontWeight:'700',marginBottom:'6px'}}, '◐ Privacy'));
+  privacy.appendChild(el('div', {style:{fontSize:'10px',color:'#aaa',lineHeight:'1.55'}},
+    'Data is stored in your own Google Drive in a hidden "App Data" folder — invisible to your regular Drive files. To revoke access at any time, go to your Google Account → Security → Third-party apps → remove FLOW Tracker.'));
+  wrap.appendChild(privacy);
+
+  return wrap;
+}
+
+function openSyncSetupModal() {
+  const overlay = el('div', {
+    style: {
+      position: 'fixed', top: '0', left: '0', right: '0', bottom: '0',
+      background: 'rgba(0,0,0,0.85)',
+      display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+      zIndex: '10001', padding: '40px 16px 16px', overflow: 'auto'
+    }
+  });
+  const modal = el('div',{
+    style:{
+      background:'#0e0e0e', border:'1px solid #2a2a2a',
+      borderRadius:'14px', padding:'18px', maxWidth:'480px', width:'100%',
+      boxShadow:'0 12px 40px rgba(0,0,0,0.85)'
+    }
+  });
+  modal.appendChild(el('div',{style:{fontSize:'8px',color:'#3bdfff',letterSpacing:'0.25em',textTransform:'uppercase',fontWeight:'700',marginBottom:'4px'}},'☁ Enable Cloud Sync'));
+  modal.appendChild(el('div',{style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'22px',color:'#ebebeb',letterSpacing:'0.04em',marginBottom:'14px'}},'Google Drive Setup'));
+
+  modal.appendChild(el('div', {style:{fontSize:'11px',color:'#aaa',lineHeight:'1.6',marginBottom:'14px'}},
+    'You need to create a Google OAuth Client ID once (5 minutes). After that, sign-in is one tap.'));
+
+  // Setup instructions
+  const steps = div({background:'#0a0a0a',border:'1px solid #1a1a1a',borderRadius:'8px',padding:'12px 14px',marginBottom:'14px'});
+  steps.appendChild(el('div', {style:{fontSize:'9px',color:'#666',letterSpacing:'0.18em',textTransform:'uppercase',fontWeight:'700',marginBottom:'8px'}}, 'One-time setup'));
+  [
+    '1. Go to console.cloud.google.com',
+    '2. Create a new project (any name)',
+    '3. APIs & Services → Library → enable "Google Drive API"',
+    '4. APIs & Services → Credentials → Create Credentials → OAuth client ID',
+    '5. Application type: Web application',
+    '6. Authorized JavaScript origins: paste your app URL (e.g. ' + location.origin + ')',
+    '7. Copy the Client ID (ends in .apps.googleusercontent.com)'
+  ].forEach(line => {
+    steps.appendChild(el('div', {style:{fontSize:'10px',color:'#ccc',marginBottom:'4px',lineHeight:'1.5'}}, line));
+  });
+  modal.appendChild(steps);
+
+  // Client ID input
+  const inputWrap = div({marginBottom:'14px'});
+  inputWrap.appendChild(el('div', {style:{fontSize:'9px',color:'#888',letterSpacing:'0.15em',textTransform:'uppercase',marginBottom:'6px',fontWeight:'700'}}, 'Client ID'));
+  const clientIdInput = el('input', {
+    type: 'text',
+    placeholder: 'xxxxxxxxxx.apps.googleusercontent.com',
+    style: {
+      width: '100%', background: '#080808', border: '1px solid #2a2a2a',
+      borderRadius: '6px', padding: '10px 12px',
+      fontFamily: "'DM Mono',monospace", fontSize: '11px',
+      color: '#e0e0e0', boxSizing: 'border-box'
+    }
+  });
+  inputWrap.appendChild(clientIdInput);
+  modal.appendChild(inputWrap);
+
+  // Buttons
+  const btnRow = div({display:'flex',gap:'8px'});
+  btnRow.appendChild(el('button',{
+    class:'btn',
+    style:{
+      flex:'1', background:'transparent', color:'#888',
+      border:'1px solid #2a2a2a', padding:'12px', borderRadius:'8px',
+      fontFamily:"'DM Mono',monospace", fontSize:'10px',
+      letterSpacing:'0.15em', textTransform:'uppercase',
+      cursor:'pointer', fontWeight:'700'
+    },
+    onclick: () => overlay.remove()
+  }, 'Cancel'));
+  const connectBtn = el('button',{
+    class:'btn',
+    style:{
+      flex:'2', background:'#3bdfff', color:'#000', border:'none',
+      padding:'12px', borderRadius:'8px',
+      fontFamily:"'DM Mono',monospace", fontSize:'10px',
+      letterSpacing:'0.15em', textTransform:'uppercase',
+      cursor:'pointer', fontWeight:'700'
+    },
+    onclick: () => {
+      const id = clientIdInput.value.trim();
+      if (!id) { showToast('Paste your Client ID'); return; }
+      connectBtn.textContent = '⟳ Connecting…';
+      connectBtn.disabled = true;
+      enableCloudSync(id).then(email => {
+        overlay.remove();
+        showToast('✓ Connected as ' + (email || 'Google account'));
+        // First sync — push everything currently in local storage so other
+        // devices can pull. Mark all syncable keys dirty.
+        const allKeys = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (isSyncableKey(k)) allKeys.push(k);
+        }
+        setCloudSyncState({ dirtyKeys: allKeys });
+        cloudSyncNow().then(() => renderSettingsModal('sync')).catch(() => renderSettingsModal('sync'));
+      }).catch(err => {
+        connectBtn.textContent = '☁ Connect';
+        connectBtn.disabled = false;
+        showToast('Setup failed: ' + (err.message || 'check your Client ID'));
+      });
+    }
+  }, '☁ Connect');
+  btnRow.appendChild(connectBtn);
+  modal.appendChild(btnRow);
+
+  overlay.appendChild(modal);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+}
+
+function showConflictResolutionModal(conflicts) {
+  // Lightweight pick-newer modal. For each conflict, show local vs remote
+  // timestamp and let user pick. Default selection follows the newer one.
+  const overlay = el('div', {
+    style: {
+      position: 'fixed', top:'0', left:'0', right:'0', bottom:'0',
+      background:'rgba(0,0,0,0.9)',
+      display:'flex', alignItems:'flex-start', justifyContent:'center',
+      zIndex:'10001', padding:'40px 16px 16px', overflow:'auto'
+    }
+  });
+  const modal = el('div',{
+    style:{
+      background:'#0e0e0e', border:'1px solid #fbbf2444',
+      borderRadius:'14px', padding:'18px', maxWidth:'480px', width:'100%'
+    }
+  });
+  modal.appendChild(el('div',{style:{fontSize:'8px',color:'#fbbf24',letterSpacing:'0.25em',textTransform:'uppercase',fontWeight:'700',marginBottom:'4px'}}, '⚠ Conflicts'));
+  modal.appendChild(el('div',{style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'22px',color:'#ebebeb',letterSpacing:'0.04em',marginBottom:'4px'}}, 'Resolve ' + conflicts.length + ' conflict' + (conflicts.length===1?'':'s')));
+  modal.appendChild(el('div',{style:{fontSize:'11px',color:'#aaa',lineHeight:'1.55',marginBottom:'14px'}},
+    'Both this device and the cloud changed since last sync. Pick which version to keep for each item.'));
+
+  // Per-conflict resolution state — default to newer
+  const choices = {};
+  conflicts.forEach(c => {
+    const remoteAt = (c.remoteEntry && c.remoteEntry.updatedAt) || 0;
+    // We don't have a precise local timestamp — assume local is "now" since
+    // dirty bit was set during this session. Default to local (newer).
+    choices[c.key] = 'local';
+  });
+
+  const list = div({});
+  conflicts.forEach(c => {
+    const row = div({
+      background:'#080808', border:'1px solid #2a2a2a',
+      borderRadius:'8px', padding:'10px 12px', marginBottom:'8px'
+    });
+    row.appendChild(el('div', {style:{fontSize:'10px',color:'#ccc',marginBottom:'6px',fontFamily:"'DM Mono',monospace",wordBreak:'break-all'}}, c.key));
+    const remoteAt = (c.remoteEntry && c.remoteEntry.updatedAt) || 0;
+    const remoteDevice = (c.remoteEntry && c.remoteEntry.device) || 'unknown';
+    row.appendChild(el('div', {style:{fontSize:'9px',color:'#666',marginBottom:'8px'}},
+      'Cloud version: ' + (remoteAt ? formatRelativeTime(remoteAt) : 'unknown') + ' · device ' + remoteDevice));
+    const btnRow = div({display:'flex',gap:'6px'});
+    function mkChoice(label, val) {
+      const b = el('button', {
+        class:'btn',
+        'data-key': c.key,
+        'data-val': val,
+        style: {
+          flex:'1', background: choices[c.key] === val ? '#06d6a022' : '#1a1a1a',
+          color: choices[c.key] === val ? '#06d6a0' : '#aaa',
+          border: '1px solid ' + (choices[c.key] === val ? '#06d6a066' : '#2a2a2a'),
+          padding:'7px', borderRadius:'5px',
+          fontFamily:"'DM Mono',monospace", fontSize:'9px',
+          letterSpacing:'0.12em', textTransform:'uppercase', cursor:'pointer'
+        },
+        onclick: () => {
+          choices[c.key] = val;
+          // Re-render the row — find both buttons and update styles
+          row.querySelectorAll('button').forEach(btn => {
+            const v = btn.getAttribute('data-val');
+            const isSel = choices[c.key] === v;
+            btn.style.background = isSel ? '#06d6a022' : '#1a1a1a';
+            btn.style.color = isSel ? '#06d6a0' : '#aaa';
+            btn.style.border = '1px solid ' + (isSel ? '#06d6a066' : '#2a2a2a');
+          });
+        }
+      }, label);
+      return b;
+    }
+    btnRow.appendChild(mkChoice('Keep mine', 'local'));
+    btnRow.appendChild(mkChoice('Use cloud', 'remote'));
+    row.appendChild(btnRow);
+    list.appendChild(row);
+  });
+  modal.appendChild(list);
+
+  // Apply button
+  const applyRow = div({display:'flex',gap:'8px',marginTop:'14px'});
+  applyRow.appendChild(el('button',{
+    class:'btn',
+    style:{
+      flex:'1', background:'transparent', color:'#888',
+      border:'1px solid #2a2a2a', padding:'12px', borderRadius:'8px',
+      fontFamily:"'DM Mono',monospace", fontSize:'10px',
+      letterSpacing:'0.15em', textTransform:'uppercase',
+      cursor:'pointer', fontWeight:'700'
+    },
+    onclick: () => overlay.remove()
+  }, 'Cancel'));
+  applyRow.appendChild(el('button',{
+    class:'btn',
+    style:{
+      flex:'1', background:'#06d6a0', color:'#000', border:'none',
+      padding:'12px', borderRadius:'8px',
+      fontFamily:"'DM Mono',monospace", fontSize:'10px',
+      letterSpacing:'0.15em', textTransform:'uppercase',
+      cursor:'pointer', fontWeight:'700'
+    },
+    onclick: () => {
+      const resolutions = conflicts.map(c => ({
+        key: c.key,
+        choice: choices[c.key] || 'local',
+        remoteValue: c.remoteEntry && c.remoteEntry.value
+      }));
+      resolveConflicts(resolutions).then(() => {
+        overlay.remove();
+        // Retry sync after resolution
+        cloudSyncNow().then(() => {
+          showToast('✓ Conflicts resolved · sync complete');
+          renderSettingsModal('sync');
+        }).catch(err => {
+          showToast('Sync failed: ' + (err.message || 'unknown'));
+        });
+      });
+    }
+  }, 'Apply & Sync'));
+  modal.appendChild(applyRow);
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+}
+
+// ─── HELPER: format relative timestamp for sync UI ─────────────────────────
+function formatRelativeTime(ts) {
+  if (!ts) return 'never';
+  const diff = Date.now() - ts;
+  if (diff < 60000) return 'just now';
+  if (diff < 3600000) return Math.round(diff / 60000) + ' min ago';
+  if (diff < 86400000) return Math.round(diff / 3600000) + ' hr ago';
+  return Math.round(diff / 86400000) + ' days ago';
+}
+
+// ─── INIT — auto-pull on load if sync is enabled ───────────────────────────
+function initCloudSync() {
+  const s = getCloudSyncState();
+  if (!s.enabled || !s.clientId) return;
+  ensureDeviceId();
+  // Delay slightly to let app render first — sync is background
+  setTimeout(() => {
+    cloudSyncNow().then(result => {
+      if (result.phase === 'conflicts') {
+        showConflictResolutionModal(result.conflicts);
+      } else if (result.applied > 0) {
+        // Re-render if we pulled new data so the UI reflects it
+        showToast('✓ Synced · ' + result.applied + ' updates from cloud');
+        try { render(); } catch(e) {}
+      }
+    }).catch(() => {/* silent — manual sync available */});
+  }, 2000);
+}
+
 </script>
 
 </body>
