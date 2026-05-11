@@ -5,9 +5,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Train+Fuel">
+<meta name="apple-mobile-web-app-title" content="FLOW">
 <meta name="theme-color" content="#080808">
-<title>Fraser — Train + Fuel Complete</title>
+<meta name="description" content="Personal training, nutrition, and progression tracker. Logs workouts, scales meals, tracks PRs and weekly volume.">
+<title>FLOW Tracker</title>
+<!-- PWA manifest — installable on iOS / Android / desktop -->
+<link rel="manifest" href="manifest.json">
+<!-- Icons: SVG for crisp scaling on modern browsers, PNG for iOS/older clients -->
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+<!-- Apple-touch-icons for iOS Home Screen install (multiple sizes for different devices) -->
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="apple-touch-icon" sizes="152x152" href="apple-touch-icon-152.png">
+<link rel="apple-touch-icon" sizes="167x167" href="apple-touch-icon-167.png">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Bebas+Neue&family=Anton&display=swap" rel="stylesheet">
 <style>
   *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -293,6 +305,40 @@ function getDefaultRestSec(ex) {
 }
 
 // Parse a reps spec ("8-10", "12", "Max", "20 sec") into {min, max, isMax, isTime}.
+// Heavy-compound detection — used by progression suggestion to decide between
+// +5kg (heavy compounds) vs +2.5kg (isolations/dumbbell work). Checks legacy
+// PROGRAM ids AND dbIds so new style-prefixed templates (hyp_/str_/pl_/cali_)
+// all get the right bump.
+const HEAVY_COMPOUND_IDS = new Set([
+  'bench','dips','squat','rdl','deadlift','bbrow','wpullups','dbshoulder','dbbench','legpress'
+]);
+const HEAVY_COMPOUND_DBIDS = new Set([
+  'Barbell_Bench_Press_-_Medium_Grip',
+  'Barbell_Squat',
+  'Front_Barbell_Squat',
+  'Barbell_Deadlift',
+  'Sumo_Deadlift',
+  'Romanian_Deadlift',
+  'Deficit_Deadlift',
+  'Bent_Over_Barbell_Row',
+  'T-Bar_Row_with_Handle',
+  'Weighted_Pull_Ups',
+  'Standing_Military_Press',
+  'Barbell_Shoulder_Press',
+  'Push_Press',
+  'Barbell_Incline_Bench_Press_-_Medium_Grip',
+  'Close-Grip_Barbell_Bench_Press',
+  'Pin_Presses',
+  'Leg_Press',
+  'Pendlay_Row'  // not in DB but reserved
+]);
+function isHeavyCompound(ex) {
+  if (!ex) return false;
+  if (HEAVY_COMPOUND_IDS.has(ex.id)) return true;
+  if (ex.dbId && HEAVY_COMPOUND_DBIDS.has(ex.dbId)) return true;
+  return false;
+}
+
 function parseRepsSpec(reps) {
   if (!reps) return null;
   const s = String(reps).trim();
@@ -344,10 +390,244 @@ function getProgressionSuggestion(ex, prevSets) {
   const hasStruggle = filled.some(s => s.note && struggleRx.test(s.note));
   if (hasStruggle) return null;
 
-  // Suggest +2.5kg for upper body isolations / lighter, +5kg for heavy compounds
-  const heavy = ['bench','dips','squat','rdl','deadlift','bbrow','wpullups','dbshoulder','dbbench','legpress'].indexOf(ex.id) >= 0;
+  // Suggest +2.5kg for upper body isolations / lighter, +5kg for heavy compounds.
+  // isHeavyCompound checks both legacy ids AND dbId so style-prefixed exercises
+  // (hyp_/str_/pl_/cali_) all map correctly.
+  const heavy = isHeavyCompound(ex);
   const bump = heavy ? 5 : 2.5;
   return { newWeight: +(topWeight + bump).toFixed(2), oldWeight: topWeight };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// PROGRESSION TRACKING — workout history, PRs, volume aggregation
+// ──────────────────────────────────────────────────────────────────────────
+
+// Scan all workout localStorage keys and return sessions for a given exercise,
+// sorted newest-first. Uses the fraser_workout_w<isoId>_d<dayNum> key pattern.
+// Returns: [{weekId, dayNum, sets: [{weight, reps, note}], date}]
+function scanAllWorkoutSessions(exId, maxSessions) {
+  const sessions = [];
+  const seenKeys = new Set();
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k) continue;
+      const m = k.match(/^fraser_workout_w(\d{4}-W\d{2})_d(\d+)$/);
+      if (!m || seenKeys.has(k)) continue;
+      seenKeys.add(k);
+      const weekId = m[1], dayNum = parseInt(m[2], 10);
+      try {
+        const log = JSON.parse(localStorage.getItem(k));
+        if (!log || !log[exId] || !log[exId].sets) continue;
+        const filled = log[exId].sets.filter(s => s && (s.weight || s.reps));
+        if (filled.length === 0) continue;
+        sessions.push({ weekId, dayNum, sets: log[exId].sets, filledSets: filled });
+      } catch (e) {}
+    }
+  } catch (e) {}
+  // Sort newest first by weekId (ISO format sorts lexically by year, then week)
+  sessions.sort((a, b) => b.weekId.localeCompare(a.weekId) || b.dayNum - a.dayNum);
+  return maxSessions ? sessions.slice(0, maxSessions) : sessions;
+}
+
+// Compute top working set for a session (max-weight set, fallback to first filled)
+function getTopSetOfSession(session) {
+  if (!session || !session.filledSets || !session.filledSets.length) return null;
+  let topSet = session.filledSets[0];
+  let topWeight = parseFloat(topSet.weight) || 0;
+  session.filledSets.forEach(s => {
+    const w = parseFloat(s.weight) || 0;
+    if (w > topWeight) { topWeight = w; topSet = s; }
+  });
+  return topSet;
+}
+
+// Compute PRs across history sessions. Returns:
+// { oneRM, fiveRM, tenRM, maxWeight, maxReps } each with {value, weight, reps, weekId}
+// Epley: 1RM = w × (1 + r/30). Only valid for reps under 12.
+function computeExercisePRs(sessions) {
+  if (!sessions || !sessions.length) return null;
+  const pr = { oneRM: null, fiveRM: null, tenRM: null, maxWeight: null, maxReps: null };
+
+  sessions.forEach(sess => {
+    (sess.filledSets || []).forEach(s => {
+      const w = parseFloat(s.weight);
+      const r = parseInt(s.reps, 10);
+      if (isNaN(w) || isNaN(r) || w <= 0 || r <= 0) return;
+
+      // 1RM estimate (Epley) — only valid for reps under 12
+      if (r < 12) {
+        const est = +(w * (1 + r / 30)).toFixed(2);
+        if (!pr.oneRM || est > pr.oneRM.value) {
+          pr.oneRM = { value: est, weight: w, reps: r, weekId: sess.weekId };
+        }
+      }
+
+      // 5RM = heaviest weight where reps ≥ 5
+      if (r >= 5 && (!pr.fiveRM || w > pr.fiveRM.weight)) {
+        pr.fiveRM = { value: w, weight: w, reps: r, weekId: sess.weekId };
+      }
+      // 10RM = heaviest weight where reps ≥ 10
+      if (r >= 10 && (!pr.tenRM || w > pr.tenRM.weight)) {
+        pr.tenRM = { value: w, weight: w, reps: r, weekId: sess.weekId };
+      }
+
+      // Max weight (any reps)
+      if (!pr.maxWeight || w > pr.maxWeight.weight) {
+        pr.maxWeight = { value: w, weight: w, reps: r, weekId: sess.weekId };
+      }
+
+      // Max reps (at any weight, including bodyweight)
+      if (!pr.maxReps || r > pr.maxReps.reps) {
+        pr.maxReps = { value: r, weight: w, reps: r, weekId: sess.weekId };
+      }
+    });
+  });
+
+  return pr;
+}
+
+// Smarter progression suggestion — extends getProgressionSuggestion to add a
+// safety cap: never bump >5% from last session's working weight in one go.
+// Returns: {newWeight, oldWeight, reason} or null. `reason` is for UI hint.
+function getSmartSuggestion(ex, prev) {
+  if (!prev || !prev.sets) return null;
+
+  const repsSpec = parseRepsSpec(ex.reps);
+  if (!repsSpec || repsSpec.isMax || repsSpec.isTime) return null;
+
+  const filled = prev.sets.filter(s => s && s.weight && s.reps);
+  if (filled.length === 0) return null;
+
+  const weights = filled.map(s => parseFloat(s.weight)).filter(n => !isNaN(n));
+  if (weights.length === 0) return null;
+  const topWeight = Math.max(...weights);
+
+  // Did they complete all required sets at top of rep range last time?
+  const allCompleted = filled.length >= ex.sets;
+  const allHitTop = allCompleted && filled.every(s => {
+    const r = parseInt(s.reps, 10);
+    return !isNaN(r) && r >= repsSpec.max;
+  });
+  const struggleRx = /(fail|grind|hard|strug|barely|miss|form|tough|shaky|wobble|rep out|tweaked?|pain|sore|cramp)/i;
+  const hasStruggle = filled.some(s => s.note && struggleRx.test(s.note));
+
+  if (allHitTop && !hasStruggle) {
+    // Earned the bump. Heavy compounds +5kg, isolations +2.5kg
+    const heavy = isHeavyCompound(ex);
+    let bump = heavy ? 5 : 2.5;
+    // Cap at 5% of top weight — protects against bumping a 40kg lift by 5kg (12.5%)
+    const maxBump = topWeight * 0.05;
+    if (bump > maxBump && topWeight > 0) bump = +(Math.ceil(maxBump * 2) / 2).toFixed(2);
+    return {
+      newWeight: +(topWeight + bump).toFixed(2),
+      oldWeight: topWeight,
+      reason: 'progress'
+    };
+  }
+
+  // Didn't hit the bar — stay at the same weight
+  return { newWeight: topWeight, oldWeight: topWeight, reason: 'repeat' };
+}
+
+// Aggregate weekly volume (sets × reps × weight) bucketed by primary muscle.
+// Returns: { weekId: { muscleGroup: volumeKg, ... }, ... }
+function getWeeklyVolumeByMuscle(weeksBack) {
+  const result = {};
+  const weeks = weeksBack || 8;
+  // Find all workout keys, group by week
+  const allKeys = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      const m = k && k.match(/^fraser_workout_w(\d{4}-W\d{2})_d(\d+)$/);
+      if (m) allKeys.push({ key: k, weekId: m[1], dayNum: parseInt(m[2], 10) });
+    }
+  } catch (e) {}
+  // Sort newest first, take last N weeks
+  allKeys.sort((a, b) => b.weekId.localeCompare(a.weekId));
+  const uniqWeeks = [...new Set(allKeys.map(k => k.weekId))].slice(0, weeks);
+  const weekSet = new Set(uniqWeeks);
+
+  allKeys.forEach(({ key, weekId, dayNum }) => {
+    if (!weekSet.has(weekId)) return;
+    let log;
+    try { log = JSON.parse(localStorage.getItem(key)); } catch (e) { return; }
+    if (!log) return;
+    if (!result[weekId]) result[weekId] = {};
+
+    Object.keys(log).forEach(exId => {
+      const exLog = log[exId];
+      if (!exLog || !exLog.sets) return;
+      // Resolve exercise definition to find primaryMuscles
+      // Try EXERCISE_DB_BY_ID directly (dbId-style entries), then fall back to programEx
+      const dbEntry = EXERCISE_DB_BY_ID && EXERCISE_DB_BY_ID[exId];
+      let primaryMuscle = 'other';
+      if (dbEntry && dbEntry.primaryMuscles && dbEntry.primaryMuscles.length) {
+        primaryMuscle = dbEntry.primaryMuscles[0];
+      } else {
+        // Look in PROGRAM exercises for a match
+        for (const day of (typeof PROGRAM !== 'undefined' ? PROGRAM : [])) {
+          const ex = (day.exercises || []).find(e => e.id === exId);
+          if (ex) {
+            if (ex.dbId && EXERCISE_DB_BY_ID && EXERCISE_DB_BY_ID[ex.dbId]) {
+              primaryMuscle = (EXERCISE_DB_BY_ID[ex.dbId].primaryMuscles || ['other'])[0];
+            } else if (ex.primaryMuscles && ex.primaryMuscles.length) {
+              primaryMuscle = ex.primaryMuscles[0];
+            }
+            break;
+          }
+        }
+      }
+
+      // Volume = sum of (weight × reps) across all filled sets
+      let vol = 0;
+      (exLog.sets || []).forEach(s => {
+        if (!s || !s.weight || !s.reps) return;
+        const w = parseFloat(s.weight);
+        const r = parseInt(s.reps, 10);
+        if (!isNaN(w) && !isNaN(r) && w > 0 && r > 0) vol += w * r;
+      });
+      if (vol > 0) {
+        result[weekId][primaryMuscle] = (result[weekId][primaryMuscle] || 0) + vol;
+      }
+    });
+  });
+
+  return result;
+}
+
+// Detect deload weeks — week where total volume dropped 30%+ vs prior 2-3 weeks.
+// Returns: { weekId: boolean }. Informational only.
+function detectDeloadWeeks(weeklyVolumeByMuscle) {
+  if (!weeklyVolumeByMuscle) return {};
+  // Compute total volume per week
+  const totalByWeek = {};
+  Object.keys(weeklyVolumeByMuscle).forEach(w => {
+    let sum = 0;
+    Object.values(weeklyVolumeByMuscle[w]).forEach(v => sum += v);
+    totalByWeek[w] = sum;
+  });
+  // Sort weeks ascending (oldest first) for comparison
+  const sortedWeeks = Object.keys(totalByWeek).sort();
+  const result = {};
+  sortedWeeks.forEach((weekId, idx) => {
+    if (idx < 2) { result[weekId] = false; return; } // need 2+ prior weeks
+    // Compare against avg of prior 2-3 weeks
+    const priorCount = Math.min(3, idx);
+    let priorSum = 0;
+    for (let i = idx - priorCount; i < idx; i++) priorSum += totalByWeek[sortedWeeks[i]];
+    const priorAvg = priorSum / priorCount;
+    const thisWeek = totalByWeek[weekId];
+    // Deload = current week is ≤70% of prior avg (i.e. 30%+ drop)
+    result[weekId] = priorAvg > 0 && thisWeek > 0 && (thisWeek / priorAvg) <= 0.70;
+  });
+  return result;
+}
+
+// Convenience: getExerciseHistory just wraps scanAllWorkoutSessions
+function getExerciseHistory(exId, maxSessions) {
+  return scanAllWorkoutSessions(exId, maxSessions || 12);
 }
 
 // Returns map of activeDay → status: 'today' | 'past_complete' | 'past_partial' | 'past_missed' | 'upcoming' | 'rest_day' | 'past_skipped'
@@ -1373,11 +1653,34 @@ let PROGRAM_DEFAULT_SNAPSHOT = null;
 
 // Build a 7-day program from a chosen frequency. Returns a fresh array;
 // caller decides whether to apply via applyProgramInPlace().
-function buildProgramFromFrequency(numTraining) {
+//
+// Honors training style (uses HYPERTROPHY_TEMPLATES etc) and focus areas
+// (appends accessory exercises to relevant days) when present in the
+// goal profile. Falls back to PROGRAM_DEFAULT_SNAPSHOT for default/general.
+function buildProgramFromFrequency(numTraining, opts) {
   const n = Math.max(1, Math.min(7, numTraining));
   const split = TRAINING_SPLITS[n];
   const pattern = FREQUENCY_PATTERNS[n];
-  const source = PROGRAM_DEFAULT_SNAPSHOT || PROGRAM;
+
+  // Resolve style → template set. Hypertrophy uses HYPERTROPHY_TEMPLATES;
+  // null/default uses PROGRAM_DEFAULT_SNAPSHOT (indexed by TEMPLATE_INDEX).
+  const style = opts && opts.trainingStyle;
+  const focusAreas = (opts && opts.focusAreas) || [];
+  const styleTemplates = getTemplateSetForStyle(style);
+
+  // Default source is PROGRAM_DEFAULT_SNAPSHOT indexed numerically.
+  // Style-overrides come from styleTemplates which is a name-keyed dict.
+  const defaultSource = PROGRAM_DEFAULT_SNAPSHOT || PROGRAM;
+
+  // Helper to fetch a template by name, preferring style override
+  function getTemplate(name) {
+    if (styleTemplates && styleTemplates[name]) {
+      return styleTemplates[name];
+    }
+    const idx = TEMPLATE_INDEX[name];
+    if (idx == null) return null;
+    return defaultSource[idx];
+  }
 
   const result = [];
   let trainingIdx = 0;
@@ -1388,18 +1691,24 @@ function buildProgramFromFrequency(numTraining) {
     if (slot === 'train') {
       const splitName = split[trainingIdx];
       trainingIdx++;
-      template = source[TEMPLATE_INDEX[splitName]];
+      template = getTemplate(splitName);
     } else if (slot === 'active') {
-      template = source[ACTIVE_TEMPLATE_INDEX];
+      template = defaultSource[ACTIVE_TEMPLATE_INDEX];
     } else {
-      template = source[REST_TEMPLATE_INDEX];
+      template = defaultSource[REST_TEMPLATE_INDEX];
     }
-    // Shallow clone with corrected day number / label so day 1..7 are sequential
-    const clone = Object.assign({}, template);
+    // Deep clone the template (was shallow before — sufficient since templates
+    // don't share inner objects across calls — but deep is safer when we
+    // mutate `exercises` via applyFocusAreasToDay).
+    let clone = JSON.parse(JSON.stringify(template));
     clone.day = i + 1;
     clone.label = 'Day ' + (i + 1);
     // Preserve isRestDay flag for true rest days (used by some renderers)
     if (slot !== 'rest') delete clone.isRestDay;
+    // Apply focus areas — only to training days (active/rest stay untouched)
+    if (slot === 'train' && focusAreas.length) {
+      clone = applyFocusAreasToDay(clone, focusAreas);
+    }
     result.push(clone);
   }
   return result;
@@ -1425,7 +1734,14 @@ function syncProgramToProfile() {
   const profile = getGoalProfile();
   const freq = profile && profile.lockedAt ? profile.trainingDaysPerWeek : null;
   if (freq && freq >= 1 && freq <= 7) {
-    applyProgramInPlace(buildProgramFromFrequency(freq));
+    // Pass trainingStyle and focusAreas to the builder so style-specific
+    // templates and accessory work are applied. Both are optional — when
+    // missing, behavior is identical to the original default-only path.
+    const opts = {
+      trainingStyle: profile.trainingStyle || null,
+      focusAreas: profile.focusAreas || []
+    };
+    applyProgramInPlace(buildProgramFromFrequency(freq, opts));
   } else {
     resetProgramToDefault();
   }
@@ -3565,6 +3881,212 @@ function renderSwapSheet(originalEx, day) {
 }
 
 
+// ─── PER-EXERCISE HISTORY SHEET ──────────────────────────────────────────────
+// Tap the 📊 button on any workout exercise to see the last 12 sessions for
+// that lift across ALL weeks/days (catches exercises moved between days too).
+// Surfaces PRs at the top, then a session-by-session breakdown with PR arrows.
+
+function openHistorySheet(originalEx, dayAccent) {
+  const sheet = renderHistorySheet(originalEx, dayAccent);
+  document.body.appendChild(sheet);
+  requestAnimationFrame(() => {
+    const inner = sheet.querySelector('[data-sheet-inner]');
+    if (inner) inner.style.transform = 'translateY(0)';
+    sheet.style.opacity = '1';
+  });
+}
+
+function closeHistorySheet() {
+  const sheet = document.getElementById('history-sheet');
+  if (!sheet) return;
+  const inner = sheet.querySelector('[data-sheet-inner]');
+  if (inner) inner.style.transform = 'translateY(100%)';
+  sheet.style.opacity = '0';
+  setTimeout(() => sheet.remove(), 220);
+}
+
+// Format a weekId like '2026-W19' into a friendly relative label
+function formatHistoryWeekLabel(weekId, currentWeekId) {
+  if (weekId === currentWeekId) return 'this week';
+  // Compute diff if both ISO-formatted
+  try {
+    const m1 = weekId.match(/^(\d{4})-W(\d{2})$/);
+    const m2 = currentWeekId && currentWeekId.match(/^(\d{4})-W(\d{2})$/);
+    if (m1 && m2) {
+      const y1 = parseInt(m1[1], 10), w1 = parseInt(m1[2], 10);
+      const y2 = parseInt(m2[1], 10), w2 = parseInt(m2[2], 10);
+      const diff = (y2 - y1) * 52 + (w2 - w1);
+      if (diff === 1) return '1 wk ago';
+      if (diff > 1) return diff + ' wks ago';
+      if (diff === -1) return '1 wk ahead';
+      if (diff < -1) return Math.abs(diff) + ' wks ahead';
+    }
+  } catch (e) {}
+  return weekId;
+}
+
+function renderHistorySheet(originalEx, dayAccent) {
+  const accent = dayAccent || '#3bdfff';
+  const accentSoft = accent + '22';
+
+  // Pull sessions for this exercise across ALL weeks
+  const sessions = scanAllWorkoutSessions(originalEx.id, 12);
+  const prs = computeExercisePRs(sessions);
+  const currentWeekId = (typeof getWeekId === 'function')
+    ? getWeekId(weekOffset)
+    : (sessions[0] ? sessions[0].weekId : '');
+
+  const sheet = el('div', {
+    id: 'history-sheet',
+    style: {
+      position: 'fixed', top: '0', left: '0', right: '0', bottom: '0',
+      zIndex: '6000',
+      background: 'rgba(0, 0, 0, 0.7)',
+      opacity: '0',
+      transition: 'opacity 0.22s cubic-bezier(0.32, 0.72, 0, 1)',
+      display: 'flex', flexDirection: 'column', justifyContent: 'flex-end'
+    }
+  });
+  sheet.onclick = (e) => { if (e.target === sheet) closeHistorySheet(); };
+
+  const inner = el('div', {
+    'data-sheet-inner': 'true',
+    style: {
+      background: '#0a0a0a',
+      borderTop: '1px solid #1e1e1e',
+      borderRadius: '20px 20px 0 0',
+      maxHeight: '85vh',
+      overflowY: 'auto',
+      WebkitOverflowScrolling: 'touch',
+      transform: 'translateY(100%)',
+      transition: 'transform 0.28s cubic-bezier(0.32, 0.72, 0, 1)',
+      paddingBottom: 'env(safe-area-inset-bottom, 16px)'
+    }
+  });
+
+  // Drag handle
+  inner.appendChild(div({width: '40px', height: '4px', background: '#3a3a3a', borderRadius: '2px', margin: '10px auto'}));
+
+  // Header
+  const hdr = div({padding: '4px 18px 14px', borderBottom: '1px solid #1a1a1a', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px'});
+  const ttlCol = div({flex: '1', minWidth: '0'});
+  ttlCol.appendChild(el('div', {style: {fontSize: '8px', color: accent, letterSpacing: '0.32em', textTransform: 'uppercase', fontWeight: '700', marginBottom: '4px'}}, '◴ History'));
+  ttlCol.appendChild(el('div', {class: 'bebas', style: {fontSize: '20px', color: '#e0e0e0', letterSpacing: '0.04em', lineHeight: '1.1'}}, originalEx.name));
+  ttlCol.appendChild(el('div', {style: {fontSize: '10px', color: '#888', marginTop: '4px', lineHeight: '1.4'}},
+    sessions.length === 0 ? 'No prior sessions logged.' :
+    sessions.length === 1 ? '1 session logged' :
+    sessions.length + ' sessions logged'));
+  hdr.appendChild(ttlCol);
+  hdr.appendChild(el('button', {
+    class: 'btn',
+    style: {background: 'transparent', color: '#888', border: '1px solid #2a2a2a', padding: '6px 12px', borderRadius: '6px', fontSize: '11px', fontFamily: "'DM Mono',monospace", letterSpacing: '0.15em', cursor: 'pointer', textTransform: 'uppercase', fontWeight: '700', flexShrink: '0'},
+    onclick: closeHistorySheet
+  }, '✕'));
+  inner.appendChild(hdr);
+
+  // ─── PR SUMMARY ──────────────────────────────────────────────────────
+  if (prs && (prs.oneRM || prs.fiveRM || prs.tenRM || prs.maxWeight || prs.maxReps)) {
+    const prSection = div({padding: '14px 18px', borderBottom: '1px solid #1a1a1a'});
+    prSection.appendChild(el('div', {style: {fontSize: '7px', color: '#6aff3b', letterSpacing: '0.28em', textTransform: 'uppercase', fontWeight: '700', marginBottom: '10px'}}, '◆ Personal Records'));
+
+    const prRow = div({display: 'flex', flexWrap: 'wrap', gap: '8px'});
+
+    const prCard = (label, val, sub) => {
+      const c = div({flex: '1', minWidth: '90px', background: '#0e0e0e', border: '1px solid #1a1a1a', borderRadius: '6px', padding: '8px 10px'});
+      c.appendChild(el('div', {style: {fontSize: '7px', color: '#6aff3b', letterSpacing: '0.18em', textTransform: 'uppercase', fontWeight: '700', marginBottom: '4px'}}, label));
+      c.appendChild(el('div', {class: 'bebas', style: {fontSize: '20px', color: '#e0e0e0', letterSpacing: '0.04em', lineHeight: '1'}}, val));
+      if (sub) c.appendChild(el('div', {style: {fontSize: '8px', color: '#666', marginTop: '3px'}}, sub));
+      return c;
+    };
+
+    if (prs.oneRM) {
+      prRow.appendChild(prCard('Est. 1RM', prs.oneRM.value + 'kg', prs.oneRM.weight + 'kg × ' + prs.oneRM.reps));
+    }
+    if (prs.fiveRM) {
+      prRow.appendChild(prCard('5RM', prs.fiveRM.weight + 'kg', prs.fiveRM.reps + ' reps'));
+    }
+    if (prs.tenRM) {
+      prRow.appendChild(prCard('10RM', prs.tenRM.weight + 'kg', prs.tenRM.reps + ' reps'));
+    }
+    if (prs.maxWeight) {
+      prRow.appendChild(prCard('Max Wt', prs.maxWeight.weight + 'kg', prs.maxWeight.reps + ' reps'));
+    }
+    if (prs.maxReps) {
+      prRow.appendChild(prCard('Max Reps', prs.maxReps.reps + '', prs.maxReps.weight + 'kg'));
+    }
+    prSection.appendChild(prRow);
+
+    if (prs.oneRM) {
+      prSection.appendChild(el('div', {style: {fontSize: '8px', color: '#555', marginTop: '10px', lineHeight: '1.4', fontStyle: 'italic'}},
+        '1RM estimated via Epley: weight × (1 + reps/30). Accurate for reps under 12.'));
+    }
+    inner.appendChild(prSection);
+  }
+
+  // ─── SESSION LIST ────────────────────────────────────────────────────
+  const listSection = div({padding: '14px 18px 4px'});
+  listSection.appendChild(el('div', {style: {fontSize: '7px', color: accent, letterSpacing: '0.28em', textTransform: 'uppercase', fontWeight: '700', marginBottom: '10px'}}, '◴ Recent Sessions'));
+
+  if (sessions.length === 0) {
+    listSection.appendChild(el('div', {style: {fontSize: '11px', color: '#666', padding: '20px 0', textAlign: 'center', lineHeight: '1.5'}}, 'No completed sessions yet. Log weight × reps to start building history.'));
+  } else {
+    // For PR arrows, compare each session to the next-older session
+    sessions.forEach((sess, idx) => {
+      const nextOlder = sessions[idx + 1];
+      const thisTop = getTopSetOfSession(sess);
+      const prevTop = nextOlder ? getTopSetOfSession(nextOlder) : null;
+
+      let weightDelta = null, repsDelta = null;
+      if (thisTop && prevTop) {
+        const wThis = parseFloat(thisTop.weight) || 0;
+        const wPrev = parseFloat(prevTop.weight) || 0;
+        const rThis = parseInt(thisTop.reps, 10) || 0;
+        const rPrev = parseInt(prevTop.reps, 10) || 0;
+        if (wThis !== wPrev) weightDelta = wThis - wPrev;
+        if (wThis === wPrev && rThis !== rPrev) repsDelta = rThis - rPrev;
+      }
+
+      const card = div({background: '#0e0e0e', border: '1px solid #1a1a1a', borderRadius: '6px', padding: '10px 12px', marginBottom: '7px'});
+
+      // Top row: week label + PR arrows
+      const topRow = div({display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', gap: '8px'});
+      topRow.appendChild(el('div', {style: {fontSize: '9px', color: '#888', letterSpacing: '0.15em', textTransform: 'uppercase', fontWeight: '700'}},
+        formatHistoryWeekLabel(sess.weekId, currentWeekId) + ' · day ' + sess.dayNum));
+
+      // PR indicator
+      if (weightDelta != null && weightDelta > 0) {
+        topRow.appendChild(el('span', {style: {fontSize: '8px', color: '#6aff3b', background: '#0a2a0a', padding: '2px 6px', borderRadius: '3px', letterSpacing: '0.1em', fontWeight: '700'}}, '↑ +' + weightDelta.toFixed(1) + 'kg'));
+      } else if (weightDelta != null && weightDelta < 0) {
+        topRow.appendChild(el('span', {style: {fontSize: '8px', color: '#888', background: '#181818', padding: '2px 6px', borderRadius: '3px', letterSpacing: '0.1em'}}, '↓ ' + weightDelta.toFixed(1) + 'kg'));
+      } else if (repsDelta != null && repsDelta > 0) {
+        topRow.appendChild(el('span', {style: {fontSize: '8px', color: '#6aff3b', background: '#0a2a0a', padding: '2px 6px', borderRadius: '3px', letterSpacing: '0.1em', fontWeight: '700'}}, '↑ +' + repsDelta + ' reps'));
+      }
+      card.appendChild(topRow);
+
+      // Set list
+      const setRow = div({display: 'flex', flexWrap: 'wrap', gap: '6px'});
+      (sess.filledSets || []).forEach((s, sIdx) => {
+        const w = s.weight || '—';
+        const r = s.reps || '—';
+        setRow.appendChild(el('span', {style: {fontSize: '10px', color: '#ccc', background: '#161616', padding: '3px 7px', borderRadius: '4px', fontFamily: "'DM Mono', monospace"}}, w + 'kg × ' + r));
+      });
+      card.appendChild(setRow);
+
+      if (sess.filledSets && sess.filledSets.some(s => s.note)) {
+        const notes = sess.filledSets.filter(s => s.note).map(s => s.note).join(' · ');
+        if (notes) card.appendChild(el('div', {style: {fontSize: '9px', color: '#666', marginTop: '5px', fontStyle: 'italic', lineHeight: '1.4'}}, '"' + notes + '"'));
+      }
+
+      listSection.appendChild(card);
+    });
+  }
+
+  inner.appendChild(listSection);
+  sheet.appendChild(inner);
+  return sheet;
+}
+
+
 // ─── CUSTOM EXERCISE FORM ─────────────────────────────────────────────────────
 // Lets the user add an exercise not in the database. Saved globally per user
 // (option C1). Once saved, available as alternatives across all program slots.
@@ -3880,6 +4402,445 @@ const PROGRAM = [
 // snapshot lets us rebuild the original 5-day template structure when the
 // user's locked goal is cleared.
 PROGRAM_DEFAULT_SNAPSHOT = JSON.parse(JSON.stringify(PROGRAM));
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ─── TRAINING STYLE TEMPLATES ──────────────────────────────────────────────
+// Style-specific exercise selections, set/rep schemes, and tempo prescriptions.
+// Each style provides 5 day templates (push/pull/legs/skills/fullBody) that
+// buildProgramFromFrequency selects from based on the user's chosen frequency.
+//
+// dbIds match keys in CURATED_CUES so technique cues auto-attach. When dbId
+// is omitted, the exercise's `cues` array (defined inline) is used directly.
+//
+// The DEFAULT style (general fitness / mixed) is the existing PROGRAM array
+// already defined above — no separate template needed.
+//
+// Hypertrophy: 8-12 rep ranges, more isolation, higher set counts (4-5 per
+// movement), tempo emphasis on the eccentric (3-second lowering).
+
+const HYPERTROPHY_TEMPLATES = {
+  push: {day:1,label:"Day 1",title:"Push",subtitle:"Chest · Shoulders · Triceps",accent:"#e8ff3b",nutriType:"mod",exercises:[
+    {id:"hyp_dbbench",dbId:"Dumbbell_Bench_Press",name:"Dumbbell Bench Press",sets:4,reps:"8-10",tempo:"3-1-1-0",tempoDesc:"3s lowering, 1s pause, 1s press",category:"Gym"},
+    {id:"hyp_incdb",dbId:"Incline_Dumbbell_Press",name:"Incline Dumbbell Press",sets:4,reps:"10-12",tempo:"3-1-1-0",tempoDesc:"3s lowering, 1s pause, 1s press",category:"Gym"},
+    {id:"hyp_flyes",dbId:"Dumbbell_Flyes",name:"Cable Crossover / DB Flyes",sets:3,reps:"12-15",tempo:"2-1-2-0",tempoDesc:"2s spread, 1s squeeze, 2s return",category:"Gym"},
+    {id:"hyp_dbshoulder",dbId:"Seated_Dumbbell_Press",name:"Seated Dumbbell Shoulder Press",sets:4,reps:"8-10",tempo:"3-1-1-0",tempoDesc:"3s lowering, 1s pause, 1s press",category:"Gym"},
+    {id:"hyp_lateral",dbId:"Cable_Seated_Lateral_Raise",name:"Cable Lateral Raises",sets:4,reps:"12-15",tempo:"1-2-2-0",tempoDesc:"1s lift, 2s hold, 2s lower",category:"Gym"},
+    {id:"hyp_pushdown",dbId:"Triceps_Pushdown",name:"Tricep Pushdowns",sets:3,reps:"10-12",tempo:"2-1-1-0",tempoDesc:"2s lower, 1s squeeze, 1s extend",category:"Gym"},
+    {id:"hyp_overhead",dbId:"Standing_Overhead_Barbell_Triceps_Extension",name:"Overhead Tricep Extension",sets:3,reps:"10-12",tempo:"3-1-1-0",tempoDesc:"3s lower, 1s stretch, 1s press",category:"Gym"}
+  ]},
+
+  pull: {day:2,label:"Day 2",title:"Pull",subtitle:"Back · Biceps · Rear Delts",accent:"#3bffe8",nutriType:"mod",exercises:[
+    {id:"hyp_pulldown",dbId:"Wide-Grip_Lat_Pulldown",name:"Wide-Grip Lat Pulldown",sets:4,reps:"10-12",tempo:"2-1-2-0",tempoDesc:"2s pull, 1s squeeze, 2s return",category:"Gym"},
+    {id:"hyp_bbrow",dbId:"Bent_Over_Barbell_Row",name:"Bent-Over Barbell Row",sets:4,reps:"8-10",tempo:"1-1-2-0",tempoDesc:"1s pull, 1s hold, 2s lower",category:"Gym"},
+    {id:"hyp_dbrow",dbId:"One-Arm_Dumbbell_Row",name:"One-Arm Dumbbell Row",sets:3,reps:"10-12 each",tempo:"2-1-2-0",tempoDesc:"2s pull, 1s squeeze, 2s lower",category:"Gym"},
+    {id:"hyp_facepull",dbId:"Face_Pull",name:"Face Pulls",sets:3,reps:"15",tempo:"1-2-2-0",tempoDesc:"1s pull, 2s hold, 2s return",category:"Gym"},
+    {id:"hyp_curl",dbId:"Dumbbell_Bicep_Curl",name:"Dumbbell Bicep Curl",sets:4,reps:"10-12",tempo:"1-1-3-0",tempoDesc:"1s curl, 1s squeeze, 3s lower",category:"Gym"},
+    {id:"hyp_hammer",dbId:"Alternate_Hammer_Curl",name:"Hammer Curls",sets:3,reps:"10-12",tempo:"2-1-2-0",tempoDesc:"2s curl, 1s hold, 2s lower",category:"Gym"},
+    {id:"hyp_shrug",dbId:"Dumbbell_Shrug",name:"Dumbbell Shrugs",sets:3,reps:"12-15",tempo:"1-2-2-0",tempoDesc:"1s lift, 2s peak squeeze, 2s lower",category:"Gym"}
+  ]},
+
+  legs: {day:3,label:"Day 3",title:"Legs",subtitle:"Quads · Hamstrings · Glutes · Calves",accent:"#ff7b3b",nutriType:"high",exercises:[
+    {id:"hyp_squat",dbId:"Barbell_Squat",name:"Barbell Squat",sets:4,reps:"8-10",tempo:"3-1-1-0",tempoDesc:"3s descent, 1s pause, 1s drive",category:"Gym"},
+    {id:"hyp_rdl",dbId:"Romanian_Deadlift",name:"Romanian Deadlift",sets:4,reps:"10-12",tempo:"3-1-1-0",tempoDesc:"3s hinge, 1s stretch, 1s up",category:"Gym"},
+    {id:"hyp_split",dbId:"Split_Squat_with_Dumbbells",name:"Bulgarian Split Squat",sets:3,reps:"10-12 each",tempo:"2-1-1-0",tempoDesc:"2s lower, 1s pause, 1s drive",category:"Gym"},
+    {id:"hyp_legpress",dbId:"Leg_Press",name:"Leg Press",sets:3,reps:"12-15",tempo:"2-1-1-0",tempoDesc:"2s lower, 1s pause, 1s press",category:"Gym"},
+    {id:"hyp_legext",dbId:"Leg_Extensions",name:"Leg Extensions",sets:3,reps:"12-15",tempo:"2-2-1-0",tempoDesc:"2s extend, 2s squeeze, 1s return",category:"Gym"},
+    {id:"hyp_legcurl",dbId:"Lying_Leg_Curls",name:"Lying Leg Curls",sets:3,reps:"12-15",tempo:"2-1-2-0",tempoDesc:"2s curl, 1s squeeze, 2s return",category:"Gym"},
+    {id:"hyp_calves",dbId:"Standing_Calf_Raises",name:"Standing Calf Raises",sets:4,reps:"15-20",tempo:"1-2-3-0",tempoDesc:"1s raise, 2s squeeze, 3s lower",category:"Gym"}
+  ]},
+
+  skills: {day:4,label:"Day 4",title:"Arms & Lagging",subtitle:"Direct Arms · Weak Point Work",accent:"#b03bff",nutriType:"low",exercises:[
+    {id:"hyp_bbcurl",dbId:"Barbell_Curl",name:"Barbell Curl",sets:4,reps:"8-10",tempo:"1-1-2-0",tempoDesc:"1s curl, 1s squeeze, 2s lower",category:"Gym"},
+    {id:"hyp_preacher",dbId:"Preacher_Curl",name:"Preacher Curl",sets:3,reps:"10-12",tempo:"2-1-3-0",tempoDesc:"2s curl, 1s squeeze, 3s lower",category:"Gym"},
+    {id:"hyp_concentr",dbId:"Concentration_Curls",name:"Concentration Curl",sets:3,reps:"12-15 each",tempo:"2-2-2-0",tempoDesc:"2s curl, 2s peak squeeze, 2s lower",category:"Gym"},
+    {id:"hyp_cgbp",dbId:"Close-Grip_Barbell_Bench_Press",name:"Close-Grip Bench Press",sets:4,reps:"8-10",tempo:"3-1-1-0",tempoDesc:"3s lower, 1s pause, 1s press",category:"Gym"},
+    {id:"hyp_skull",dbId:"Lying_Triceps_Press",name:"Skullcrushers",sets:3,reps:"10-12",tempo:"3-1-1-0",tempoDesc:"3s lower, 1s pause, 1s extend",category:"Gym"},
+    {id:"hyp_kickback",dbId:"Tricep_Dumbbell_Kickback",name:"Tricep Kickbacks",sets:3,reps:"12-15 each",tempo:"2-2-2-0",tempoDesc:"2s extend, 2s squeeze, 2s lower",category:"Gym"},
+    {id:"hyp_latfinal",dbId:"Side_Lateral_Raise",name:"DB Lateral Raise (light)",sets:3,reps:"15-20",tempo:"1-1-2-0",tempoDesc:"1s lift, 1s hold, 2s lower",category:"Gym"}
+  ]},
+
+  fullBody: {day:5,label:"Day 5",title:"Full Body",subtitle:"Compound Volume · Mixed",accent:"#ff3b7b",nutriType:"high",exercises:[
+    {id:"hyp_fb_squat",dbId:"Barbell_Squat",name:"Barbell Squat",sets:4,reps:"8-10",tempo:"3-1-1-0",tempoDesc:"3s descent, 1s pause, 1s drive",category:"Gym"},
+    {id:"hyp_fb_bench",dbId:"Dumbbell_Bench_Press",name:"Dumbbell Bench Press",sets:4,reps:"8-10",tempo:"3-1-1-0",tempoDesc:"3s lowering, 1s pause, 1s press",category:"Gym"},
+    {id:"hyp_fb_row",dbId:"Seated_Cable_Rows",name:"Seated Cable Row",sets:4,reps:"10-12",tempo:"2-1-2-0",tempoDesc:"2s pull, 1s squeeze, 2s return",category:"Gym"},
+    {id:"hyp_fb_rdl",dbId:"Romanian_Deadlift",name:"Romanian Deadlift",sets:3,reps:"10-12",tempo:"3-1-1-0",tempoDesc:"3s hinge, 1s stretch, 1s up",category:"Gym"},
+    {id:"hyp_fb_press",dbId:"Seated_Dumbbell_Press",name:"DB Shoulder Press",sets:3,reps:"10-12",tempo:"2-1-1-0",tempoDesc:"2s lower, 1s pause, 1s press",category:"Gym"},
+    {id:"hyp_fb_curl",dbId:"Dumbbell_Bicep_Curl",name:"DB Curl",sets:3,reps:"10-12",tempo:"1-1-2-0",tempoDesc:"1s curl, 1s squeeze, 2s lower",category:"Gym"},
+    {id:"hyp_fb_pushdown",dbId:"Triceps_Pushdown",name:"Tricep Pushdown",sets:3,reps:"12-15",tempo:"2-1-1-0",tempoDesc:"2s lower, 1s squeeze, 1s extend",category:"Gym"}
+  ]}
+};
+
+
+// ─── STRENGTH TEMPLATES ───────────────────────────────────────────────────
+// Heavy compound emphasis. Main lifts (squat, bench, deadlift, OHP, row) at
+// 3-6 reps in 4-5 sets. Accessories at 6-10 reps. Linear progression
+// friendly — short rep ranges mean clean +2.5/+5kg jumps signal real strength
+// gains.
+//
+// Day-type mapping:
+//   push → BENCH + OHP focus (heavy upper-body push)
+//   pull → DEADLIFT + heavy rows/pullups (deadlift moved here vs Legs to
+//          allow Squat to anchor leg day without two big posterior chain
+//          movements competing on the same day)
+//   legs → SQUAT focus (squat anchors, RDL for hamstrings)
+//   skills → arms / weak points (still strength-rep ranges, but lighter)
+//   fullBody → all three big lifts at moderate intensity
+
+const STRENGTH_TEMPLATES = {
+  push: {day:1,label:"Day 1",title:"Push",subtitle:"Bench · Overhead Press · Heavy Triceps",accent:"#e8ff3b",nutriType:"mod",exercises:[
+    {id:"str_bench",dbId:"Barbell_Bench_Press_-_Medium_Grip",name:"Barbell Bench Press",sets:5,reps:"3-5",tempo:"3-1-1-0",tempoDesc:"3s descent, 1s pause at chest, 1s drive",category:"Gym"},
+    {id:"str_ohp",dbId:"Standing_Military_Press",name:"Standing Overhead Press",sets:4,reps:"4-6",tempo:"2-1-1-0",tempoDesc:"2s lower, 1s pause, 1s press",category:"Gym"},
+    {id:"str_incline",dbId:"Barbell_Incline_Bench_Press_-_Medium_Grip",name:"Incline Barbell Bench",sets:4,reps:"5-6",tempo:"3-1-1-0",tempoDesc:"3s lower, 1s pause, 1s press",category:"Gym"},
+    {id:"str_dips",dbId:"Dips_-_Triceps_Version",name:"Weighted Dips",sets:4,reps:"6-8",tempo:"3-0-1-0",tempoDesc:"3s lower, 1s drive",category:"Gym"},
+    {id:"str_cgbp",dbId:"Close-Grip_Barbell_Bench_Press",name:"Close-Grip Bench Press",sets:3,reps:"6-8",tempo:"3-0-1-0",tempoDesc:"3s lower, 1s press",category:"Gym"},
+    {id:"str_pushdown",dbId:"Triceps_Pushdown",name:"Tricep Pushdowns",sets:3,reps:"8-10",tempo:"2-1-1-0",tempoDesc:"2s lower, 1s squeeze, 1s extend",category:"Gym"},
+    {id:"str_lateral",dbId:"Side_Lateral_Raise",name:"DB Lateral Raises",sets:3,reps:"8-10",tempo:"1-1-2-0",tempoDesc:"1s lift, 1s hold, 2s lower",category:"Gym"}
+  ]},
+
+  pull: {day:2,label:"Day 2",title:"Pull",subtitle:"Deadlift · Heavy Rows · Pull-Ups",accent:"#3bffe8",nutriType:"mod",exercises:[
+    {id:"str_deadlift",dbId:"Barbell_Deadlift",name:"Barbell Deadlift",sets:4,reps:"3-5",tempo:"1-1-3-0",tempoDesc:"1s drive, 1s hold, 3s lower",category:"Gym"},
+    {id:"str_wpullup",dbId:"Weighted_Pull_Ups",name:"Weighted Pull-Up",sets:4,reps:"4-6",tempo:"2-1-2-0",tempoDesc:"2s pull, 1s hold, 2s lower",category:"Gym"},
+    {id:"str_bbrow",dbId:"Bent_Over_Barbell_Row",name:"Bent-Over Barbell Row",sets:4,reps:"5-6",tempo:"1-1-2-0",tempoDesc:"1s pull, 1s hold, 2s lower",category:"Gym"},
+    {id:"str_tbarrow",dbId:"T-Bar_Row_with_Handle",name:"T-Bar Row",sets:3,reps:"6-8",tempo:"2-1-2-0",tempoDesc:"2s pull, 1s squeeze, 2s lower",category:"Gym"},
+    {id:"str_facepull",dbId:"Face_Pull",name:"Face Pulls",sets:3,reps:"10-12",tempo:"1-2-2-0",tempoDesc:"1s pull, 2s hold, 2s return",category:"Gym"},
+    {id:"str_bbcurl",dbId:"Barbell_Curl",name:"Barbell Curl",sets:3,reps:"6-8",tempo:"1-1-2-0",tempoDesc:"1s curl, 1s squeeze, 2s lower",category:"Gym"},
+    {id:"str_hammer",dbId:"Alternate_Hammer_Curl",name:"Hammer Curls",sets:3,reps:"8-10",tempo:"2-1-2-0",tempoDesc:"2s curl, 1s hold, 2s lower",category:"Gym"}
+  ]},
+
+  legs: {day:3,label:"Day 3",title:"Legs",subtitle:"Squat · Posterior Chain · Heavy Work",accent:"#ff7b3b",nutriType:"high",exercises:[
+    {id:"str_squat",dbId:"Barbell_Squat",name:"Barbell Back Squat",sets:5,reps:"3-5",tempo:"3-1-1-0",tempoDesc:"3s descent, 1s pause, 1s drive",category:"Gym"},
+    {id:"str_rdl",dbId:"Romanian_Deadlift",name:"Romanian Deadlift",sets:4,reps:"5-6",tempo:"3-1-1-0",tempoDesc:"3s hinge, 1s stretch, 1s up",category:"Gym"},
+    {id:"str_frontsq",dbId:"Front_Barbell_Squat",name:"Front Squat",sets:3,reps:"6-8",tempo:"3-1-1-0",tempoDesc:"3s descent, 1s pause, 1s drive",category:"Gym"},
+    {id:"str_legpress",dbId:"Leg_Press",name:"Leg Press",sets:3,reps:"6-8",tempo:"2-1-1-0",tempoDesc:"2s lower, 1s pause, 1s press",category:"Gym"},
+    {id:"str_ghr",dbId:"Glute_Ham_Raise",name:"Glute-Ham Raise",sets:3,reps:"6-8",tempo:"3-0-1-0",tempoDesc:"3s lower, 1s up",category:"Gym"},
+    {id:"str_calves",dbId:"Standing_Calf_Raises",name:"Standing Calf Raises",sets:4,reps:"8-10",tempo:"1-2-3-0",tempoDesc:"1s raise, 2s peak, 3s lower",category:"Gym"}
+  ]},
+
+  skills: {day:4,label:"Day 4",title:"Arms & Weak Points",subtitle:"Direct Arms · Heavy Accessories",accent:"#b03bff",nutriType:"low",exercises:[
+    {id:"str_cgbp2",dbId:"Close-Grip_Barbell_Bench_Press",name:"Close-Grip Bench Press",sets:4,reps:"6-8",tempo:"3-0-1-0",tempoDesc:"3s lower, 1s press",category:"Gym"},
+    {id:"str_chinup",dbId:"Chin-Up",name:"Weighted Chin-Up",sets:4,reps:"4-6",tempo:"2-1-2-0",tempoDesc:"2s pull, 1s hold, 2s lower",category:"Gym"},
+    {id:"str_ohpext",dbId:"Standing_Overhead_Barbell_Triceps_Extension",name:"Overhead Tricep Extension",sets:3,reps:"6-8",tempo:"3-1-1-0",tempoDesc:"3s lower, 1s stretch, 1s extend",category:"Gym"},
+    {id:"str_bbcurl2",dbId:"Barbell_Curl",name:"Barbell Curl",sets:4,reps:"6-8",tempo:"1-1-2-0",tempoDesc:"1s curl, 1s squeeze, 2s lower",category:"Gym"},
+    {id:"str_pinch",dbId:"Plate_Pinch",name:"Plate Pinch Holds",sets:3,reps:"max",tempo:"Isometric",tempoDesc:"Hold to failure for grip",category:"Gym"},
+    {id:"str_dips2",dbId:"Dips_-_Triceps_Version",name:"Weighted Dips",sets:3,reps:"6-8",tempo:"3-0-1-0",tempoDesc:"3s lower, 1s press",category:"Gym"},
+    {id:"str_hammer2",dbId:"Alternate_Hammer_Curl",name:"Hammer Curls",sets:3,reps:"8-10",tempo:"2-1-2-0",tempoDesc:"2s curl, 1s hold, 2s lower",category:"Gym"}
+  ]},
+
+  fullBody: {day:5,label:"Day 5",title:"Full Body",subtitle:"Big Lifts · Moderate Volume",accent:"#ff3b7b",nutriType:"high",exercises:[
+    {id:"str_fb_squat",dbId:"Barbell_Squat",name:"Barbell Back Squat",sets:4,reps:"4-6",tempo:"3-1-1-0",tempoDesc:"3s descent, 1s pause, 1s drive",category:"Gym"},
+    {id:"str_fb_bench",dbId:"Barbell_Bench_Press_-_Medium_Grip",name:"Barbell Bench Press",sets:4,reps:"4-6",tempo:"3-1-1-0",tempoDesc:"3s lower, 1s pause, 1s press",category:"Gym"},
+    {id:"str_fb_rdl",dbId:"Romanian_Deadlift",name:"Romanian Deadlift",sets:3,reps:"5-6",tempo:"3-1-1-0",tempoDesc:"3s hinge, 1s stretch, 1s up",category:"Gym"},
+    {id:"str_fb_row",dbId:"Bent_Over_Barbell_Row",name:"Bent-Over Row",sets:3,reps:"6-8",tempo:"1-1-2-0",tempoDesc:"1s pull, 1s hold, 2s lower",category:"Gym"},
+    {id:"str_fb_ohp",dbId:"Standing_Military_Press",name:"Overhead Press",sets:3,reps:"6-8",tempo:"2-1-1-0",tempoDesc:"2s lower, 1s pause, 1s press",category:"Gym"},
+    {id:"str_fb_pullup",dbId:"Weighted_Pull_Ups",name:"Pull-Up",sets:3,reps:"6-8",tempo:"2-1-2-0",tempoDesc:"2s pull, 1s hold, 2s lower",category:"Gym"},
+    {id:"str_fb_plank",dbId:"Plank",name:"Weighted Plank",sets:3,reps:"30-45 sec",tempo:"Isometric",tempoDesc:"Brace hard, add weight on back",category:"Gym"}
+  ]}
+};
+
+
+// ─── POWERLIFTING TEMPLATES ───────────────────────────────────────────────
+// Competition-style: squat, bench, deadlift are the priority. 1-5 rep range
+// on main lifts with extended pause work (3s pause bench, 3s pause squat).
+// Accessories chosen for the three classic weak points:
+//   • Lockout (close-grip, pin press, tricep work)
+//   • Off-the-floor (deficit deadlift, paused squats)
+//   • Hip hinge (RDL, GHR, hyperextensions)
+//
+// Day-type mapping:
+//   push → BENCH day (comp bench + bench accessories)
+//   pull → DEADLIFT day (heavy DL + posterior accessories)
+//   legs → SQUAT day (comp squat + squat accessories)
+//   skills → OHP day (secondary lifts + ab work for the lift commands)
+//   fullBody → LIGHT day (60-70% recovery work for technique)
+//
+// Note: Powerlifting at 1-5 reps means most working sets log fewer reps than
+// hypertrophy. getSmartSuggestion's "all sets hit top of range" trigger fires
+// less frequently here, which is correct — strength gains in this range
+// happen over weeks, not session-to-session.
+
+const POWERLIFTING_TEMPLATES = {
+  push: {day:1,label:"Day 1",title:"Bench Day",subtitle:"Competition Bench · Lockout Work",accent:"#e8ff3b",nutriType:"mod",exercises:[
+    {id:"pl_bench",dbId:"Barbell_Bench_Press_-_Medium_Grip",name:"Competition Bench Press",sets:5,reps:"1-3",tempo:"3-3-1-0",tempoDesc:"3s descent, 3s pause on chest, 1s drive",category:"Gym"},
+    {id:"pl_pause_bench",dbId:"Barbell_Bench_Press_-_Medium_Grip",name:"Paused Bench (lighter)",sets:3,reps:"3-5",tempo:"2-2-1-0",tempoDesc:"2s lower, 2s pause, 1s press",category:"Gym"},
+    {id:"pl_cgbp",dbId:"Close-Grip_Barbell_Bench_Press",name:"Close-Grip Bench Press",sets:4,reps:"4-6",tempo:"3-0-1-0",tempoDesc:"3s lower, 1s press (lockout work)",category:"Gym"},
+    {id:"pl_incline",dbId:"Barbell_Incline_Bench_Press_-_Medium_Grip",name:"Incline Barbell Bench",sets:3,reps:"5-6",tempo:"3-1-1-0",tempoDesc:"3s lower, 1s pause, 1s press",category:"Gym"},
+    {id:"pl_pushdown",dbId:"Triceps_Pushdown",name:"Tricep Pushdowns (rope)",sets:3,reps:"8-10",tempo:"2-1-1-0",tempoDesc:"2s lower, 1s squeeze, 1s extend",category:"Gym"},
+    {id:"pl_lateral",dbId:"Side_Lateral_Raise",name:"DB Lateral Raises",sets:3,reps:"10-12",tempo:"1-1-2-0",tempoDesc:"1s lift, 1s hold, 2s lower",category:"Gym"},
+    {id:"pl_facepull1",dbId:"Face_Pull",name:"Face Pulls (shoulder health)",sets:3,reps:"12-15",tempo:"1-2-2-0",tempoDesc:"1s pull, 2s hold, 2s return",category:"Gym"}
+  ]},
+
+  pull: {day:2,label:"Day 2",title:"Deadlift Day",subtitle:"Heavy Pulls · Off-the-Floor Work",accent:"#3bffe8",nutriType:"mod",exercises:[
+    {id:"pl_deadlift",dbId:"Barbell_Deadlift",name:"Competition Deadlift",sets:5,reps:"1-3",tempo:"1-1-3-0",tempoDesc:"1s drive, 1s hold, 3s lower",category:"Gym"},
+    {id:"pl_deficit",dbId:"Deficit_Deadlift",name:"Deficit Deadlift",sets:3,reps:"3-5",tempo:"1-1-3-0",tempoDesc:"1s drive, 1s hold, 3s lower (off-floor work)",category:"Gym"},
+    {id:"pl_bbrow",dbId:"Bent_Over_Barbell_Row",name:"Bent-Over Barbell Row",sets:4,reps:"5-6",tempo:"1-1-2-0",tempoDesc:"1s pull, 1s hold, 2s lower",category:"Gym"},
+    {id:"pl_pullup",dbId:"Weighted_Pull_Ups",name:"Weighted Pull-Up",sets:3,reps:"6-8",tempo:"2-1-2-0",tempoDesc:"2s pull, 1s hold, 2s lower",category:"Gym"},
+    {id:"pl_hyperext",dbId:"Hyperextensions_Back_Extensions",name:"Back Extensions",sets:3,reps:"10-12",tempo:"2-1-2-0",tempoDesc:"2s up, 1s squeeze, 2s lower",category:"Gym"},
+    {id:"pl_bbcurl",dbId:"Barbell_Curl",name:"Barbell Curl",sets:3,reps:"6-8",tempo:"1-1-2-0",tempoDesc:"1s curl, 1s squeeze, 2s lower",category:"Gym"},
+    {id:"pl_shrug",dbId:"Barbell_Shrug",name:"Heavy Barbell Shrugs",sets:3,reps:"6-8",tempo:"1-2-2-0",tempoDesc:"1s lift, 2s peak hold, 2s lower",category:"Gym"}
+  ]},
+
+  legs: {day:3,label:"Day 3",title:"Squat Day",subtitle:"Competition Squat · Hip Hinge",accent:"#ff7b3b",nutriType:"high",exercises:[
+    {id:"pl_squat",dbId:"Barbell_Squat",name:"Competition Squat",sets:5,reps:"1-3",tempo:"3-1-1-0",tempoDesc:"3s descent, 1s pause, 1s drive",category:"Gym"},
+    {id:"pl_pause_squat",dbId:"Barbell_Squat",name:"Paused Squat (lighter)",sets:3,reps:"3-5",tempo:"3-3-1-0",tempoDesc:"3s descent, 3s pause in hole, 1s drive",category:"Gym"},
+    {id:"pl_frontsq",dbId:"Front_Barbell_Squat",name:"Front Squat",sets:3,reps:"5-6",tempo:"3-1-1-0",tempoDesc:"3s descent, 1s pause, 1s drive",category:"Gym"},
+    {id:"pl_rdl",dbId:"Romanian_Deadlift",name:"Romanian Deadlift",sets:3,reps:"5-6",tempo:"3-1-1-0",tempoDesc:"3s hinge, 1s stretch, 1s up",category:"Gym"},
+    {id:"pl_legpress",dbId:"Leg_Press",name:"Leg Press",sets:3,reps:"6-8",tempo:"2-1-1-0",tempoDesc:"2s lower, 1s pause, 1s press",category:"Gym"},
+    {id:"pl_calves",dbId:"Standing_Calf_Raises",name:"Standing Calf Raises",sets:4,reps:"8-10",tempo:"1-2-3-0",tempoDesc:"1s raise, 2s hold, 3s lower",category:"Gym"}
+  ]},
+
+  skills: {day:4,label:"Day 4",title:"OHP & Accessories",subtitle:"Overhead Press · Weak Points · Abs",accent:"#b03bff",nutriType:"low",exercises:[
+    {id:"pl_ohp",dbId:"Standing_Military_Press",name:"Standing Overhead Press",sets:5,reps:"3-5",tempo:"2-1-1-0",tempoDesc:"2s lower, 1s pause, 1s press",category:"Gym"},
+    {id:"pl_pushpress",dbId:"Push_Press",name:"Push Press",sets:3,reps:"5-6",tempo:"1-0-1-0",tempoDesc:"Explosive dip and drive",category:"Gym"},
+    {id:"pl_cgbp_sk",dbId:"Close-Grip_Barbell_Bench_Press",name:"Close-Grip Bench",sets:3,reps:"6-8",tempo:"3-0-1-0",tempoDesc:"3s lower, 1s press",category:"Gym"},
+    {id:"pl_pullup_sk",dbId:"Weighted_Pull_Ups",name:"Weighted Pull-Up",sets:3,reps:"6-8",tempo:"2-1-2-0",tempoDesc:"2s pull, 1s hold, 2s lower",category:"Gym"},
+    {id:"pl_skull",dbId:"Lying_Triceps_Press",name:"Skullcrushers",sets:3,reps:"6-8",tempo:"3-1-1-0",tempoDesc:"3s lower, 1s pause, 1s extend",category:"Gym"},
+    {id:"pl_bbcurl_sk",dbId:"Barbell_Curl",name:"Barbell Curl",sets:3,reps:"6-8",tempo:"1-1-2-0",tempoDesc:"1s curl, 1s squeeze, 2s lower",category:"Gym"},
+    {id:"pl_pallof",dbId:"Pallof_Press",name:"Pallof Press",sets:3,reps:"10-12 each",tempo:"1-2-1-0",tempoDesc:"1s out, 2s hold, 1s back (anti-rotation)",category:"Gym"}
+  ]},
+
+  fullBody: {day:5,label:"Day 5",title:"Light / Technique",subtitle:"60-70% · Speed Work · Recovery",accent:"#ff3b7b",nutriType:"mod",exercises:[
+    {id:"pl_fb_squat",dbId:"Barbell_Squat",name:"Speed Squat (light)",sets:6,reps:"2-3",tempo:"3-0-1-0",tempoDesc:"3s descent, fast drive (technique work)",category:"Gym"},
+    {id:"pl_fb_bench",dbId:"Barbell_Bench_Press_-_Medium_Grip",name:"Speed Bench (light)",sets:6,reps:"2-3",tempo:"3-1-1-0",tempoDesc:"3s lower, 1s pause, fast press",category:"Gym"},
+    {id:"pl_fb_rdl",dbId:"Romanian_Deadlift",name:"Romanian Deadlift",sets:3,reps:"6-8",tempo:"3-1-1-0",tempoDesc:"3s hinge, 1s stretch, 1s up",category:"Gym"},
+    {id:"pl_fb_row",dbId:"Bent_Over_Barbell_Row",name:"Bent-Over Row",sets:3,reps:"6-8",tempo:"1-1-2-0",tempoDesc:"1s pull, 1s hold, 2s lower",category:"Gym"},
+    {id:"pl_fb_pullup",dbId:"Pullups",name:"Pull-Ups (bodyweight)",sets:3,reps:"max",tempo:"2-1-2-0",tempoDesc:"Quality reps, stop 1 short of failure",category:"Park/Gym"},
+    {id:"pl_fb_pushup",dbId:"Pushups",name:"Push-Ups",sets:3,reps:"max",tempo:"2-0-1-0",tempoDesc:"Quality reps, full range",category:"Park/Gym"},
+    {id:"pl_fb_chop",dbId:"Standing_Cable_Wood_Chop",name:"Cable Wood Chop",sets:3,reps:"10-12 each",tempo:"1-1-2-0",tempoDesc:"1s rotate, 1s pause, 2s return",category:"Gym"}
+  ]}
+};
+
+
+// ─── CALISTHENICS TEMPLATES ───────────────────────────────────────────────
+// Bodyweight progressions, skill work, density-focused. Rep schemes differ
+// from weighted styles: "max" reps to failure, time-based holds, and skill
+// progressions (tuck → advanced tuck → straddle → full for levers/planches).
+//
+// Many skill exercises don't exist in the EXERCISE_DB and have no dbId —
+// CURATED_CUES won't apply but tracking still works. primaryMuscles on the
+// exercise object lets the swap-finder match siblings.
+//
+// Day-type mapping:
+//   push → bodyweight push hierarchy (pushup variants, dips, handstand work)
+//   pull → bodyweight pull hierarchy (rows, pullups, muscle-up progressions)
+//   legs → bodyweight legs (pistol progressions, jumps, glute work)
+//   skills → advanced skill work (levers, planches, L-sits, density)
+//   fullBody → mixed AMRAP density (max reps across all patterns)
+//
+// Auto-suggest mostly doesn't fire here because reps are "max" or time-based;
+// progression happens via difficulty regression-progression chains the user
+// selects manually (tuck → straddle → full lever).
+
+const CALISTHENICS_TEMPLATES = {
+  push: {day:1,label:"Day 1",title:"Push",subtitle:"Pushup Variants · Dips · Handstand Work",accent:"#e8ff3b",nutriType:"mod",exercises:[
+    {id:"cali_pikepush",name:"Pike Push-Up",primaryMuscles:["shoulders"],sets:4,reps:"6-10",tempo:"3-1-1-0",tempoDesc:"3s lower, 1s pause, 1s press · toward handstand",category:"Park/Home"},
+    {id:"cali_widepush",dbId:"Push-Up_Wide",name:"Wide-Grip Push-Up",sets:4,reps:"8-12",tempo:"2-1-2-0",tempoDesc:"2s lower, 1s pause, 2s press (chest emphasis)",category:"Park/Home"},
+    {id:"cali_diapush",name:"Diamond Push-Up",primaryMuscles:["triceps"],sets:4,reps:"8-12",tempo:"3-1-1-0",tempoDesc:"3s lower, 1s pause, 1s press (tricep emphasis)",category:"Park/Home"},
+    {id:"cali_dips",dbId:"Dips_-_Triceps_Version",name:"Parallel Bar Dips",sets:4,reps:"6-10",tempo:"3-0-1-0",tempoDesc:"3s lower, 1s drive",category:"Park"},
+    {id:"cali_decpush",dbId:"Decline_Push-Up",name:"Decline Push-Up",sets:3,reps:"10-15",tempo:"2-1-2-0",tempoDesc:"2s lower, 1s pause, 2s press (upper chest)",category:"Park/Home"},
+    {id:"cali_hshold",name:"Handstand Hold (wall)",primaryMuscles:["shoulders"],sets:3,reps:"30-45 sec",tempo:"Isometric",tempoDesc:"Hollow body, active push through floor",category:"Park/Home"},
+    {id:"cali_pseudo",name:"Pseudo-Planche Lean",primaryMuscles:["shoulders","chest"],sets:3,reps:"20-30 sec",tempo:"Isometric",tempoDesc:"Hands at hip level, lean forward (planche progression)",category:"Park/Home"}
+  ]},
+
+  pull: {day:2,label:"Day 2",title:"Pull",subtitle:"Pull-Ups · Rows · Muscle-Up Progression",accent:"#3bffe8",nutriType:"mod",exercises:[
+    {id:"cali_pullup",dbId:"Pullups",name:"Pull-Up",sets:4,reps:"max",tempo:"2-1-2-0",tempoDesc:"2s pull, 1s hold, 2s lower · full dead hang each rep",category:"Park"},
+    {id:"cali_chinup",dbId:"Chin-Up",name:"Chin-Up",sets:4,reps:"max",tempo:"2-1-2-0",tempoDesc:"2s pull, 1s hold, 2s lower (bicep emphasis)",category:"Park"},
+    {id:"cali_row",dbId:"Inverted_Row",name:"Inverted Row",sets:4,reps:"8-12",tempo:"2-1-2-0",tempoDesc:"2s pull, 1s squeeze, 2s lower · horizontal pull",category:"Park"},
+    {id:"cali_muscleup",dbId:"Muscle_Up",name:"Muscle-Up Negative",sets:3,reps:"3-5",tempo:"Slow descent",tempoDesc:"Start on top, lower controlled · build the transition",category:"Park"},
+    {id:"cali_archpullup",name:"Archer Pull-Up",primaryMuscles:["lats","middle back"],sets:3,reps:"4-6 each",tempo:"2-1-2-0",tempoDesc:"Pull to one side, lower controlled (unilateral)",category:"Park"},
+    {id:"cali_hang",name:"Dead Hang",primaryMuscles:["forearms","lats"],sets:3,reps:"30-60 sec",tempo:"Isometric",tempoDesc:"Active hang, scapula engaged (grip + shoulder health)",category:"Park"},
+    {id:"cali_scappull",dbId:"Scapular_Pull-Up",name:"Scapular Pull-Up",sets:3,reps:"8-10",tempo:"1-2-1-0",tempoDesc:"1s pull, 2s squeeze scapula, 1s relax",category:"Park"}
+  ]},
+
+  legs: {day:3,label:"Day 3",title:"Legs",subtitle:"Pistol Progression · Jumps · Glutes",accent:"#ff7b3b",nutriType:"high",exercises:[
+    {id:"cali_pistol",name:"Pistol Squat (or assisted)",primaryMuscles:["quadriceps","glutes"],sets:4,reps:"4-6 each",tempo:"3-1-2-0",tempoDesc:"3s lower, 1s pause, 2s drive · use TRX or pole if needed",category:"Park/Home"},
+    {id:"cali_bulgarian",dbId:"Split_Squat_with_Dumbbells",name:"Bulgarian Split Squat",sets:4,reps:"8-12 each",tempo:"2-1-1-0",tempoDesc:"2s lower, 1s pause, 1s drive · bodyweight",category:"Park/Home"},
+    {id:"cali_jumpsq",dbId:"Freehand_Jump_Squat",name:"Jump Squat",sets:4,reps:"8-10",tempo:"Explosive",tempoDesc:"Down → max-effort vertical jump · land soft",category:"Park/Home"},
+    {id:"cali_glutebridge",dbId:"Single_Leg_Glute_Bridge",name:"Single-Leg Glute Bridge",sets:4,reps:"12-15 each",tempo:"2-2-1-0",tempoDesc:"2s lower, 2s squeeze, 1s drive",category:"Home"},
+    {id:"cali_calf",dbId:"Standing_Calf_Raises",name:"Single-Leg Calf Raise",sets:3,reps:"15-20 each",tempo:"1-2-3-0",tempoDesc:"1s raise, 2s peak, 3s lower",category:"Park/Home"},
+    {id:"cali_wallsit",name:"Wall Sit",primaryMuscles:["quadriceps"],sets:3,reps:"45-60 sec",tempo:"Isometric",tempoDesc:"Thighs parallel, back flat on wall",category:"Home"},
+    {id:"cali_cossack",name:"Cossack Squat",primaryMuscles:["adductors","quadriceps"],sets:3,reps:"6-8 each",tempo:"2-1-2-0",tempoDesc:"2s lower, 1s pause, 2s up · mobility + strength",category:"Park/Home"}
+  ]},
+
+  skills: {day:4,label:"Day 4",title:"Skills",subtitle:"Levers · Planches · Density",accent:"#b03bff",nutriType:"low",exercises:[
+    {id:"cali_handstand",name:"Handstand Hold (free)",primaryMuscles:["shoulders","abdominals"],sets:5,reps:"max time",tempo:"Isometric",tempoDesc:"Toward free-standing · use wall to start",category:"Park/Home"},
+    {id:"cali_lsit",name:"L-Sit Hold",primaryMuscles:["abdominals","triceps"],sets:4,reps:"max time",tempo:"Isometric",tempoDesc:"Tuck L-sit → one leg → full · press down hard",category:"Park"},
+    {id:"cali_planche",name:"Tuck Planche (or Frog Stand)",primaryMuscles:["shoulders","chest"],sets:4,reps:"max time",tempo:"Isometric",tempoDesc:"Frog → tuck → advanced tuck → straddle progression",category:"Park/Home"},
+    {id:"cali_lever",name:"Front Lever Tuck (or Negative)",primaryMuscles:["lats","abdominals"],sets:4,reps:"max time",tempo:"Isometric or 5s negative",tempoDesc:"Tuck → adv tuck → one leg → full · hollow body throughout",category:"Park"},
+    {id:"cali_mu_neg",dbId:"Muscle_Up",name:"Muscle-Up (or 5s negative)",primaryMuscles:["lats","chest","triceps"],sets:3,reps:"3-5",tempo:"Explosive up, slow down",tempoDesc:"Explosive transition · build to 1 clean rep",category:"Park"},
+    {id:"cali_archpush",name:"Archer Push-Up",primaryMuscles:["chest","triceps"],sets:3,reps:"4-6 each",tempo:"3-1-1-0",tempoDesc:"3s lower to one side, 1s pause, 1s press",category:"Park/Home"},
+    {id:"cali_hollow",dbId:"Plank",name:"Hollow Body Hold",sets:3,reps:"30-45 sec",tempo:"Isometric",tempoDesc:"Lower back pressed flat, arms overhead",category:"Home"}
+  ]},
+
+  fullBody: {day:5,label:"Day 5",title:"Full Body",subtitle:"AMRAP Density · All Patterns",accent:"#ff3b7b",nutriType:"high",exercises:[
+    {id:"cali_fb_pullup",dbId:"Pullups",name:"Pull-Up",sets:4,reps:"max",tempo:"2-1-2-0",tempoDesc:"Max quality reps, stop 1 short of failure",category:"Park"},
+    {id:"cali_fb_pushup",dbId:"Pushups",name:"Push-Up",sets:4,reps:"max",tempo:"2-0-1-0",tempoDesc:"Full range, chest to ground",category:"Park/Home"},
+    {id:"cali_fb_squat",dbId:"Bodyweight_Squat",name:"Bodyweight Squat",sets:4,reps:"15-20",tempo:"2-1-1-0",tempoDesc:"2s descent, 1s pause, 1s drive",category:"Home"},
+    {id:"cali_fb_dips",dbId:"Dips_-_Triceps_Version",name:"Dips",sets:3,reps:"max",tempo:"3-0-1-0",tempoDesc:"Quality reps, full range",category:"Park"},
+    {id:"cali_fb_row",dbId:"Inverted_Row",name:"Inverted Row",sets:3,reps:"10-12",tempo:"2-1-2-0",tempoDesc:"2s pull, 1s squeeze, 2s lower",category:"Park"},
+    {id:"cali_fb_pike",name:"Pike Push-Up",primaryMuscles:["shoulders"],sets:3,reps:"6-10",tempo:"3-1-1-0",tempoDesc:"3s lower, 1s pause, 1s press",category:"Park/Home"},
+    {id:"cali_fb_hollow",dbId:"Plank",name:"Hollow Body Hold",sets:3,reps:"30-45 sec",tempo:"Isometric",tempoDesc:"Lower back flat, core engaged",category:"Home"}
+  ]}
+};
+
+
+// ─── FOCUS AREA MODULES ───────────────────────────────────────────────────
+// When user selects focus areas in the wizard, these accessory exercises
+// are APPENDED to relevant training days. Each module specifies which day-
+// types receive the accessories and what exercises get added.
+//
+// Logic: each focus area provides 1-3 accessory exercises. They append to
+// days whose title or subtitle matches the focus area's body parts. Max 2
+// accessories per day to avoid bloated sessions. If a day already trains
+// the focus muscle directly, the module appends ONE extra exercise rather
+// than a full set.
+//
+// Each accessory exercise uses dbId where possible so CURATED_CUES attaches.
+
+const FOCUS_AREA_MODULES = {
+  glutes: {
+    label: 'Glutes',
+    description: 'Adds hip thrust + glute-focused accessories to leg and full-body days.',
+    accessories: [
+      {id:"focus_hipthrust",dbId:"Barbell_Hip_Thrust",name:"Barbell Hip Thrust",sets:4,reps:"10-12",tempo:"2-2-1-0",tempoDesc:"2s lower, 2s squeeze, 1s drive",category:"Gym",_focusArea:'glutes'},
+      {id:"focus_bridge",dbId:"Barbell_Glute_Bridge",name:"Glute Bridge",sets:3,reps:"12-15",tempo:"2-2-1-0",tempoDesc:"2s lower, 2s squeeze, 1s drive",category:"Gym",_focusArea:'glutes'},
+      {id:"focus_stepup",dbId:"Step-up_with_Knee_Raise",name:"Glute-focused Step-ups",sets:3,reps:"10-12 each",tempo:"2-1-1-0",tempoDesc:"2s up, 1s squeeze, 1s down",category:"Gym",_focusArea:'glutes'}
+    ],
+    // Day-type matchers: which titles/subtitles get the accessories
+    appliesTo: (day) => {
+      const text = (day.title + ' ' + day.subtitle).toLowerCase();
+      return text.includes('leg') || text.includes('full body') || text.includes('glute');
+    }
+  },
+
+  arms: {
+    label: 'Arms',
+    description: 'Adds biceps and triceps isolation to push, pull, and arm-focused days.',
+    accessories: [
+      {id:"focus_concur",dbId:"Concentration_Curls",name:"Concentration Curls",sets:3,reps:"12 each",tempo:"2-2-2-0",tempoDesc:"2s curl, 2s squeeze, 2s lower",category:"Gym",_focusArea:'arms'},
+      {id:"focus_hammer",dbId:"Alternate_Hammer_Curl",name:"Hammer Curls",sets:3,reps:"10-12",tempo:"2-1-2-0",tempoDesc:"2s curl, 1s squeeze, 2s lower",category:"Gym",_focusArea:'arms'},
+      {id:"focus_kickback",dbId:"Tricep_Dumbbell_Kickback",name:"Tricep Kickbacks",sets:3,reps:"12-15 each",tempo:"2-2-2-0",tempoDesc:"2s extend, 2s squeeze, 2s lower",category:"Gym",_focusArea:'arms'}
+    ],
+    appliesTo: (day) => {
+      const text = (day.title + ' ' + day.subtitle).toLowerCase();
+      return text.includes('push') || text.includes('pull') || text.includes('arm') || text.includes('biceps') || text.includes('triceps');
+    }
+  },
+
+  chest: {
+    label: 'Chest',
+    description: 'Adds flyes and isolation work to push and full-body days.',
+    accessories: [
+      {id:"focus_dbflyes",dbId:"Dumbbell_Flyes",name:"Dumbbell Flyes",sets:3,reps:"12-15",tempo:"2-1-2-0",tempoDesc:"2s spread, 1s stretch, 2s return",category:"Gym",_focusArea:'chest'},
+      {id:"focus_cablechest",dbId:"Cable_Chest_Press",name:"Cable Chest Press",sets:3,reps:"12-15",tempo:"2-1-2-0",tempoDesc:"2s press, 1s squeeze, 2s return",category:"Gym",_focusArea:'chest'},
+      {id:"focus_incdb",dbId:"Incline_Dumbbell_Press",name:"Incline DB Press",sets:3,reps:"10-12",tempo:"3-1-1-0",tempoDesc:"3s lower, 1s pause, 1s press",category:"Gym",_focusArea:'chest'}
+    ],
+    appliesTo: (day) => {
+      const text = (day.title + ' ' + day.subtitle).toLowerCase();
+      return text.includes('push') || text.includes('chest') || text.includes('full body');
+    }
+  },
+
+  back: {
+    label: 'Back',
+    description: 'Adds pulldown variations and rows to pull and full-body days.',
+    accessories: [
+      {id:"focus_pulldown",dbId:"Wide-Grip_Lat_Pulldown",name:"Wide-Grip Lat Pulldown",sets:3,reps:"10-12",tempo:"2-1-2-0",tempoDesc:"2s pull, 1s squeeze, 2s return",category:"Gym",_focusArea:'back'},
+      {id:"focus_tbar",dbId:"T-Bar_Row_with_Handle",name:"T-Bar Row",sets:3,reps:"10-12",tempo:"2-1-2-0",tempoDesc:"2s pull, 1s hold, 2s lower",category:"Gym",_focusArea:'back'},
+      {id:"focus_dbrow",dbId:"One-Arm_Dumbbell_Row",name:"One-Arm DB Row",sets:3,reps:"10-12 each",tempo:"2-1-2-0",tempoDesc:"2s pull, 1s squeeze, 2s return",category:"Gym",_focusArea:'back'}
+    ],
+    appliesTo: (day) => {
+      const text = (day.title + ' ' + day.subtitle).toLowerCase();
+      return text.includes('pull') || text.includes('back') || text.includes('full body');
+    }
+  },
+
+  shoulders: {
+    label: 'Shoulders',
+    description: 'Adds lateral raises and rear delt work to push and pull days.',
+    accessories: [
+      {id:"focus_lateral",dbId:"Side_Lateral_Raise",name:"Dumbbell Lateral Raise",sets:4,reps:"12-15",tempo:"1-1-2-0",tempoDesc:"1s lift, 1s hold, 2s lower",category:"Gym",_focusArea:'shoulders'},
+      {id:"focus_frontraise",dbId:"Front_Dumbbell_Raise",name:"Front Dumbbell Raise",sets:3,reps:"10-12",tempo:"1-1-2-0",tempoDesc:"1s lift, 1s hold, 2s lower",category:"Gym",_focusArea:'shoulders'},
+      {id:"focus_reardelt",dbId:"Bent_Over_Dumbbell_Rear_Delt_Raise_With_Head_On_Bench",name:"Rear Delt Raise",sets:3,reps:"12-15",tempo:"1-1-2-0",tempoDesc:"1s lift, 1s squeeze, 2s lower",category:"Gym",_focusArea:'shoulders'}
+    ],
+    appliesTo: (day) => {
+      const text = (day.title + ' ' + day.subtitle).toLowerCase();
+      return text.includes('push') || text.includes('pull') || text.includes('shoulder') || text.includes('delt');
+    }
+  },
+
+  core: {
+    label: 'Core',
+    description: 'Adds dedicated core work to most training days.',
+    accessories: [
+      {id:"focus_hanging",dbId:"Hanging_Leg_Raise",name:"Hanging Leg Raise",sets:3,reps:"10-15",tempo:"2-1-3-0",tempoDesc:"2s raise, 1s hold, 3s lower",category:"Gym",_focusArea:'core'},
+      {id:"focus_pallof",dbId:"Pallof_Press_With_Rotation",name:"Pallof Press w/ Rotation",sets:3,reps:"10 each",tempo:"2-2-2-0",tempoDesc:"2s press, 2s hold, 2s return",category:"Gym",_focusArea:'core'},
+      {id:"focus_plank",dbId:"Plank",name:"Weighted Plank",sets:3,reps:"45-60 sec",tempo:"Isometric",tempoDesc:"Hold rigid position",category:"Gym",_focusArea:'core'}
+    ],
+    appliesTo: (day) => {
+      // Core applies to most training days (not active/rest)
+      const text = (day.title + ' ' + day.subtitle).toLowerCase();
+      return !text.includes('rest') && !text.includes('recovery') && !text.includes('mobility');
+    }
+  },
+
+  legs: {
+    label: 'Legs',
+    description: 'Adds extra leg volume to leg-focused and full-body days.',
+    accessories: [
+      {id:"focus_legext",dbId:"Leg_Extensions",name:"Leg Extensions",sets:3,reps:"12-15",tempo:"2-2-1-0",tempoDesc:"2s extend, 2s squeeze, 1s return",category:"Gym",_focusArea:'legs'},
+      {id:"focus_legcurl",dbId:"Lying_Leg_Curls",name:"Lying Leg Curl",sets:3,reps:"12-15",tempo:"2-1-2-0",tempoDesc:"2s curl, 1s squeeze, 2s return",category:"Gym",_focusArea:'legs'},
+      {id:"focus_lunge",dbId:"Dumbbell_Lunges",name:"Walking Dumbbell Lunges",sets:3,reps:"12 each",tempo:"2-1-1-0",tempoDesc:"2s lower, 1s pause, 1s drive",category:"Gym",_focusArea:'legs'}
+    ],
+    appliesTo: (day) => {
+      const text = (day.title + ' ' + day.subtitle).toLowerCase();
+      return text.includes('leg') || text.includes('full body') || text.includes('quad');
+    }
+  }
+};
+
+
+// Resolve the template set to use based on a training style. Returns the
+// HYPERTROPHY_TEMPLATES dict when style is hypertrophy, else returns null
+// (signalling "use the default PROGRAM_DEFAULT_SNAPSHOT").
+function getTemplateSetForStyle(style) {
+  if (style === 'hypertrophy') return HYPERTROPHY_TEMPLATES;
+  if (style === 'strength') return STRENGTH_TEMPLATES;
+  if (style === 'powerlifting') return POWERLIFTING_TEMPLATES;
+  if (style === 'calisthenics') return CALISTHENICS_TEMPLATES;
+  // 'general' or unset → fall through to default PROGRAM snapshot
+  return null;
+}
+
+// Append focus-area accessories to a day. Max 2 accessories per day to
+// avoid session bloat. Marks each appended exercise with _fromFocus so the
+// UI can render them visually distinct if desired.
+function applyFocusAreasToDay(day, focusAreas) {
+  if (!focusAreas || !focusAreas.length) return day;
+  if (!day || !day.exercises) return day;
+
+  const additions = [];
+  focusAreas.forEach(faKey => {
+    const mod = FOCUS_AREA_MODULES[faKey];
+    if (!mod || !mod.appliesTo(day)) return;
+    // Pick one accessory per focus area per applicable day (avoids 3 accessories
+    // from same focus area piling up). Round-robin selection across the
+    // module's accessories so multi-day programs see variety.
+    const idx = (day.day - 1) % mod.accessories.length;
+    const accessory = mod.accessories[idx];
+    additions.push(Object.assign({}, accessory, { _fromFocus: true }));
+  });
+
+  if (!additions.length) return day;
+
+  // Cap total additions to 2 per day to prevent bloat
+  const capped = additions.slice(0, 2);
+
+  return Object.assign({}, day, {
+    exercises: day.exercises.concat(capped)
+  });
+}
+
 
 const WATER_TARGETS = {high:4000,mod:4000,low:3500,rest:3500};
 const WATER_SCHEDULE = [
@@ -9255,10 +10216,17 @@ function renderDayBanner() {
   left.appendChild(bebas(32,day.accent,day.title));
   left.appendChild(el('div',{style:{fontSize:'9px',color:'#7a7a7a',letterSpacing:'0.12em',textTransform:'uppercase',marginTop:'3px'}},day.subtitle));
   banner.appendChild(left);
+  // Use user's day-type target if a goal profile exists; otherwise fall back
+  // to the hardcoded baseline. This makes the banner reflect what THIS user
+  // actually eats on this day-type, consistent with the scaled meals below.
+  const _profile = (typeof getGoalProfile === 'function') ? getGoalProfile() : null;
+  const _dayMacros = _profile ? getDayTypeMacros(_profile, day.nutriType) : null;
+  const _displayKcal = _dayMacros ? _dayMacros.targetKcal : np.calories;
+  const _displayProtein = _dayMacros ? _dayMacros.proteinG : np.protein;
   banner.appendChild(div({textAlign:'right'},
     el('div',{style:{fontSize:'8px',color:np.color,letterSpacing:'0.15em',textTransform:'uppercase',marginBottom:'3px'}},np.label),
-    bebas(22,np.color,np.calories+' kcal'),
-    el('div',{style:{fontSize:'9px',color:'#6a6a6a'}},np.protein+'g protein'),
+    bebas(22,np.color,_displayKcal+' kcal'),
+    el('div',{style:{fontSize:'9px',color:'#6a6a6a'}},_displayProtein+'g protein'),
     el('div',{style:{fontSize:'9px',color:'#333',marginTop:'2px'}},np.desc)
   ));
 }
@@ -11040,9 +12008,15 @@ function renderWorkout() {
     const levelColors = { beginner: '#06d6a0', intermediate: '#fbbf24', expert: '#f87171' };
     const levelColor = level ? levelColors[level] : null;
 
-    // Pull prior week data for carryover and progression suggestions
+    // Pull prior week data for carryover and progression suggestions.
+    // getSmartSuggestion adds the 5%-of-top-weight cap so we don't aggressively
+    // bump light lifts (a 40kg lift only earns +2kg, not +5kg).
     const prev = getPreviousExerciseLog(day.day, originalEx.id);
-    const suggestion = prev ? getProgressionSuggestion(ex, prev.sets) : null;
+    const rawSuggestion = prev ? getSmartSuggestion(ex, prev) : null;
+    // Only show the "PROGRESS" badge/banner when we actually earned a bump.
+    // 'repeat' suggestions (didn't hit top reps) still inform the placeholder
+    // but shouldn't visually claim a PR.
+    const suggestion = (rawSuggestion && rawSuggestion.reason === 'progress') ? rawSuggestion : null;
 
     const card = el('div',{class:'card',style:{background:'#0e0e0e',border:'1px solid ' + (isOpen?day.accent+'33':'#1a1a1a'),borderRadius:'8px',marginBottom:'7px',overflow:'hidden'}});
 
@@ -11058,6 +12032,19 @@ function renderWorkout() {
         ),
         el('div',{style:{fontSize:'9px',color:'#6a6a6a'}},ex.sets + ' × ' + ex.reps + ' · T: ' + ex.tempo)
       ),
+      // History button — opens bottom sheet showing the last 12 sessions
+      // for this exercise across all weeks/days, plus PR summary.
+      el('button',{
+        class:'btn',
+        title:'View history',
+        style:{
+          background:'transparent',color:'#666',
+          border:'1px solid #1e1e1e',
+          padding:'6px 9px',borderRadius:'5px',
+          fontSize:'13px',cursor:'pointer',flexShrink:'0'
+        },
+        onclick: (e) => { e.stopPropagation(); openHistorySheet(originalEx, day.accent); }
+      }, '◴'),
       // Swap button — opens bottom sheet for alternative selection
       el('button',{
         class:'btn',
@@ -12686,20 +13673,18 @@ function getDisplayMealsForDay(meals, dayType, dayNum) {
   const profile = (typeof getGoalProfile === 'function') ? getGoalProfile() : null;
   if (!profile || !profile.targetKcal) return meals;
 
-  const baseline = MEAL_BASELINE_TARGETS[dayType];
-  if (!baseline) return meals;
+  const designBaseline = MEAL_BASELINE_TARGETS[dayType];
+  if (!designBaseline) return meals;
 
   const dayMacros = (typeof getDayTypeMacros === 'function')
     ? getDayTypeMacros(profile, dayType) : null;
   if (!dayMacros) return meals;
   const dayTargetKcal = dayMacros.targetKcal;
 
-  // Sum baseline kcal from the actual meal list (handles meal swaps that
-  // may have different kcal than the original NUTRITION baseline)
-  const totalBaselineKcal = meals.reduce((s, m) => s + (m && m.kcal ? m.kcal : 0), 0);
-
-  // Compute which meals to drop
-  let optionalIdx = computeOptionalMealIndices(meals, dayTargetKcal, totalBaselineKcal);
+  // Compute which meals to drop using the DESIGN baseline (e.g. 2800 for
+  // a high day). This matches the original Phase 0 behavior so Fraser's
+  // profile (target ≈ design baseline) shows no spurious drops or scaling.
+  let optionalIdx = computeOptionalMealIndices(meals, dayTargetKcal, designBaseline);
 
   // Honor user overrides — meals the user has chosen to keep
   if (dayNum != null) {
@@ -12711,19 +13696,32 @@ function getDisplayMealsForDay(meals, dayType, dayNum) {
 
   const optionalSet = new Set(optionalIdx);
 
-  // Active baseline = sum of meals NOT marked optional
-  let activeBaseline = 0;
+  // Sum the actual meal kcals so we can compute "what proportion of the
+  // designed plan is the user keeping?" Some users keep optional meals
+  // (re-add Wind Down), some drop them — this proportion drives the
+  // effective baseline for scaling.
+  let totalMealKcal = 0, activeMealKcal = 0;
   meals.forEach((m, i) => {
-    if (!optionalSet.has(i) && m && m.kcal) activeBaseline += m.kcal;
+    if (m && m.kcal) {
+      totalMealKcal += m.kcal;
+      if (!optionalSet.has(i)) activeMealKcal += m.kcal;
+    }
   });
 
-  // Effective ratio after drops — applied to all active meals so they share
-  // the day's calorie target equally relative to their original sizes
-  const effectiveRatio = activeBaseline > 0 ? (dayTargetKcal / activeBaseline) : 1;
+  // The "keep proportion" describes how much of the original plan the
+  // user is actually eating. If we drop a 300 kcal meal from a 2510-kcal
+  // plan, keepProportion = 2210/2510 = 0.88 — so the remaining meals
+  // should scale to cover ~88% of the design baseline.
+  const keepProportion = totalMealKcal > 0 ? (activeMealKcal / totalMealKcal) : 1;
 
-  // Build the result list — scale active meals against the new (smaller)
-  // baseline; mark optional meals with _optional flag (use original kcal,
-  // no scaling applied since user isn't eating them by default)
+  // Effective baseline = design baseline × keep proportion. This preserves
+  // the original Phase 0 invariant (when user's target ≈ design baseline,
+  // no scaling fires) while correctly accounting for dropped meals.
+  const effectiveBaseline = designBaseline * keepProportion;
+  const effectiveRatio = effectiveBaseline > 0 ? (dayTargetKcal / effectiveBaseline) : 1;
+
+  // Build the result list — scale active meals; mark optional ones with
+  // _optional flag (preserving their original kcal for "would have been" display)
   return meals.map((m, i) => {
     if (!m) return m;
     if (optionalSet.has(i)) {
@@ -13432,7 +14430,7 @@ function rateToDailyKcalDelta(pctBw, weight, dir) {
 
 // Compute a complete goal profile from raw inputs. Pure function — all inputs in.
 function computeGoalProfile(inputs) {
-  const { weight, bodyFat, height, age, sex, activityId, goalTypeId, ratePctBw, targetBodyFat, targetWeight, trainingDaysPerWeek } = inputs;
+  const { weight, bodyFat, height, age, sex, activityId, goalTypeId, ratePctBw, targetBodyFat, targetWeight, trainingDaysPerWeek, trainingStyle, focusAreas } = inputs;
 
   // ── BMR ──
   const lbm = (bodyFat != null) ? weight * (1 - bodyFat / 100) : null;
@@ -13516,6 +14514,11 @@ function computeGoalProfile(inputs) {
     proteinG, fatG, carbsG,
     // Training
     trainingDaysPerWeek: trainingDaysPerWeek || 5,
+    // Training style + focus areas (Phase A). Both optional — null/[] = default
+    // PROGRAM behavior. Persisted so syncProgramToProfile can rebuild the
+    // program shape on every load.
+    trainingStyle: trainingStyle || null,
+    focusAreas: Array.isArray(focusAreas) ? focusAreas : [],
     // Metadata
     version: 1,
     lockedAt: null  // set when user locks
@@ -13779,10 +14782,119 @@ function renderSettingsModal(section) {
     body.appendChild(renderGoalWizard());
   } else if (section === 'profile') {
     body.appendChild(renderProfileSection());
+  } else if (section === 'about') {
+    body.appendChild(renderAboutSection());
   } else {
     body.appendChild(renderSettingsMenu());
   }
   ov.appendChild(body);
+}
+
+// ─── ABOUT SECTION ───────────────────────────────────────────────────
+// Surfaces:
+//   • App version (matches SW CACHE_VERSION)
+//   • Per-device storage note (sets cross-device expectations)
+//   • Android install button (when beforeinstallprompt was captured)
+//   • iOS install instructions (when on iOS Safari, not standalone)
+//   • App URL for setup on another device
+function renderAboutSection() {
+  const wrap = div({});
+
+  // Version card
+  const ver = div({
+    background:'#0e0e0e', border:'1px solid #1e1e1e', borderRadius:'10px',
+    padding:'14px 16px', marginBottom:'10px'
+  });
+  ver.appendChild(el('div', {style:{fontSize:'8px',color:'#3bdfff',letterSpacing:'0.25em',textTransform:'uppercase',fontWeight:'700',marginBottom:'4px'}}, '◆ FLOW Tracker'));
+  ver.appendChild(el('div', {style:{fontSize:'13px',color:'#e0e0e0',fontFamily:"'Bebas Neue',sans-serif",letterSpacing:'0.04em',marginBottom:'4px'}}, 'Version 1.0'));
+  ver.appendChild(el('div', {style:{fontSize:'10px',color:'#666',lineHeight:'1.5'}},
+    'Personal training, nutrition, and progression tracker. Works offline once installed.'));
+  wrap.appendChild(ver);
+
+  // Cross-device awareness — most important note
+  const storage = div({
+    background:'#0e0e0e', border:'1px solid #fbbf2433', borderRadius:'10px',
+    padding:'14px 16px', marginBottom:'10px'
+  });
+  storage.appendChild(el('div', {style:{fontSize:'8px',color:'#fbbf24',letterSpacing:'0.25em',textTransform:'uppercase',fontWeight:'700',marginBottom:'6px'}}, '◐ Your Data'));
+  storage.appendChild(el('div', {style:{fontSize:'11px',color:'#ccc',lineHeight:'1.6',marginBottom:'8px'}},
+    'Everything you log lives on THIS device only. Meals, workouts, metrics, goal profile — all stored locally in your browser.'));
+  storage.appendChild(el('div', {style:{fontSize:'11px',color:'#ccc',lineHeight:'1.6',marginBottom:'8px'}},
+    'Each device has its own profile. To set up a partner or use a second device, visit the app URL from that device and configure separately.'));
+  // The URL — make it easy to share
+  const urlBox = div({background:'#161616', padding:'8px 10px', borderRadius:'6px', marginTop:'8px'});
+  urlBox.appendChild(el('div', {style:{fontSize:'8px',color:'#666',letterSpacing:'0.15em',textTransform:'uppercase',marginBottom:'3px'}}, 'App URL'));
+  urlBox.appendChild(el('div', {style:{fontSize:'11px',color:'#3bdfff',fontFamily:"'DM Mono',monospace",wordBreak:'break-all'}}, location.origin + location.pathname));
+  storage.appendChild(urlBox);
+  wrap.appendChild(storage);
+
+  // Install section — only show if not already installed
+  if (!isPWAStandalone()) {
+    const install = div({
+      background:'#0e0e0e', border:'1px solid #3bdfff33', borderRadius:'10px',
+      padding:'14px 16px', marginBottom:'10px'
+    });
+    install.appendChild(el('div', {style:{fontSize:'8px',color:'#3bdfff',letterSpacing:'0.25em',textTransform:'uppercase',fontWeight:'700',marginBottom:'6px'}}, '◆ Install as App'));
+
+    // Android: deferred prompt captured?
+    if (PWA.deferredInstallPrompt) {
+      install.appendChild(el('div', {style:{fontSize:'11px',color:'#bbb',lineHeight:'1.5',marginBottom:'10px'}},
+        'Install FLOW to your home screen for one-tap access and full-screen layout (no browser chrome).'));
+      const btn = el('button', {
+        class:'btn',
+        style:{
+          background:'#3bdfff', color:'#000', border:'none',
+          padding:'10px 16px', borderRadius:'6px', fontSize:'10px',
+          letterSpacing:'0.15em', textTransform:'uppercase', fontWeight:'700',
+          cursor:'pointer', fontFamily:"'DM Mono',monospace", width:'100%'
+        },
+        onclick: () => {
+          if (triggerAndroidInstall()) {
+            // Re-render after a moment so the button hides if installed
+            setTimeout(() => renderSettingsModal('about'), 1500);
+          }
+        }
+      }, '◆ Install FLOW');
+      install.appendChild(btn);
+    } else if (isIOSSafari()) {
+      install.appendChild(el('div', {style:{fontSize:'11px',color:'#bbb',lineHeight:'1.6',marginBottom:'8px'}},
+        'iOS Safari install:'));
+      const steps = div({style:{fontSize:'11px',color:'#bbb',lineHeight:'1.7'}});
+      steps.innerHTML =
+        '<div><span style="color:#3bdfff;font-weight:700">1.</span> Tap the Share button <span style="font-size:13px">⬆</span> at the bottom</div>' +
+        '<div><span style="color:#3bdfff;font-weight:700">2.</span> Scroll down → <span style="color:#fff">Add to Home Screen</span></div>' +
+        '<div><span style="color:#3bdfff;font-weight:700">3.</span> Tap <span style="color:#fff">Add</span></div>';
+      install.appendChild(steps);
+    } else {
+      install.appendChild(el('div', {style:{fontSize:'11px',color:'#888',lineHeight:'1.5'}},
+        'Look for an install icon in your browser address bar, or use your browser menu → Install / Add to Home Screen.'));
+    }
+    wrap.appendChild(install);
+  } else {
+    // Already installed — small confirmation
+    const installed = div({
+      background:'#0e0e0e', border:'1px solid #6aff3b33', borderRadius:'10px',
+      padding:'12px 14px', marginBottom:'10px'
+    });
+    installed.appendChild(el('div', {style:{fontSize:'10px',color:'#6aff3b',lineHeight:'1.5'}},
+      '✓ Installed as app on this device'));
+    wrap.appendChild(installed);
+  }
+
+  // Connection status
+  const conn = div({
+    background:'#0e0e0e', border:'1px solid #1e1e1e', borderRadius:'10px',
+    padding:'12px 14px'
+  });
+  conn.appendChild(el('div', {style:{fontSize:'8px',color:'#666',letterSpacing:'0.25em',textTransform:'uppercase',fontWeight:'700',marginBottom:'4px'}}, '◴ Connection'));
+  const isOff = !navigator.onLine;
+  conn.appendChild(el('div', {style:{fontSize:'11px',color: isOff ? '#fbbf24' : '#6aff3b',lineHeight:'1.5'}},
+    isOff ? '◐ Offline — using cached data' : '✓ Online'));
+  conn.appendChild(el('div', {style:{fontSize:'10px',color:'#666',marginTop:'3px',lineHeight:'1.5'}},
+    'App works fully offline once installed. Your changes save locally and persist between sessions.'));
+  wrap.appendChild(conn);
+
+  return wrap;
 }
 
 function renderSettingsMenu() {
@@ -13790,6 +14902,7 @@ function renderSettingsMenu() {
   const items = [
     { id:'profile', icon:'👤', label:'Profile',          desc:'Your name, nickname, program label' },
     { id:'goals',   icon:'🎯', label:'Goals',           desc:'Body composition goals + macro targets' },
+    { id:'about',   icon:'ℹ',  label:'About this app',  desc:'Storage, install, version info' },
     { id:'units',   icon:'📏', label:'Units',           desc:'Coming soon — toggle metric/imperial', disabled:true },
     { id:'reset',   icon:'🔄', label:'Reset App Data',  desc:'Coming soon — wipe local storage', disabled:true }
   ];
@@ -14338,17 +15451,23 @@ function renderGoalWizard() {
       goalTypeId: 'cut',
       ratePctBw: 0.5,
       targetBodyFat: null,
-      targetWeight: null
+      targetWeight: null,
+      trainingStyle: 'hypertrophy',  // default style (Phase A)
+      focusAreas: []                  // 0-3 selections from FOCUS_AREA_MODULES keys
     };
     if (!wizardState.trainingDaysPerWeek) wizardState.trainingDaysPerWeek = 5;
+    // Defensive defaults for users reopening the wizard with an older profile
+    if (wizardState.trainingStyle === undefined) wizardState.trainingStyle = 'hypertrophy';
+    if (!Array.isArray(wizardState.focusAreas)) wizardState.focusAreas = [];
     wizardState.step = 1;
   }
 
   const wrap = div({});
 
-  // Stepper indicator — 7 steps now (Identity / Activity / Frequency / GoalType / Target / Rate / Review)
+  // Stepper indicator — 9 steps now (Identity / Activity / Frequency / Style /
+  // Focus / GoalType / Target / Rate / Review)
   const stepper = div({display:'flex',gap:'4px',marginBottom:'18px',alignItems:'center'});
-  for (let i = 1; i <= 7; i++) {
+  for (let i = 1; i <= 9; i++) {
     const isActive = i === wizardState.step;
     const isDone = i < wizardState.step;
     stepper.appendChild(el('div',{
@@ -14361,15 +15480,18 @@ function renderGoalWizard() {
   }
   wrap.appendChild(stepper);
 
-  // Step content (1=Identity, 2=Activity, 3=Frequency, 4=GoalType, 5=Target, 6=Rate, 7=Review)
+  // Step content (1=Identity, 2=Activity, 3=Frequency, 4=Style, 5=Focus,
+  //               6=GoalType, 7=Target, 8=Rate, 9=Review)
   let stepUI;
   if (wizardState.step === 1)      stepUI = renderWizStep1Identity();
   else if (wizardState.step === 2) stepUI = renderWizStep2Activity();
   else if (wizardState.step === 3) stepUI = renderWizStep3Frequency();
-  else if (wizardState.step === 4) stepUI = renderWizStep4GoalType();
-  else if (wizardState.step === 5) stepUI = renderWizStep5Target();
-  else if (wizardState.step === 6) stepUI = renderWizStep6Rate();
-  else if (wizardState.step === 7) stepUI = renderWizStep7Review();
+  else if (wizardState.step === 4) stepUI = renderWizStep4TrainingStyle();
+  else if (wizardState.step === 5) stepUI = renderWizStep5FocusAreas();
+  else if (wizardState.step === 6) stepUI = renderWizStep6GoalType();
+  else if (wizardState.step === 7) stepUI = renderWizStep7Target();
+  else if (wizardState.step === 8) stepUI = renderWizStep8Rate();
+  else if (wizardState.step === 9) stepUI = renderWizStep9Review();
   wrap.appendChild(stepUI);
 
   // Nav buttons
@@ -14387,7 +15509,7 @@ function renderGoalWizard() {
       onclick: () => { wizardState.step--; renderSettingsModal('goal_wizard'); }
     }, '‹ Back'));
   }
-  if (wizardState.step < 7) {
+  if (wizardState.step < 9) {
     const validStep = isWizardStepValid(wizardState.step);
     navRow.appendChild(el('button',{
       id: 'wiz-continue',
@@ -14430,13 +15552,15 @@ function isWizardStepValid(step) {
   if (step === 1) return s.weight > 30 && s.weight < 250 && s.age > 12 && s.age < 100 && s.height > 100;
   if (step === 2) return !!s.activityId;
   if (step === 3) return !!s.trainingDaysPerWeek && s.trainingDaysPerWeek >= 1 && s.trainingDaysPerWeek <= 7;
-  if (step === 4) return !!s.goalTypeId;
-  if (step === 5) {
+  if (step === 4) return !!s.trainingStyle;                              // Training Style — must pick one
+  if (step === 5) return Array.isArray(s.focusAreas) && s.focusAreas.length <= 3;  // Focus Areas — 0-3 (0 is fine)
+  if (step === 6) return !!s.goalTypeId;
+  if (step === 7) {
     const goal = GOAL_TYPES.find(g => g.id === s.goalTypeId);
     if (!goal || goal.dir === 0) return true;  // maintain/recomp don't need target
     return (s.targetBodyFat != null) || (s.targetWeight != null);
   }
-  if (step === 6) {
+  if (step === 8) {
     const goal = GOAL_TYPES.find(g => g.id === s.goalTypeId);
     if (!goal || goal.dir === 0) return true;
     return s.ratePctBw != null && s.ratePctBw > 0;
@@ -14676,8 +15800,198 @@ function renderWizStep3Frequency() {
 }
 
 
-// ─── WIZARD STEP 4 — GOAL TYPE ────────────────────────────────────────────
-function renderWizStep4GoalType() {
+// ─── WIZARD STEP 4 — TRAINING STYLE ────────────────────────────────────────
+// User picks a training philosophy that shapes which exercises appear on
+// each day. Phase A implements Hypertrophy fully; others are stub options
+// that fall back to the default PROGRAM behavior (general fitness).
+
+const TRAINING_STYLES = [
+  {
+    id: 'hypertrophy',
+    label: 'Hypertrophy / Recomp',
+    icon: '💪',
+    short: 'Muscle growth focus',
+    description: '8-12 rep ranges, more isolation work, higher set counts. Optimal for building muscle and recomposition. Default for most cuts, recomps, and lean bulks.',
+    status: 'live'
+  },
+  {
+    id: 'strength',
+    label: 'Strength',
+    icon: '⚡',
+    short: 'Heavy compound emphasis',
+    description: '3-6 rep range on big lifts (squat/bench/deadlift/OHP/row), 6-10 on accessories. Linear progression friendly — clean +2.5kg/+5kg jumps signal real gains.',
+    status: 'live'
+  },
+  {
+    id: 'powerlifting',
+    label: 'Powerlifting',
+    icon: '🏋️',
+    short: 'Squat / Bench / Deadlift',
+    description: '1-5 rep range on the big three, paused variants, accessories tuned to weak points (lockout, off-the-floor, hip hinge). Competition-style.',
+    status: 'live'
+  },
+  {
+    id: 'calisthenics',
+    label: 'Calisthenics',
+    icon: '🤸',
+    short: 'Bodyweight progressions',
+    description: 'Pull/push/squat hierarchies with skill work (planche, lever, handstand) and density. Less load-driven, more rep- and skill-focused.',
+    status: 'live'
+  },
+  {
+    id: 'general',
+    label: 'General Fitness',
+    icon: '🎯',
+    short: 'Mixed / current default',
+    description: 'The original FLOW program — balanced strength, hypertrophy, and conditioning. Sits between the others. This is what the app uses if you skip this step.',
+    status: 'default'
+  }
+];
+
+function renderWizStep4TrainingStyle() {
+  const wrap = div({});
+  wrap.appendChild(stepHeader('Training style', 'Choose how your workouts are structured. Hypertrophy is the default for muscle building — picks 8-12 rep ranges with more isolation work. Others are coming in future updates.'));
+
+  TRAINING_STYLES.forEach(ts => {
+    const isSelected = wizardState.trainingStyle === ts.id;
+    const isAvailable = ts.status === 'live' || ts.status === 'default';
+    const card = el('button',{
+      class:'btn',
+      style:{
+        display:'block', width:'100%', textAlign:'left',
+        background: isSelected ? 'linear-gradient(135deg, rgba(6,214,160,0.12), rgba(6,214,160,0.04))' : '#0e0e0e',
+        border: '1px solid ' + (isSelected ? '#06d6a0' : '#1e1e1e'),
+        borderRadius:'12px', padding:'14px 16px', marginBottom:'8px',
+        cursor: isAvailable ? 'pointer' : 'not-allowed',
+        transition:'all 0.18s ease',
+        opacity: isAvailable ? '1' : '0.55'
+      },
+      onclick: () => {
+        if (!isAvailable) {
+          showToast('"' + ts.label + '" is coming in Phase B. For now, use Hypertrophy or General Fitness.');
+          return;
+        }
+        wizardState.trainingStyle = ts.id;
+        renderSettingsModal('goal_wizard');
+      }
+    });
+
+    const topRow = div({display:'flex',alignItems:'baseline',gap:'10px',marginBottom:'4px'});
+    topRow.appendChild(el('span',{style:{fontSize:'18px',flexShrink:'0'}}, ts.icon));
+    const titleCol = div({flex:'1'});
+    titleCol.appendChild(el('div',{
+      style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'16px',color:isSelected?'#06d6a0':'#e0e0e0',letterSpacing:'0.03em'}
+    }, ts.label));
+    titleCol.appendChild(el('div',{
+      style:{fontSize:'9px',color:'#888',letterSpacing:'0.05em',marginTop:'2px'}
+    }, ts.short));
+    topRow.appendChild(titleCol);
+
+    if (ts.status === 'coming_soon') {
+      topRow.appendChild(el('span',{
+        style:{fontSize:'8px',color:'#fbbf24',background:'#fbbf2422',padding:'2px 6px',borderRadius:'4px',letterSpacing:'0.1em',textTransform:'uppercase',fontWeight:'700',flexShrink:'0'}
+      }, 'Soon'));
+    } else if (ts.status === 'default') {
+      topRow.appendChild(el('span',{
+        style:{fontSize:'8px',color:'#888',background:'#22222266',padding:'2px 6px',borderRadius:'4px',letterSpacing:'0.1em',textTransform:'uppercase',fontWeight:'700',flexShrink:'0'}
+      }, 'Default'));
+    }
+
+    card.appendChild(topRow);
+    card.appendChild(el('div',{
+      style:{fontSize:'10px',color:'#777',lineHeight:'1.5',marginTop:'4px'}
+    }, ts.description));
+
+    wrap.appendChild(card);
+  });
+
+  return wrap;
+}
+
+
+// ─── WIZARD STEP 5 — FOCUS AREAS ────────────────────────────────────────────
+// User can pick 0-3 body parts to emphasize. Each focus area adds 1-2 accessory
+// exercises to relevant training days. Skipping (selecting 0) is fine — the
+// program runs at standard volume.
+
+function renderWizStep5FocusAreas() {
+  const wrap = div({});
+  wrap.appendChild(stepHeader('Focus areas (optional)', 'Pick up to 3 body parts to emphasize. Extra accessory work gets added to days that train those muscles. Skip if you want balanced volume.'));
+
+  // Count indicator
+  const countRow = div({
+    display:'flex',justifyContent:'space-between',alignItems:'center',
+    marginBottom:'12px',padding:'8px 12px',background:'#0a0a0a',
+    borderRadius:'8px',border:'1px solid #1a1a1a'
+  });
+  countRow.appendChild(el('div',{
+    style:{fontSize:'10px',color:'#888',letterSpacing:'0.05em'}
+  }, 'Selected: ' + wizardState.focusAreas.length + ' / 3'));
+  if (wizardState.focusAreas.length > 0) {
+    countRow.appendChild(el('button',{
+      class:'btn',
+      style:{
+        background:'transparent',border:'1px solid #2a2a2a',
+        padding:'4px 10px',borderRadius:'6px',color:'#888',
+        fontSize:'9px',fontFamily:"'DM Mono',monospace",
+        letterSpacing:'0.15em',textTransform:'uppercase',cursor:'pointer'
+      },
+      onclick: () => { wizardState.focusAreas = []; renderSettingsModal('goal_wizard'); }
+    }, 'Clear'));
+  }
+  wrap.appendChild(countRow);
+
+  // Focus area options (multi-select)
+  const grid = div({display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'});
+  Object.keys(FOCUS_AREA_MODULES).forEach(faKey => {
+    const mod = FOCUS_AREA_MODULES[faKey];
+    const isSelected = wizardState.focusAreas.includes(faKey);
+    const atLimit = wizardState.focusAreas.length >= 3 && !isSelected;
+    const card = el('button',{
+      class:'btn',
+      style:{
+        display:'block',textAlign:'left',
+        background: isSelected ? 'linear-gradient(135deg, rgba(6,214,160,0.12), rgba(6,214,160,0.04))' : '#0e0e0e',
+        border: '1px solid ' + (isSelected ? '#06d6a0' : '#1e1e1e'),
+        borderRadius:'10px', padding:'12px',
+        cursor: atLimit ? 'not-allowed' : 'pointer',
+        transition:'all 0.18s ease',
+        opacity: atLimit ? '0.4' : '1'
+      },
+      onclick: () => {
+        if (isSelected) {
+          wizardState.focusAreas = wizardState.focusAreas.filter(f => f !== faKey);
+        } else if (!atLimit) {
+          wizardState.focusAreas = wizardState.focusAreas.concat([faKey]);
+        }
+        renderSettingsModal('goal_wizard');
+      }
+    });
+
+    const topRow = div({display:'flex',alignItems:'center',gap:'8px',marginBottom:'4px'});
+    if (isSelected) {
+      topRow.appendChild(el('span',{
+        style:{color:'#06d6a0',fontSize:'12px',fontWeight:'700',flexShrink:'0'}
+      }, '✓'));
+    }
+    topRow.appendChild(el('div',{
+      style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'15px',color:isSelected?'#06d6a0':'#e0e0e0',letterSpacing:'0.03em'}
+    }, mod.label));
+    card.appendChild(topRow);
+    card.appendChild(el('div',{
+      style:{fontSize:'9px',color:'#777',lineHeight:'1.4'}
+    }, mod.description));
+
+    grid.appendChild(card);
+  });
+  wrap.appendChild(grid);
+
+  return wrap;
+}
+
+
+// ─── WIZARD STEP 6 — GOAL TYPE ────────────────────────────────────────────
+function renderWizStep6GoalType() {
   const wrap = div({});
   wrap.appendChild(stepHeader('What\'s the goal?', 'Different goals = different macros. Cut prioritizes muscle preservation; bulk maximizes growth; recomp/maintain hold steady.'));
 
@@ -14724,7 +16038,7 @@ function renderWizStep4GoalType() {
 }
 
 // ─── WIZARD STEP 5 — TARGET ───────────────────────────────────────────────
-function renderWizStep5Target() {
+function renderWizStep7Target() {
   const wrap = div({});
   const goal = GOAL_TYPES.find(g => g.id === wizardState.goalTypeId);
 
@@ -14882,7 +16196,7 @@ function renderWizStep5Target() {
 }
 
 // ─── WIZARD STEP 6 — RATE (THE EDUCATIONAL CORE) ──────────────────────────
-function renderWizStep6Rate() {
+function renderWizStep8Rate() {
   const wrap = div({});
   const goal = GOAL_TYPES.find(g => g.id === wizardState.goalTypeId);
 
@@ -14981,7 +16295,7 @@ function renderWizStep6Rate() {
 }
 
 // ─── WIZARD STEP 7 — REVIEW ───────────────────────────────────────────────
-function renderWizStep7Review() {
+function renderWizStep9Review() {
   const wrap = div({});
   wrap.appendChild(stepHeader('Review & Lock', 'Final macros below. Lock to apply across the entire app — daily targets, per-day macros, and meal planning will update.'));
 
@@ -15001,6 +16315,17 @@ function renderWizStep7Review() {
   summary.appendChild(reviewRow('BMR ('+profile.bmrFormula+')', profile.bmr + ' kcal'));
   summary.appendChild(reviewRow('Activity', wizardState.activityId + ' (×' + profile.activityMult + ')'));
   summary.appendChild(reviewRow('Training', wizardState.trainingDaysPerWeek + ' day' + (wizardState.trainingDaysPerWeek === 1 ? '' : 's') + '/week'));
+  // Training style + focus areas (Phase A additions)
+  if (wizardState.trainingStyle) {
+    const tsObj = TRAINING_STYLES.find(t => t.id === wizardState.trainingStyle);
+    summary.appendChild(reviewRow('Style', tsObj ? tsObj.label : wizardState.trainingStyle));
+  }
+  if (wizardState.focusAreas && wizardState.focusAreas.length > 0) {
+    const focusLabels = wizardState.focusAreas
+      .map(f => (FOCUS_AREA_MODULES[f] && FOCUS_AREA_MODULES[f].label) || f)
+      .join(', ');
+    summary.appendChild(reviewRow('Focus', focusLabels));
+  }
   summary.appendChild(reviewRow('TDEE', profile.tdee + ' kcal'));
   if (profile.dailyDelta !== 0) {
     summary.appendChild(reviewRow('Daily ' + (profile.goalDir < 0 ? 'deficit' : 'surplus'),
@@ -15234,15 +16559,25 @@ function renderNutrition() {
   }
 
   // ── PLANNED MACROS (existing card — the meal plan's calorie target) ──
-  // This is what the meal plan adds up to. With the user target above, this
-  // gives a "this is the plan, here's how it compares to what you actually need" pair.
+  // This is what the meal plan adds up to. With scaling active, "planned"
+  // should reflect the user's day-type target (not the raw hardcoded
+  // baseline), because meals are scaled to that target.
   const lockedMacros = getLockedDayMacros(day.day);
+  // Compute the planned values: scaled day-type target if profile exists,
+  // else the hardcoded NUTRITION baseline (preserves behavior for users
+  // without a goal profile).
+  const _plannedProfile = (typeof getGoalProfile === 'function') ? getGoalProfile() : null;
+  const _plannedDayMacros = _plannedProfile ? getDayTypeMacros(_plannedProfile, day.nutriType) : null;
+  const _plannedKcal    = _plannedDayMacros ? _plannedDayMacros.targetKcal : np.calories;
+  const _plannedProtein = _plannedDayMacros ? _plannedDayMacros.proteinG   : np.protein;
+  const _plannedCarbs   = _plannedDayMacros ? _plannedDayMacros.carbsG     : np.carbs;
+  const _plannedFat     = _plannedDayMacros ? _plannedDayMacros.fatG       : np.fat;
   const macroGrid = div({display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:'6px',marginBottom:'10px'});
   const plannedSpec = [
-    {label:'CAL',  planned: np.calories, actual: lockedMacros ? lockedMacros.kcal : null,    color: np.color,   key: 'kcal'},
-    {label:'PRO',  planned: np.protein,  actual: lockedMacros ? lockedMacros.protein : null, color: '#00E5FF',  key: 'protein'},
-    {label:'CARB', planned: np.carbs,    actual: lockedMacros ? lockedMacros.carbs : null,   color: '#A8FF78',  key: 'carbs'},
-    {label:'FAT',  planned: np.fat,      actual: lockedMacros ? lockedMacros.fat : null,     color: '#FFD166',  key: 'fat'}
+    {label:'CAL',  planned: _plannedKcal,    actual: lockedMacros ? lockedMacros.kcal : null,    color: np.color,   key: 'kcal'},
+    {label:'PRO',  planned: _plannedProtein, actual: lockedMacros ? lockedMacros.protein : null, color: '#00E5FF',  key: 'protein'},
+    {label:'CARB', planned: _plannedCarbs,   actual: lockedMacros ? lockedMacros.carbs : null,   color: '#A8FF78',  key: 'carbs'},
+    {label:'FAT',  planned: _plannedFat,     actual: lockedMacros ? lockedMacros.fat : null,     color: '#FFD166',  key: 'fat'}
   ];
   plannedSpec.forEach(m => {
     const cell = div({background:'#0e0e0e',border:'1px solid #1a1a1a',borderRadius:'8px',padding:'10px 6px',textAlign:'center'});
@@ -17233,7 +18568,12 @@ function renderShopping() {
 function renderHistory() {
   const con = document.getElementById('history-content');
   con.innerHTML='';
-  con.appendChild(el('div',{style:{fontSize:'8px',letterSpacing:'0.22em',color:'#333',textTransform:'uppercase',marginBottom:'16px'}},'7-Day Training + Nutrition + Water History'));
+
+  // ═══ PROGRESSION SECTIONS (NEW) ════════════════════════════════════════════
+  renderProgressionPanels(con);
+
+  // Existing 7-day grid follows
+  con.appendChild(el('div',{style:{fontSize:'8px',letterSpacing:'0.22em',color:'#333',textTransform:'uppercase',marginBottom:'16px',marginTop:'24px'}},'7-Day Training + Nutrition + Water History'));
 
   for(let i=0;i<6;i++) {
     const w = weekOffset-i;
@@ -17261,10 +18601,404 @@ function renderHistory() {
   }
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// PROGRESSION PANELS — Volume dashboard, deload banner, PR tracker.
+// Surfaces aggregate trends from per-session workout data.
+// ──────────────────────────────────────────────────────────────────────────
+
+function renderProgressionPanels(con) {
+  const volumeByWeek = getWeeklyVolumeByMuscle(8);
+  const weekIds = Object.keys(volumeByWeek).sort();
+  // If no workout history exists yet, skip these panels entirely
+  if (weekIds.length === 0) return;
+
+  const currentWeekId = (typeof getWeekId === 'function') ? getWeekId(weekOffset) : null;
+  const deloads = detectDeloadWeeks(volumeByWeek);
+
+  // ─── Deload banner ───────────────────────────────────────────────────
+  // Show ONLY for the currently-viewed week, and only if detected.
+  // Per spec: informational, never prescriptive.
+  if (currentWeekId && deloads[currentWeekId]) {
+    const banner = div({
+      padding: '12px 14px',
+      background: '#1a1208',
+      border: '1px solid #fbbf2455',
+      borderRadius: '8px',
+      marginBottom: '16px',
+      display: 'flex',
+      gap: '10px',
+      alignItems: 'flex-start'
+    });
+    banner.appendChild(el('div', {style: {fontSize: '16px', flexShrink: '0', lineHeight: '1'}}, '◐'));
+    const bcol = div({flex: '1', minWidth: '0'});
+    bcol.appendChild(el('div', {style: {fontSize: '8px', color: '#fbbf24', letterSpacing: '0.25em', textTransform: 'uppercase', fontWeight: '700', marginBottom: '4px'}}, 'Possible Deload'));
+    bcol.appendChild(el('div', {style: {fontSize: '11px', color: '#bbb', lineHeight: '1.5'}},
+      'Volume this week is 30%+ below your recent average. This could be a planned deload, a missed session, or just a lighter week. Just noting it.'));
+    banner.appendChild(bcol);
+    con.appendChild(banner);
+  }
+
+  // ─── Volume by muscle group ──────────────────────────────────────────
+  const allMuscles = new Set();
+  weekIds.forEach(wid => Object.keys(volumeByWeek[wid] || {}).forEach(m => allMuscles.add(m)));
+  // Sort muscles by total volume desc so top groups appear first
+  const muscleTotals = {};
+  allMuscles.forEach(m => {
+    muscleTotals[m] = weekIds.reduce((s, w) => s + (volumeByWeek[w][m] || 0), 0);
+  });
+  const sortedMuscles = [...allMuscles].sort((a, b) => muscleTotals[b] - muscleTotals[a]);
+
+  if (sortedMuscles.length > 0) {
+    const volSection = div({marginBottom: '20px'});
+    volSection.appendChild(el('div', {style: {fontSize: '8px', letterSpacing: '0.22em', color: '#6aff3b', textTransform: 'uppercase', fontWeight: '700', marginBottom: '4px'}}, '◇ Weekly Volume by Muscle'));
+    volSection.appendChild(el('div', {style: {fontSize: '9px', color: '#555', marginBottom: '12px', lineHeight: '1.4'}}, 'Volume = Σ (weight × reps) per week. Last ' + weekIds.length + ' weeks of training data.'));
+
+    // For each muscle, render a row: label + bar sparkline
+    const maxVol = Math.max(...weekIds.map(w => sortedMuscles.reduce((s, m) => Math.max(s, volumeByWeek[w][m] || 0), 0)));
+
+    sortedMuscles.slice(0, 8).forEach(muscle => {
+      const row = div({display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px'});
+      row.appendChild(el('div', {style: {fontSize: '9px', color: '#999', width: '80px', letterSpacing: '0.12em', textTransform: 'uppercase', flexShrink: '0'}}, muscle));
+
+      // Bar sparkline — one bar per week
+      const barRow = div({display: 'flex', gap: '3px', flex: '1', alignItems: 'flex-end', height: '32px'});
+      weekIds.forEach(wid => {
+        const v = volumeByWeek[wid][muscle] || 0;
+        const heightPct = maxVol > 0 ? (v / maxVol) * 100 : 0;
+        const isCurrentWeek = wid === currentWeekId;
+        barRow.appendChild(el('div', {
+          title: wid + ': ' + Math.round(v) + 'kg×reps',
+          style: {
+            flex: '1',
+            height: Math.max(heightPct, v > 0 ? 4 : 1) + '%',
+            background: v > 0 ? (isCurrentWeek ? '#6aff3b' : '#3a6a2a') : '#1a1a1a',
+            borderRadius: '2px',
+            transition: 'background 0.2s'
+          }
+        }));
+      });
+      row.appendChild(barRow);
+
+      // Latest week's volume on the right
+      const latestVol = volumeByWeek[weekIds[weekIds.length - 1]][muscle] || 0;
+      row.appendChild(el('div', {style: {fontSize: '9px', color: '#666', width: '60px', textAlign: 'right', fontFamily: "'DM Mono',monospace", flexShrink: '0'}}, Math.round(latestVol).toLocaleString() + 'kg'));
+
+      volSection.appendChild(row);
+    });
+    con.appendChild(volSection);
+  }
+
+  // ─── PR Tracker ──────────────────────────────────────────────────────
+  // Find all exercises with logged history, compute PRs, sort by 1RM desc
+  renderPRTracker(con);
+}
+
+function renderPRTracker(con) {
+  // Find all exercises across all weeks that have any logged sets
+  const exerciseIds = new Set();
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !k.match(/^fraser_workout_w/)) continue;
+      try {
+        const log = JSON.parse(localStorage.getItem(k));
+        if (!log) continue;
+        Object.keys(log).forEach(exId => {
+          const exLog = log[exId];
+          if (exLog && exLog.sets && exLog.sets.some(s => s && s.weight && s.reps)) {
+            exerciseIds.add(exId);
+          }
+        });
+      } catch (e) {}
+    }
+  } catch (e) {}
+
+  if (exerciseIds.size === 0) return;
+
+  // Build list of {exId, name, prs}
+  const records = [];
+  exerciseIds.forEach(exId => {
+    const sessions = scanAllWorkoutSessions(exId, 50);
+    if (!sessions.length) return;
+    const prs = computeExercisePRs(sessions);
+    if (!prs || (!prs.oneRM && !prs.maxWeight)) return;
+    // Resolve display name — prefer EXERCISE_DB_BY_ID, then PROGRAM, then exId
+    let name = exId;
+    const dbEntry = EXERCISE_DB_BY_ID && EXERCISE_DB_BY_ID[exId];
+    if (dbEntry && dbEntry.name) {
+      name = dbEntry.name;
+    } else {
+      for (const day of (typeof PROGRAM !== 'undefined' ? PROGRAM : [])) {
+        const ex = (day.exercises || []).find(e => e.id === exId);
+        if (ex && ex.name) { name = ex.name; break; }
+      }
+    }
+    records.push({ exId, name, prs, sessions });
+  });
+
+  if (!records.length) return;
+  // Sort by est 1RM desc, then max weight
+  records.sort((a, b) => {
+    const a1 = (a.prs.oneRM && a.prs.oneRM.value) || 0;
+    const b1 = (b.prs.oneRM && b.prs.oneRM.value) || 0;
+    if (b1 !== a1) return b1 - a1;
+    const aM = (a.prs.maxWeight && a.prs.maxWeight.weight) || 0;
+    const bM = (b.prs.maxWeight && b.prs.maxWeight.weight) || 0;
+    return bM - aM;
+  });
+
+  const prSection = div({marginBottom: '20px'});
+  prSection.appendChild(el('div', {style: {fontSize: '8px', letterSpacing: '0.22em', color: '#fbbf24', textTransform: 'uppercase', fontWeight: '700', marginBottom: '4px'}}, '◆ Personal Records'));
+  prSection.appendChild(el('div', {style: {fontSize: '9px', color: '#555', marginBottom: '12px', lineHeight: '1.4'}}, 'Tap any exercise to see full session history.'));
+
+  records.forEach(r => {
+    const card = div({background: '#0e0e0e', border: '1px solid #1a1a1a', borderRadius: '6px', padding: '10px 12px', marginBottom: '6px', cursor: 'pointer'});
+    card.onclick = () => openHistorySheet({ id: r.exId, name: r.name }, '#fbbf24');
+
+    const topRow = div({display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px'});
+    topRow.appendChild(el('div', {class: 'bebas', style: {fontSize: '14px', color: '#e0e0e0', letterSpacing: '0.04em', flex: '1', minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}, r.name));
+
+    const stats = div({display: 'flex', gap: '8px', flexShrink: '0'});
+    if (r.prs.oneRM) {
+      stats.appendChild(el('div', {style: {fontSize: '9px', color: '#fbbf24', fontFamily: "'DM Mono',monospace", letterSpacing: '0.05em'}}, '1RM ' + r.prs.oneRM.value + 'kg'));
+    }
+    if (r.prs.maxWeight) {
+      stats.appendChild(el('div', {style: {fontSize: '9px', color: '#888', fontFamily: "'DM Mono',monospace", letterSpacing: '0.05em'}}, 'max ' + r.prs.maxWeight.weight + 'kg'));
+    }
+    topRow.appendChild(stats);
+    card.appendChild(topRow);
+
+    // Sub-row: subtle session count
+    card.appendChild(el('div', {style: {fontSize: '8px', color: '#555', marginTop: '3px', letterSpacing: '0.1em', textTransform: 'uppercase'}}, r.sessions.length + ' session' + (r.sessions.length === 1 ? '' : 's')));
+
+    prSection.appendChild(card);
+  });
+
+  con.appendChild(prSection);
+}
+
 // ─── CONTROLS ─────────────────────────────────────────────────────────────────
 
 function setTab(t) { activeTab=t; render(); }
 function changeWeek(d) { weekOffset+=d; expandedEx=null; expandedMeal=null; render(); }
+
+// ──────────────────────────────────────────────────────────────────────────
+// PWA: service worker registration, offline indicator, update detection,
+// iOS install hint, Android install prompt capture.
+// All conditional on (a) HTTPS or localhost and (b) standard browser env —
+// won't fire on file:// during local dev.
+// ──────────────────────────────────────────────────────────────────────────
+
+const PWA = {
+  // localStorage keys
+  KEY_IOS_HINT_DISMISSED: 'fraser_pwa_ios_hint_dismissed_at',
+  KEY_ANDROID_INSTALL_DISMISSED: 'fraser_pwa_android_install_dismissed_at',
+  HINT_RESHOW_DAYS: 30,
+  // Runtime state
+  deferredInstallPrompt: null,
+  updateAvailable: null,
+  isOnline: navigator.onLine
+};
+
+// Detect installed/standalone state
+function isPWAStandalone() {
+  return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+         window.navigator.standalone === true;
+}
+
+function isIOSSafari() {
+  const ua = navigator.userAgent || '';
+  const isiOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+  // Exclude Chrome/Firefox iOS (CriOS/FxiOS) since they don't support Add to Home Screen
+  const isSafari = !/CriOS|FxiOS|EdgiOS/.test(ua);
+  return isiOS && isSafari;
+}
+
+function isAndroid() {
+  return /Android/i.test(navigator.userAgent || '');
+}
+
+// Should we re-show a hint? True if never dismissed, or dismissed > 30 days ago.
+function shouldShowHint(key) {
+  const dismissed = localStorage.getItem(key);
+  if (!dismissed) return true;
+  const ts = parseInt(dismissed, 10);
+  if (!ts) return true;
+  const ageDays = (Date.now() - ts) / (1000 * 60 * 60 * 24);
+  return ageDays > PWA.HINT_RESHOW_DAYS;
+}
+
+// ─── OFFLINE INDICATOR ────────────────────────────────────────────────
+function renderOfflineIndicator() {
+  let elx = document.getElementById('pwa-offline-indicator');
+  if (!PWA.isOnline) {
+    if (!elx) {
+      elx = document.createElement('div');
+      elx.id = 'pwa-offline-indicator';
+      elx.style.cssText = "position:fixed;top:env(safe-area-inset-top,0);left:50%;transform:translateX(-50%);z-index:5000;background:#1a0c0c;color:#fbbf24;border:1px solid #fbbf2444;padding:5px 12px;border-radius:0 0 8px 8px;font-size:9px;letter-spacing:0.2em;text-transform:uppercase;font-family:'DM Mono',monospace;font-weight:700;pointer-events:none;backdrop-filter:blur(8px)";
+      elx.textContent = '◐ Offline';
+      document.body.appendChild(elx);
+    }
+  } else if (elx) {
+    elx.remove();
+  }
+}
+
+window.addEventListener('online', () => { PWA.isOnline = true; renderOfflineIndicator(); });
+window.addEventListener('offline', () => { PWA.isOnline = false; renderOfflineIndicator(); });
+
+// ─── UPDATE BANNER ────────────────────────────────────────────────────
+function showUpdateBanner(waitingSW) {
+  PWA.updateAvailable = waitingSW;
+  // Don't double-render if banner is already up
+  if (document.getElementById('pwa-update-banner')) return;
+
+  const banner = document.createElement('div');
+  banner.id = 'pwa-update-banner';
+  banner.style.cssText = "position:fixed;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom,12px) + 80px);z-index:5500;background:#0e0e0e;border:1px solid #3bdfff55;border-radius:10px;padding:12px 14px;display:flex;align-items:center;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,0.5);max-width:476px;margin:0 auto;font-family:'DM Mono',monospace";
+  banner.innerHTML = '<div style="flex:1;min-width:0">' +
+    '<div style="font-size:8px;color:#3bdfff;letter-spacing:0.25em;text-transform:uppercase;font-weight:700;margin-bottom:3px">◴ Update Ready</div>' +
+    '<div style="font-size:11px;color:#bbb;line-height:1.4">New version available. Tap to refresh.</div>' +
+  '</div>';
+
+  const updateBtn = document.createElement('button');
+  updateBtn.style.cssText = "background:#3bdfff;color:#000;border:none;padding:8px 14px;border-radius:6px;font-size:10px;letter-spacing:0.15em;text-transform:uppercase;font-weight:700;cursor:pointer;font-family:'DM Mono',monospace;flex-shrink:0";
+  updateBtn.textContent = 'Update';
+  updateBtn.onclick = () => {
+    if (PWA.updateAvailable) {
+      // Tell the new SW to take over. The controllerchange listener will
+      // reload the page once the new SW becomes active.
+      PWA.updateAvailable.postMessage({ type: 'SKIP_WAITING' });
+    }
+    banner.remove();
+  };
+  banner.appendChild(updateBtn);
+
+  const dismissBtn = document.createElement('button');
+  dismissBtn.style.cssText = "background:transparent;color:#666;border:1px solid #2a2a2a;padding:8px 10px;border-radius:6px;font-size:11px;cursor:pointer;font-family:'DM Mono',monospace;flex-shrink:0";
+  dismissBtn.textContent = '✕';
+  dismissBtn.title = 'Dismiss (will re-prompt next session)';
+  dismissBtn.onclick = () => banner.remove();
+  banner.appendChild(dismissBtn);
+
+  document.body.appendChild(banner);
+}
+
+// ─── iOS INSTALL HINT ─────────────────────────────────────────────────
+// Safari doesn't fire beforeinstallprompt, so users have to know about
+// Share → Add to Home Screen. We surface this gently if we detect iOS
+// Safari + not already standalone + hint not recently dismissed.
+function showIOSInstallHint() {
+  if (document.getElementById('pwa-ios-hint')) return;
+  if (!isIOSSafari() || isPWAStandalone()) return;
+  if (!shouldShowHint(PWA.KEY_IOS_HINT_DISMISSED)) return;
+
+  const sheet = document.createElement('div');
+  sheet.id = 'pwa-ios-hint';
+  sheet.style.cssText = "position:fixed;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom,12px) + 80px);z-index:5500;background:#0e0e0e;border:1px solid #3bdfff66;border-radius:12px;padding:14px 16px;box-shadow:0 8px 24px rgba(0,0,0,0.6);max-width:476px;margin:0 auto;font-family:'DM Mono',monospace";
+
+  const header = document.createElement('div');
+  header.style.cssText = 'display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:10px';
+  header.innerHTML = '<div>' +
+    '<div style="font-size:8px;color:#3bdfff;letter-spacing:0.25em;text-transform:uppercase;font-weight:700;margin-bottom:4px">◆ Install FLOW</div>' +
+    "<div style=\"font-size:13px;color:#e0e0e0;font-family:'Bebas Neue',sans-serif;letter-spacing:0.04em\">Get the app on your Home Screen</div>" +
+  '</div>';
+
+  const closeBtn = document.createElement('button');
+  closeBtn.style.cssText = "background:transparent;color:#666;border:1px solid #2a2a2a;padding:5px 8px;border-radius:4px;font-size:11px;cursor:pointer;font-family:'DM Mono',monospace";
+  closeBtn.textContent = '✕';
+  closeBtn.onclick = () => {
+    localStorage.setItem(PWA.KEY_IOS_HINT_DISMISSED, String(Date.now()));
+    sheet.remove();
+  };
+  header.appendChild(closeBtn);
+  sheet.appendChild(header);
+
+  const steps = document.createElement('div');
+  steps.style.cssText = 'font-size:11px;color:#bbb;line-height:1.6';
+  steps.innerHTML =
+    '<div style="margin-bottom:6px"><span style="color:#3bdfff;font-weight:700">1.</span> Tap the Share button <span style="font-size:13px">⬆</span> in Safari</div>' +
+    '<div style="margin-bottom:6px"><span style="color:#3bdfff;font-weight:700">2.</span> Scroll down to <span style="color:#fff">Add to Home Screen</span></div>' +
+    '<div><span style="color:#3bdfff;font-weight:700">3.</span> Tap <span style="color:#fff">Add</span> to install</div>';
+  sheet.appendChild(steps);
+
+  document.body.appendChild(sheet);
+}
+
+// ─── ANDROID INSTALL PROMPT ───────────────────────────────────────────
+// Chrome/Edge on Android fires beforeinstallprompt. We capture it and
+// surface an Install button in Settings → About instead of nagging.
+window.addEventListener('beforeinstallprompt', e => {
+  // Prevent Chrome's default mini-infobar — we manage our own UX
+  e.preventDefault();
+  PWA.deferredInstallPrompt = e;
+});
+
+// Once installed, hide all install hints
+window.addEventListener('appinstalled', () => {
+  PWA.deferredInstallPrompt = null;
+  const iosHint = document.getElementById('pwa-ios-hint');
+  if (iosHint) iosHint.remove();
+});
+
+// Public API for the settings "About" section
+function triggerAndroidInstall() {
+  if (!PWA.deferredInstallPrompt) return false;
+  PWA.deferredInstallPrompt.prompt();
+  PWA.deferredInstallPrompt.userChoice.then(() => {
+    PWA.deferredInstallPrompt = null;
+  });
+  return true;
+}
+
+// ─── SERVICE WORKER REGISTRATION ──────────────────────────────────────
+function registerServiceWorker() {
+  // Skip on file:// (local dev) and unsupported browsers
+  if (!('serviceWorker' in navigator)) return;
+  if (location.protocol === 'file:') return;
+
+  navigator.serviceWorker.register('service-worker.js').then(reg => {
+    // A waiting SW means a new version installed during a previous session
+    // and is ready to take over. Surface the update banner immediately.
+    if (reg.waiting) {
+      showUpdateBanner(reg.waiting);
+    }
+
+    // Detect new SW installing during this session
+    reg.addEventListener('updatefound', () => {
+      const newSW = reg.installing;
+      if (!newSW) return;
+      newSW.addEventListener('statechange', () => {
+        // 'installed' means the new SW is ready but waiting (an active SW
+        // is still controlling pages). Show the update banner.
+        if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
+          showUpdateBanner(newSW);
+        }
+      });
+    });
+  }).catch(err => {
+    // Registration can fail on private browsing, certain WebViews, etc.
+    // Fail silently — the app still works without SW, just no offline.
+    console.warn('[PWA] Service worker registration failed:', err);
+  });
+
+  // Reload when the new SW takes control (after user taps "Update")
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (refreshing) return;
+    refreshing = true;
+    window.location.reload();
+  });
+}
+
+// ─── INIT ────────────────────────────────────────────────────────────
+registerServiceWorker();
+renderOfflineIndicator();
+// Defer iOS hint: wait until after first paint + user has had a moment to
+// see the app. 4 seconds is enough to load and orient, not so long that
+// they've already navigated away.
+setTimeout(showIOSInstallHint, 4000);
+
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 
