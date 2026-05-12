@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="FLOW">
@@ -73,6 +73,25 @@
     --halo-clearance: calc(var(--halo-nav-height-expanded) + var(--halo-breathing) + env(safe-area-inset-bottom, 0px));
   }
   html,body{height:100%;background:#080808;color:#ebebeb;font-family:'DM Mono','Courier New',monospace;overscroll-behavior:none}
+  /* ─── ACCESSIBILITY / INPUT BEHAVIOR ──────────────────────────────────
+     touch-action:manipulation kills the 300ms double-tap-zoom delay on
+     iOS Safari. Combined with the viewport meta's user-scalable=no, this
+     means rapid double-taps register as two distinct taps (not a zoom
+     gesture). Critical for set-logging buttons, meal checkboxes, and
+     increment controls — users were accidentally zooming the viewport.
+     Trade-off: pinch-zoom is also disabled. The Text Scale picker in
+     Settings → Display is the deliberate replacement. */
+  html, body { touch-action: manipulation; }
+  /* ─── TEXT SCALE PRESETS ──────────────────────────────────────────────
+     :root --app-text-scale is set by applyTextScale() based on the user's
+     pick (1.0 / 1.15 / 1.3). The body's zoom property scales every visual
+     element proportionally — main app, modals, workout-mode overlay,
+     toasts. zoom is non-standard but supported in all modern browsers we
+     target (Safari 17+, Chrome, Edge, Firefox 126+). Sits on body rather
+     than #app so it covers BOTH the main app container AND any overlay
+     siblings appended to document.body. */
+  :root { --app-text-scale: 1.0; }
+  body { zoom: var(--app-text-scale); }
   ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:#222;border-radius:2px}
   .bebas{font-family:'Bebas Neue',sans-serif}
   input[type=number]{-moz-appearance:textfield}
@@ -107,7 +126,48 @@
   @keyframes timer-pulse{0%,100%{opacity:1}50%{opacity:0.4}}
   @keyframes timer-done{0%{box-shadow:0 0 0 0 rgba(106,255,59,0.6);transform:scale(1)}50%{box-shadow:0 0 0 8px rgba(106,255,59,0);transform:scale(1.04)}100%{box-shadow:0 0 0 0 rgba(106,255,59,0);transform:scale(1)}}
   @keyframes pulseGlow{0%,100%{box-shadow:0 0 8px rgba(106,255,59,0.3)}50%{box-shadow:0 0 24px rgba(106,255,59,0.7)}}
+  /* ─── WIZARD STEP TRANSITION ──────────────────────────────────────────
+     Slide the new step in from left/right when nav buttons are tapped.
+     Respects prefers-reduced-motion. The wizard's render path adds the
+     class on the step-content wrapper based on direction. */
+  @keyframes wiz-slide-in-right{from{transform:translateX(28px);opacity:0}to{transform:translateX(0);opacity:1}}
+  @keyframes wiz-slide-in-left{from{transform:translateX(-28px);opacity:0}to{transform:translateX(0);opacity:1}}
+  [data-wiz-step-anim="forward"]{animation:wiz-slide-in-right 0.22s cubic-bezier(0.32, 0.72, 0, 1)}
+  [data-wiz-step-anim="back"]{animation:wiz-slide-in-left 0.22s cubic-bezier(0.32, 0.72, 0, 1)}
+  @media (prefers-reduced-motion: reduce){
+    [data-wiz-step-anim]{animation:none !important}
+  }
   .units-toggle{font-size:8px;color:#666;margin-left:10px;cursor:pointer;border:1px solid #333;padding:2px 6px;border-radius:3px}
+  /* ─── LANDSCAPE LAYOUT OVERRIDES ──────────────────────────────────────
+     The PWA is primarily designed for portrait. When the device rotates
+     to landscape (phone on bench, iPad in landscape), apply targeted
+     overrides so nothing clips or overflows. We DON'T redesign for
+     landscape — just make sure the portrait-style centered column
+     respects the wider viewport and modals don't stretch awkwardly.
+     Mobile landscape = short height (<500px usually), so vertical
+     reductions matter more than horizontal expansion. */
+  @media (orientation: landscape) and (max-height: 600px) {
+    /* Tighten header so content gets more vertical room */
+    .header { padding-top: max(env(safe-area-inset-top, 8px), 8px) !important; }
+    /* Halo nav shrinks vertically to save space */
+    :root { --halo-nav-height-expanded: 80px; --halo-breathing: 20px; }
+    /* Main app stays a constrained column — no auto-wide reflow.
+       Centered with comfortable side margins on iPad-width landscape. */
+    #app { max-width: 560px; }
+    /* Modal overlays: cap width and reduce top padding (often start near top) */
+    [data-modal-overlay], [data-overlay-fixed] {
+      padding-top: max(env(safe-area-inset-top, 12px), 12px) !important;
+      padding-bottom: max(env(safe-area-inset-bottom, 12px), 12px) !important;
+    }
+    /* Workout Mode overlay: keep its content centered in a portrait-style
+       column. Don't try to reflow set-logging into a wide horizontal layout. */
+    #wm-overlay > * { max-width: 480px !important; margin-left: auto !important; margin-right: auto !important; }
+  }
+  /* iPad/tablet landscape (taller, wider) — give a bit more horizontal */
+  @media (orientation: landscape) and (min-height: 600px) {
+    #app { max-width: 560px; }
+    #wm-overlay > * { max-width: 520px !important; margin-left: auto !important; margin-right: auto !important; }
+  }
   /* ─── PRINT STYLESHEET — clean shopping list for the store run ───
      When the user taps Print in the Shopping tab, hide everything except
      the shopping list itself and reformat it as black-on-white. The
@@ -1813,6 +1873,9 @@ function buildProgramFromFrequency(numTraining, opts) {
   // null/default uses PROGRAM_DEFAULT_SNAPSHOT (indexed by TEMPLATE_INDEX).
   const style = opts && opts.trainingStyle;
   const focusAreas = (opts && opts.focusAreas) || [];
+  // Experience level — applied AFTER focus areas so accessory work also
+  // gets variant + rep adjustments. Defaults to intermediate (no-op).
+  const experienceLevel = (opts && opts.experienceLevel) || 'intermediate';
   const styleTemplates = getTemplateSetForStyle(style);
 
   // Default source is PROGRAM_DEFAULT_SNAPSHOT indexed numerically.
@@ -1856,6 +1919,12 @@ function buildProgramFromFrequency(numTraining, opts) {
     if (slot === 'train' && focusAreas.length) {
       clone = applyFocusAreasToDay(clone, focusAreas);
     }
+    // Apply experience level — substitutes exercise variants + adjusts heavy
+    // strength rep ranges. No-op for intermediate (the default). Applied
+    // AFTER focus areas so any appended accessories also get the treatment.
+    if (slot === 'train' && experienceLevel !== 'intermediate') {
+      clone = applyDifficultyToDay(clone, experienceLevel);
+    }
     result.push(clone);
   }
   return result;
@@ -1886,7 +1955,10 @@ function syncProgramToProfile() {
     // missing, behavior is identical to the original default-only path.
     const opts = {
       trainingStyle: profile.trainingStyle || null,
-      focusAreas: profile.focusAreas || []
+      focusAreas: profile.focusAreas || [],
+      // Experience level threads through so heavy compounds get the right
+      // variants + rep ranges. Defaults to intermediate for backward compat.
+      experienceLevel: profile.experienceLevel || 'intermediate'
     };
     applyProgramInPlace(buildProgramFromFrequency(freq, opts));
   } else {
@@ -3373,14 +3445,14 @@ const EXERCISE_DB_BY_ID = (() => {
 // Coverage: 62 of 750 db exercises (8.3%). Fundamental movements only —
 // exercises without entries here will show the database's name + muscles
 // + equipment but no curated cues. Future sessions extend to ~188 (top 25%).
-const CURATED_CUES = {"Barbell_Bench_Press_-_Medium_Grip":{"setup":"Eyes under the bar. Retract and depress shoulder blades. Plant feet, drive into floor.","cues":["Squeeze the bar to engage lats and stabilize","Bar path is a slight diagonal \u2014 touches lower chest, not collarbone","Tuck elbows roughly 45 degrees from torso, not flared at 90","Drive feet through floor on press to maintain tension"]},"Dumbbell_Bench_Press":{"setup":"Sit at edge of bench with dumbbells on knees. Use leg drive to kick them up as you lie back.","cues":["Start with dumbbells over chest, palms forward","Lower until elbows reach bench height \u2014 full stretch on chest","Press up and slightly together, no clanking at top","Keep shoulder blades pinned to bench throughout"]},"Incline_Dumbbell_Press":{"setup":"Set bench to 30-45 degrees. Higher angle shifts more work to shoulders.","cues":["Bench too steep loses chest emphasis \u2014 30 degrees is the sweet spot","Lower dumbbells to upper chest, not collarbone","Keep wrists stacked over elbows throughout","Don't lock out fully \u2014 keep tension on upper chest"]},"Decline_Barbell_Bench_Press":{"setup":"Hook feet securely. Bench angle 15-30 degrees.","cues":["Touch bar to lower sternum, not nipple line","Shorter range than flat bench \u2014 heavier weight typical","Keep tight core to prevent shifting on bench","Spotter recommended \u2014 bar can pin you if feet slip"]},"Pushups":{"setup":"Hands shoulder-width, slightly wider. Body in straight line head to heels.","cues":["Tuck elbows ~45 degrees \u2014 flared elbows beat up shoulders","Lower until chest nearly touches floor \u2014 partial reps don't count","Squeeze glutes and brace core to keep body rigid","Push through whole hand, not just heel of palm"]},"Dips_-_Triceps_Version":{"setup":"Stay vertical (no forward lean) for triceps emphasis. Bars roughly shoulder width.","cues":["Keep torso upright \u2014 leaning forward shifts work to chest","Lower until shoulders are level with elbows (not lower)","Squeeze triceps hard at top \u2014 don't slam joint into lockout","Add weight via belt or dumbbell between feet when bodyweight is easy"]},"Cable_Chest_Press":{"setup":"Stand or kneel with cables at chest height. Stagger stance for stability.","cues":["Press handles together at full extension for chest squeeze","Keep shoulder blades retracted \u2014 don't let them roll forward","Cables provide constant tension \u2014 slow eccentric pays off","Lean torso slightly forward to align with cable angle"]},"Dumbbell_Flyes":{"setup":"Lie flat. Slight bend in elbows \u2014 locked at this angle throughout.","cues":["Don't turn flyes into press \u2014 elbows stay slightly bent the whole time","Lower until you feel chest stretch, NOT shoulder pain","Squeeze chest at top, dumbbells almost touching","Lighter weight than you think \u2014 flyes are stretch and squeeze, not load"]},"Standing_Military_Press":{"setup":"Bar racked on front delts. Feet hip-width. Glutes and core tight.","cues":["Squeeze glutes hard \u2014 prevents lower back arching as bar passes head","Bar travels straight up, head moves THROUGH the bar at top","Don't lean back \u2014 that turns it into incline bench press","Tuck elbows slightly under bar at start, not flared wide"]},"Dumbbell_Shoulder_Press":{"setup":"Seated with back support. Dumbbells at ear height, palms forward.","cues":["Don't slam dumbbells together at top \u2014 keep tension on delts","Press in slight arc, not straight line \u2014 meets over face, not in front","Lower under control to ear level \u2014 no bouncing","Keep wrists straight, not bent backward"]},"Seated_Dumbbell_Press":{"setup":"Bench at 80-90 degrees. Feet flat for stability.","cues":["Press up and slightly together \u2014 engages more delt fibers","Don't lock out fully if shoulders are sensitive","Drive elbows up under the dumbbells, not behind","Brace core \u2014 don't arch lower back into the bench"]},"Arnold_Dumbbell_Press":{"setup":"Start with dumbbells at chest, palms facing you (curl position).","cues":["Rotate palms outward as you press \u2014 full ROM on shoulders","Reverse the rotation on descent \u2014 palms face you at bottom","Don't rush the rotation \u2014 feel each part of the lift","Lighter weight than standard press due to extra ROM"]},"Side_Lateral_Raise":{"setup":"Stand tall, slight forward lean, dumbbells at sides.","cues":["Lead with the elbow, not the hand \u2014 pinky slightly higher than thumb","Raise to shoulder height max \u2014 going higher recruits traps","Slight bend in elbows \u2014 don't lock them straight","Lighter than ego allows \u2014 momentum kills the lateral"]},"Cable_Seated_Lateral_Raise":{"setup":"Cable pulley at low setting. Sit sideways to machine.","cues":["Cable tension is constant \u2014 you feel it the whole rep","Raise to shoulder height, don't shrug at top","Slow eccentric \u2014 cable returns are the most productive part","Cross-body grip from far cable means longer ROM than DBs"]},"Front_Dumbbell_Raise":{"setup":"Stand tall. Dumbbells at thighs, palms facing back.","cues":["Raise to shoulder height \u2014 going higher loses tension","Alternate arms or do both \u2014 both work fine","Don't swing or use momentum \u2014 use lighter weight","Slight elbow bend, never locked straight"]},"Face_Pull":{"setup":"Cable at face height with rope. Step back so there's tension at start.","cues":["Pull rope ENDS to your ears \u2014 separate hands at finish","Lead with elbows high and back, not hands","Squeeze rear delts and traps at end of pull","Light weight \u2014 this is a corrective, not a strength move"]},"Bent_Over_Dumbbell_Rear_Delt_Raise_With_Head_On_Bench":{"setup":"Forehead on incline bench. Dumbbells hanging straight down.","cues":["Lead with elbows up and out, NOT hands","Raise until upper arms are parallel to floor","Squeeze shoulder blades together at top","Light weight \u2014 rear delts are small, momentum cheats"]},"Tricep_Dumbbell_Kickback":{"setup":"Hinge at hips, torso parallel to floor. Upper arm pinned to side.","cues":["Upper arm doesn't move \u2014 only forearm extends","Squeeze triceps hard at lockout, hold for a beat","Don't use momentum \u2014 light weight, slow tempo","Keep wrist neutral, not bent down"]},"Lying_Triceps_Press":{"setup":"Lie flat. Bar over chest, narrow grip. Slight angle back from straight up.","cues":["Lower bar to forehead or just behind it \u2014 not to chest","Elbows track straight \u2014 don't flare them out","Use EZ bar if straight bar bothers wrists","Stop set when elbows start drifting outward \u2014 form failure"]},"Close-Grip_Barbell_Bench_Press":{"setup":"Hands shoulder-width apart on bar. Tuck elbows tight to torso.","cues":["Grip just inside shoulder-width \u2014 narrower hurts wrists","Elbows tucked tight \u2014 drives triceps emphasis","Bar touches lower chest, like regular bench","If wrists ache, you're too narrow \u2014 widen slightly"]},"Triceps_Pushdown":{"setup":"Cable at top. Stand close, slight forward lean, elbows pinned to sides.","cues":["Elbows stay glued to ribs \u2014 they don't move forward","Full extension at bottom \u2014 squeeze triceps hard","Rope attachment allows wider finish \u2014 better squeeze than bar","Don't lean over the bar \u2014 stand tall, use upper-body weight as anchor only"]},"Standing_Overhead_Barbell_Triceps_Extension":{"setup":"Bar overhead, elbows close to head. Arms vertical at start.","cues":["Elbows stay pointed at ceiling \u2014 don't flare out","Lower bar behind head with control \u2014 full triceps stretch","Press straight up to lockout, not forward","Use EZ bar to save wrists if straight bar bothers you"]},"Chin-Up":{"setup":"Underhand grip, hands shoulder-width. Hang with arms fully extended.","cues":["Pull with the elbows down and back, not just arms","Chin clears the bar \u2014 full ROM","Keep core braced \u2014 no leg swinging","Lower under control, full hang at bottom each rep"]},"Pullups":{"setup":"Overhand grip, slightly wider than shoulders. Full hang at bottom.","cues":["Squeeze shoulder blades together as you pull","Pull chest toward bar \u2014 not just chin over","Slight backward lean is fine \u2014 kipping (swinging) is not","Negative reps build strength \u2014 slow descent, full extension"]},"Wide-Grip_Lat_Pulldown":{"setup":"Grip wider than shoulders, palms forward. Knees secured under pad.","cues":["Lean back ~15 degrees, lock that angle for whole set","Pull bar to upper chest, NOT behind neck","Lead with elbows down and out \u2014 squeeze lats at finish","Slow return \u2014 full stretch overhead between reps"]},"Bent_Over_Barbell_Row":{"setup":"Hinge at hips to ~45 degrees. Bar hangs from shoulders, neutral spine.","cues":["Hinge from hips, not from waist \u2014 chest stays up, lower back flat","Pull bar to lower chest / upper abdomen","Squeeze shoulder blades together at top of pull","Don't use legs to bounce the weight \u2014 keep torso angle locked"]},"One-Arm_Dumbbell_Row":{"setup":"Knee and hand on bench. Back flat, parallel to floor.","cues":["Pull dumbbell to hip, not armpit \u2014 lat emphasis","Don't rotate torso to swing weight up \u2014 strict form","Full stretch at bottom \u2014 let lat lengthen","Squeeze at top, hold for half-second"]},"Seated_Cable_Rows":{"setup":"Knees slightly bent. Spine neutral, not slumped.","cues":["Pull handles to lower chest / upper abdomen","Squeeze shoulder blades together \u2014 chest pushes forward","Don't rock \u2014 torso stays roughly upright","Slow return \u2014 full stretch with arms extended, no slumping"]},"T-Bar_Row_with_Handle":{"setup":"Straddle bar. Hinge to ~45 degrees. Neutral spine.","cues":["Pull handles to lower chest, elbows tracking back","Keep chest up \u2014 don't let it collapse forward","Heavy compound row \u2014 focus on form over load","Squeeze hard at top before slow descent"]},"Barbell_Shrug":{"setup":"Bar in front, shoulder-width grip. Stand tall.","cues":["Pure vertical movement \u2014 no rotation, no rolling","Shrug straight up to ears, hold for a beat","Don't rotate shoulders \u2014 that's an old, joint-stressing technique","Heavy is fine \u2014 traps respond to load"]},"Barbell_Curl":{"setup":"Stand tall. Bar at thighs, shoulder-width grip, palms up.","cues":["Elbows pinned to sides \u2014 they don't move forward","Squeeze biceps hard at top, don't let bar rest on chest","No swinging \u2014 momentum cheats the muscle","Lower under control \u2014 full extension at bottom"]},"Dumbbell_Bicep_Curl":{"setup":"Stand or sit tall. Dumbbells at sides, palms forward.","cues":["Curl one or both \u2014 alternating prevents momentum cheating","Supinate as you curl \u2014 palms rotate from neutral to up","Squeeze at top, hold for a beat","Lower slowly, don't drop \u2014 eccentric is half the work"]},"Alternate_Hammer_Curl":{"setup":"Stand tall. Dumbbells at sides, palms facing in (neutral grip).","cues":["Palms stay neutral the whole rep \u2014 no rotation","Targets brachialis and brachioradialis, not just biceps","Slight body rock is fine, swinging is not","Heavier than supinated curls \u2014 neutral grip is stronger"]},"Preacher_Curl":{"setup":"Chest tight against pad, armpits at top of pad. Arms locked on pad.","cues":["Don't fully extend arms at bottom \u2014 protects elbows","Squeeze hard at top, hold briefly","Lighter than standing curls \u2014 preacher removes momentum","EZ bar saves wrists vs straight bar"]},"Concentration_Curls":{"setup":"Seated, elbow braced against inner thigh. Dumbbell hangs straight down.","cues":["Elbow stays anchored to thigh \u2014 no movement from there","Slow tempo \u2014 biceps love time under tension","Squeeze peak hard at top","Lighter weight \u2014 strict form is the whole point"]},"Barbell_Squat":{"setup":"Bar on traps (or low-bar on rear delts). Feet shoulder-width, slight toe-out.","cues":["Brace core hard before unracking \u2014 like preparing for a punch","Sit DOWN, not back \u2014 knees track over toes","Hit at LEAST parallel \u2014 thighs to floor or below","Drive through heels and mid-foot, not toes"]},"Split_Squat_with_Dumbbells":{"setup":"Rear foot elevated on bench (Bulgarian style). Front foot ~2 feet ahead.","cues":["Front knee tracks over front foot \u2014 don't cave in","Most weight on FRONT foot \u2014 back foot is balance only","Back knee descends straight down toward floor","Brutal but effective \u2014 single-leg work fixes imbalances"]},"Goblet_Squat":{"setup":"Hold dumbbell or kettlebell at chest, elbows tucked under.","cues":["Weight at chest creates natural counterbalance \u2014 easier to hit depth","Drive elbows between knees at bottom \u2014 opens hips","Excellent for learning squat pattern before barbell loading","Stay tall through torso \u2014 don't fold forward"]},"Bodyweight_Squat":{"setup":"Feet shoulder-width, toes slightly out. Hands forward for counterbalance.","cues":["Sit between your heels \u2014 full depth if mobility allows","Knees track over toes, don't cave inward","Chest up, neutral spine throughout","Foundation for all squat variations \u2014 master this first"]},"Leg_Press":{"setup":"Feet shoulder-width on platform, mid-height. Lower back pressed into pad.","cues":["Don't lock knees out at top \u2014 keep tension on quads","Lower until thighs touch torso (or ROM limit)","Lower back NEVER leaves pad \u2014 that hurts your back","Foot position changes emphasis: high = glutes/hams, low = quads"]},"Hack_Squat":{"setup":"Shoulders under pads. Feet shoulder-width on platform.","cues":["Quad-dominant \u2014 unlike free squats, this isolates more","Full depth \u2014 let thighs touch calves if mobility allows","Drive through whole foot, not just toes","Don't lock knees at top"]},"Barbell_Deadlift":{"setup":"Bar over mid-foot. Shins ~1 inch from bar. Shoulder-width grip.","cues":["Pull SLACK out of bar before lifting \u2014 no jerking","Push the floor away \u2014 drive through whole foot","Hips and shoulders rise together \u2014 no morning-gooding","Lockout is hips through, not lean back \u2014 squeeze glutes"]},"Romanian_Deadlift":{"setup":"Bar at hip level (rack pull start). Soft knees, neutral spine.","cues":["Push hips BACK \u2014 not down \u2014 until you feel hamstring stretch","Bar stays close to legs the whole way \u2014 drag it down","Knees stay slightly bent \u2014 don't bend more on descent","Squeeze glutes to drive bar back up \u2014 no jerking"]},"Sumo_Deadlift":{"setup":"Wide stance, toes turned out 30-45 degrees. Hands inside knees.","cues":["Knees push out HARD \u2014 track over toes throughout","More upright torso than conventional \u2014 hip-dominant","Drive feet into floor and OUT, like spreading floor apart","Better for tall lifters or those with long torso"]},"Stiff-Legged_Barbell_Deadlift":{"setup":"Bar on floor. Soft knees \u2014 locked at this angle throughout.","cues":["Knees stay slightly bent \u2014 don't straighten them on descent","Push hips back, hinge from hips not waist","Bar stays close to legs the whole way","Lower than RDL \u2014 true stiff-leg goes to floor, not knee height"]},"Good_Morning":{"setup":"Bar high on traps (like high-bar squat). Soft knees.","cues":["Hinge at hips \u2014 like RDL but bar is on your back","Lighter weight than you think \u2014 heavy good mornings tweak backs","Stop when torso parallel to floor (or earlier if mobility limits)","Drive hips forward to return \u2014 squeeze glutes hard"]},"Barbell_Hip_Thrust":{"setup":"Upper back on bench. Bar over hips, padded. Feet flat, shins vertical at top.","cues":["Drive through HEELS, not toes","Squeeze glutes HARD at lockout \u2014 that's the whole point","Chin tucked at top, ribs down \u2014 don't arch lower back","Full ROM \u2014 touch hips to floor between reps"]},"Barbell_Glute_Bridge":{"setup":"Lying on floor, knees bent, feet flat. Bar over hips, padded.","cues":["Same form as hip thrust but smaller ROM","Drive heels into floor, squeeze glutes at top","Don't arch lower back \u2014 tuck chin and ribs","Pause at top for 1-2 seconds for max activation"]},"Barbell_Walking_Lunge":{"setup":"Bar on traps like back squat. Feet hip-width.","cues":["Step long enough that front shin stays vertical at bottom","Back knee descends to within an inch of floor","Drive through front HEEL to step forward","Don't rush \u2014 control each rep, especially the descent"]},"Dumbbell_Lunges":{"setup":"Dumbbells at sides. Stand tall.","cues":["Keep torso UPRIGHT \u2014 leaning forward stresses lower back","Step length determines emphasis: long = glutes, short = quads","Front knee tracks over middle of foot, not collapsing in","Drive through whole front foot to return"]},"Step-up_with_Knee_Raise":{"setup":"Box at knee height. Stand close to box.","cues":["Drive through front foot ONLY \u2014 don't push off rear toe","Bring rear knee up to hip height at top for added challenge","Step DOWN under control \u2014 eccentric matters","Box height = quad emphasis (low) or glute emphasis (high)"]},"Leg_Extensions":{"setup":"Knees aligned with machine pivot. Pads on shins, just above ankles.","cues":["Squeeze quads HARD at top \u2014 pause for a beat","Don't hyperextend knees \u2014 full extension is fine, force is not","Slow descent \u2014 eccentric is gold for quad growth","Avoid jerking the weight \u2014 light enough for clean reps"]},"Lying_Leg_Curls":{"setup":"Knees just past edge of pad. Pads on lower calves.","cues":["Hips stay pressed into pad \u2014 don't lift them to cheat","Squeeze hamstrings at top \u2014 full curl","Slow eccentric \u2014 hamstrings respond to time under tension","Point or flex toes to bias different parts of hamstrings"]},"Standing_Calf_Raises":{"setup":"Balls of feet on platform, heels free to drop.","cues":["FULL ROM \u2014 heels drop below platform, rise to highest point","Pause at top, squeeze calves","Slow descent \u2014 calves love eccentric load","Heavy is fine \u2014 calves are dense, respond to load"]},"Plank":{"setup":"Forearms on floor, elbows under shoulders. Body in straight line.","cues":["Squeeze glutes and abs \u2014 don't let hips sag","Tuck chin slightly, neutral spine head to heels","Quality over time \u2014 30 seconds of perfect beats 2 minutes of broken","Breathe normally \u2014 no holding breath"]},"Hanging_Leg_Raise":{"setup":"Hang from bar, full extension. Slight forward swing minimized.","cues":["Lift knees to chest (or legs to bar for advanced)","Slight pelvic tilt at top \u2014 not just hip flexors","No swinging \u2014 control means real ab work","Lower under control \u2014 eccentric matters"]},"Crunches":{"setup":"Lying on back, knees bent, hands behind head or crossed on chest.","cues":["Lift shoulder blades off floor \u2014 that's the whole ROM","Don't pull on neck \u2014 hands are light support only","Exhale on the way up, fully contract abs","Slow return \u2014 don't bounce off floor"]},"Russian_Twist":{"setup":"Sit, lean back to ~45 degrees. Feet up or on floor. Weight at chest.","cues":["Rotate from torso, not arms","Touch weight to floor on each side \u2014 full rotation","Keep torso angle locked \u2014 don't bob up and down","Feet up = harder, feet on floor = easier"]},"Pallof_Press_With_Rotation":{"setup":"Cable at chest height. Stand sideways, weight at chest.","cues":["RESIST rotation \u2014 that's the whole exercise","Press straight out from chest, hold, return","Don't let the cable pull your torso toward the machine","Light weight \u2014 anti-rotation is endurance, not max strength"]},"Power_Clean":{"setup":"Bar over mid-foot, shoulder-width grip. Hips lower than shoulders.","cues":["First pull (off floor): controlled, like deadlift to knee","Second pull (jump): explosive triple extension \u2014 ankles, knees, hips","Catch in front-rack: elbows snap forward and high","TECHNICAL LIFT \u2014 learn from a coach before loading heavy"]},"Clean_and_Press":{"setup":"Combines power clean with overhead press.","cues":["Catch the clean clean before pressing \u2014 don't blend the lifts","Use leg drive for the press \u2014 push press is acceptable","Lockout overhead with biceps by ears","Heavy compound \u2014 full-body loading. Form first, load later."]},"Front_Squat_Clean_Grip":{"setup":"Bar racked on front delts, elbows high, fingertip grip.","cues":["Elbows up THROUGHOUT \u2014 if elbows drop, bar follows","More upright torso than back squat","Crossed-arm grip is acceptable if mobility limits clean grip","Lighter than back squat \u2014 quad-dominant"]}};
+const CURATED_CUES = {"Barbell_Bench_Press_-_Medium_Grip":{"setup":"Eyes under the bar. Retract and depress shoulder blades. Plant feet, drive into floor.","cues":["Squeeze the bar to engage lats and stabilize","Bar path is a slight diagonal \u2014 touches lower chest, not collarbone","Tuck elbows roughly 45 degrees from torso, not flared at 90","Drive feet through floor on press to maintain tension"]},"Dumbbell_Bench_Press":{"setup":"Sit at edge of bench with dumbbells on knees. Use leg drive to kick them up as you lie back.","cues":["Start with dumbbells over chest, palms forward","Lower until elbows reach bench height \u2014 full stretch on chest","Press up and slightly together, no clanking at top","Keep shoulder blades pinned to bench throughout"]},"Incline_Dumbbell_Press":{"setup":"Set bench to 30-45 degrees. Higher angle shifts more work to shoulders.","cues":["Bench too steep loses chest emphasis \u2014 30 degrees is the sweet spot","Lower dumbbells to upper chest, not collarbone","Keep wrists stacked over elbows throughout","Don't lock out fully \u2014 keep tension on upper chest"]},"Decline_Barbell_Bench_Press":{"setup":"Hook feet securely. Bench angle 15-30 degrees.","cues":["Touch bar to lower sternum, not nipple line","Shorter range than flat bench \u2014 heavier weight typical","Keep tight core to prevent shifting on bench","Spotter recommended \u2014 bar can pin you if feet slip"]},"Pushups":{"setup":"Hands shoulder-width, slightly wider. Body in straight line head to heels.","cues":["Tuck elbows ~45 degrees \u2014 flared elbows beat up shoulders","Lower until chest nearly touches floor \u2014 partial reps don't count","Squeeze glutes and brace core to keep body rigid","Push through whole hand, not just heel of palm"]},"Dips_-_Triceps_Version":{"setup":"Stay vertical (no forward lean) for triceps emphasis. Bars roughly shoulder width.","cues":["Keep torso upright \u2014 leaning forward shifts work to chest","Lower until shoulders are level with elbows (not lower)","Squeeze triceps hard at top \u2014 don't slam joint into lockout","Add weight via belt or dumbbell between feet when bodyweight is easy"]},"Cable_Chest_Press":{"setup":"Stand or kneel with cables at chest height. Stagger stance for stability.","cues":["Press handles together at full extension for chest squeeze","Keep shoulder blades retracted \u2014 don't let them roll forward","Cables provide constant tension \u2014 slow eccentric pays off","Lean torso slightly forward to align with cable angle"]},"Dumbbell_Flyes":{"setup":"Lie flat. Slight bend in elbows \u2014 locked at this angle throughout.","cues":["Don't turn flyes into press \u2014 elbows stay slightly bent the whole time","Lower until you feel chest stretch, NOT shoulder pain","Squeeze chest at top, dumbbells almost touching","Lighter weight than you think \u2014 flyes are stretch and squeeze, not load"]},"Standing_Military_Press":{"setup":"Bar racked on front delts. Feet hip-width. Glutes and core tight.","cues":["Squeeze glutes hard \u2014 prevents lower back arching as bar passes head","Bar travels straight up, head moves THROUGH the bar at top","Don't lean back \u2014 that turns it into incline bench press","Tuck elbows slightly under bar at start, not flared wide"]},"Dumbbell_Shoulder_Press":{"setup":"Seated with back support. Dumbbells at ear height, palms forward.","cues":["Don't slam dumbbells together at top \u2014 keep tension on delts","Press in slight arc, not straight line \u2014 meets over face, not in front","Lower under control to ear level \u2014 no bouncing","Keep wrists straight, not bent backward"]},"Seated_Dumbbell_Press":{"setup":"Bench at 80-90 degrees. Feet flat for stability.","cues":["Press up and slightly together \u2014 engages more delt fibers","Don't lock out fully if shoulders are sensitive","Drive elbows up under the dumbbells, not behind","Brace core \u2014 don't arch lower back into the bench"]},"Arnold_Dumbbell_Press":{"setup":"Start with dumbbells at chest, palms facing you (curl position).","cues":["Rotate palms outward as you press \u2014 full ROM on shoulders","Reverse the rotation on descent \u2014 palms face you at bottom","Don't rush the rotation \u2014 feel each part of the lift","Lighter weight than standard press due to extra ROM"]},"Side_Lateral_Raise":{"setup":"Stand tall, slight forward lean, dumbbells at sides.","cues":["Lead with the elbow, not the hand \u2014 pinky slightly higher than thumb","Raise to shoulder height max \u2014 going higher recruits traps","Slight bend in elbows \u2014 don't lock them straight","Lighter than ego allows \u2014 momentum kills the lateral"]},"Cable_Seated_Lateral_Raise":{"setup":"Cable pulley at low setting. Sit sideways to machine.","cues":["Cable tension is constant \u2014 you feel it the whole rep","Raise to shoulder height, don't shrug at top","Slow eccentric \u2014 cable returns are the most productive part","Cross-body grip from far cable means longer ROM than DBs"]},"Front_Dumbbell_Raise":{"setup":"Stand tall. Dumbbells at thighs, palms facing back.","cues":["Raise to shoulder height \u2014 going higher loses tension","Alternate arms or do both \u2014 both work fine","Don't swing or use momentum \u2014 use lighter weight","Slight elbow bend, never locked straight"]},"Face_Pull":{"setup":"Cable at face height with rope. Step back so there's tension at start.","cues":["Pull rope ENDS to your ears \u2014 separate hands at finish","Lead with elbows high and back, not hands","Squeeze rear delts and traps at end of pull","Light weight \u2014 this is a corrective, not a strength move"]},"Bent_Over_Dumbbell_Rear_Delt_Raise_With_Head_On_Bench":{"setup":"Forehead on incline bench. Dumbbells hanging straight down.","cues":["Lead with elbows up and out, NOT hands","Raise until upper arms are parallel to floor","Squeeze shoulder blades together at top","Light weight \u2014 rear delts are small, momentum cheats"]},"Tricep_Dumbbell_Kickback":{"setup":"Hinge at hips, torso parallel to floor. Upper arm pinned to side.","cues":["Upper arm doesn't move \u2014 only forearm extends","Squeeze triceps hard at lockout, hold for a beat","Don't use momentum \u2014 light weight, slow tempo","Keep wrist neutral, not bent down"]},"Lying_Triceps_Press":{"setup":"Lie flat. Bar over chest, narrow grip. Slight angle back from straight up.","cues":["Lower bar to forehead or just behind it \u2014 not to chest","Elbows track straight \u2014 don't flare them out","Use EZ bar if straight bar bothers wrists","Stop set when elbows start drifting outward \u2014 form failure"]},"Close-Grip_Barbell_Bench_Press":{"setup":"Hands shoulder-width apart on bar. Tuck elbows tight to torso.","cues":["Grip just inside shoulder-width \u2014 narrower hurts wrists","Elbows tucked tight \u2014 drives triceps emphasis","Bar touches lower chest, like regular bench","If wrists ache, you're too narrow \u2014 widen slightly"]},"Triceps_Pushdown":{"setup":"Cable at top. Stand close, slight forward lean, elbows pinned to sides.","cues":["Elbows stay glued to ribs \u2014 they don't move forward","Full extension at bottom \u2014 squeeze triceps hard","Rope attachment allows wider finish \u2014 better squeeze than bar","Don't lean over the bar \u2014 stand tall, use upper-body weight as anchor only"]},"Standing_Overhead_Barbell_Triceps_Extension":{"setup":"Bar overhead, elbows close to head. Arms vertical at start.","cues":["Elbows stay pointed at ceiling \u2014 don't flare out","Lower bar behind head with control \u2014 full triceps stretch","Press straight up to lockout, not forward","Use EZ bar to save wrists if straight bar bothers you"]},"Chin-Up":{"setup":"Underhand grip, hands shoulder-width. Hang with arms fully extended.","cues":["Pull with the elbows down and back, not just arms","Chin clears the bar \u2014 full ROM","Keep core braced \u2014 no leg swinging","Lower under control, full hang at bottom each rep"]},"Pullups":{"setup":"Overhand grip, slightly wider than shoulders. Full hang at bottom.","cues":["Squeeze shoulder blades together as you pull","Pull chest toward bar \u2014 not just chin over","Slight backward lean is fine \u2014 kipping (swinging) is not","Negative reps build strength \u2014 slow descent, full extension"]},"Wide-Grip_Lat_Pulldown":{"setup":"Grip wider than shoulders, palms forward. Knees secured under pad.","cues":["Lean back ~15 degrees, lock that angle for whole set","Pull bar to upper chest, NOT behind neck","Lead with elbows down and out \u2014 squeeze lats at finish","Slow return \u2014 full stretch overhead between reps"]},"Bent_Over_Barbell_Row":{"setup":"Hinge at hips to ~45 degrees. Bar hangs from shoulders, neutral spine.","cues":["Hinge from hips, not from waist \u2014 chest stays up, lower back flat","Pull bar to lower chest / upper abdomen","Squeeze shoulder blades together at top of pull","Don't use legs to bounce the weight \u2014 keep torso angle locked"]},"One-Arm_Dumbbell_Row":{"setup":"Knee and hand on bench. Back flat, parallel to floor.","cues":["Pull dumbbell to hip, not armpit \u2014 lat emphasis","Don't rotate torso to swing weight up \u2014 strict form","Full stretch at bottom \u2014 let lat lengthen","Squeeze at top, hold for half-second"]},"Seated_Cable_Rows":{"setup":"Knees slightly bent. Spine neutral, not slumped.","cues":["Pull handles to lower chest / upper abdomen","Squeeze shoulder blades together \u2014 chest pushes forward","Don't rock \u2014 torso stays roughly upright","Slow return \u2014 full stretch with arms extended, no slumping"]},"T-Bar_Row_with_Handle":{"setup":"Straddle bar. Hinge to ~45 degrees. Neutral spine.","cues":["Pull handles to lower chest, elbows tracking back","Keep chest up \u2014 don't let it collapse forward","Heavy compound row \u2014 focus on form over load","Squeeze hard at top before slow descent"]},"Barbell_Shrug":{"setup":"Bar in front, shoulder-width grip. Stand tall.","cues":["Pure vertical movement \u2014 no rotation, no rolling","Shrug straight up to ears, hold for a beat","Don't rotate shoulders \u2014 that's an old, joint-stressing technique","Heavy is fine \u2014 traps respond to load"]},"Barbell_Curl":{"setup":"Stand tall. Bar at thighs, shoulder-width grip, palms up.","cues":["Elbows pinned to sides \u2014 they don't move forward","Squeeze biceps hard at top, don't let bar rest on chest","No swinging \u2014 momentum cheats the muscle","Lower under control \u2014 full extension at bottom"]},"Dumbbell_Bicep_Curl":{"setup":"Stand or sit tall. Dumbbells at sides, palms forward.","cues":["Curl one or both \u2014 alternating prevents momentum cheating","Supinate as you curl \u2014 palms rotate from neutral to up","Squeeze at top, hold for a beat","Lower slowly, don't drop \u2014 eccentric is half the work"]},"Alternate_Hammer_Curl":{"setup":"Stand tall. Dumbbells at sides, palms facing in (neutral grip).","cues":["Palms stay neutral the whole rep \u2014 no rotation","Targets brachialis and brachioradialis, not just biceps","Slight body rock is fine, swinging is not","Heavier than supinated curls \u2014 neutral grip is stronger"]},"Preacher_Curl":{"setup":"Chest tight against pad, armpits at top of pad. Arms locked on pad.","cues":["Don't fully extend arms at bottom \u2014 protects elbows","Squeeze hard at top, hold briefly","Lighter than standing curls \u2014 preacher removes momentum","EZ bar saves wrists vs straight bar"]},"Concentration_Curls":{"setup":"Seated, elbow braced against inner thigh. Dumbbell hangs straight down.","cues":["Elbow stays anchored to thigh \u2014 no movement from there","Slow tempo \u2014 biceps love time under tension","Squeeze peak hard at top","Lighter weight \u2014 strict form is the whole point"]},"Barbell_Squat":{"setup":"Bar on traps (or low-bar on rear delts). Feet shoulder-width, slight toe-out.","cues":["Brace core hard before unracking \u2014 like preparing for a punch","Sit DOWN, not back \u2014 knees track over toes","Hit at LEAST parallel \u2014 thighs to floor or below","Drive through heels and mid-foot, not toes"]},"Split_Squat_with_Dumbbells":{"setup":"Rear foot elevated on bench (Bulgarian style). Front foot ~2 feet ahead.","cues":["Front knee tracks over front foot \u2014 don't cave in","Most weight on FRONT foot \u2014 back foot is balance only","Back knee descends straight down toward floor","Brutal but effective \u2014 single-leg work fixes imbalances"]},"Goblet_Squat":{"setup":"Hold dumbbell or kettlebell at chest, elbows tucked under.","cues":["Weight at chest creates natural counterbalance \u2014 easier to hit depth","Drive elbows between knees at bottom \u2014 opens hips","Excellent for learning squat pattern before barbell loading","Stay tall through torso \u2014 don't fold forward"]},"Bodyweight_Squat":{"setup":"Feet shoulder-width, toes slightly out. Hands forward for counterbalance.","cues":["Sit between your heels \u2014 full depth if mobility allows","Knees track over toes, don't cave inward","Chest up, neutral spine throughout","Foundation for all squat variations \u2014 master this first"]},"Leg_Press":{"setup":"Feet shoulder-width on platform, mid-height. Lower back pressed into pad.","cues":["Don't lock knees out at top \u2014 keep tension on quads","Lower until thighs touch torso (or ROM limit)","Lower back NEVER leaves pad \u2014 that hurts your back","Foot position changes emphasis: high = glutes/hams, low = quads"]},"Hack_Squat":{"setup":"Shoulders under pads. Feet shoulder-width on platform.","cues":["Quad-dominant \u2014 unlike free squats, this isolates more","Full depth \u2014 let thighs touch calves if mobility allows","Drive through whole foot, not just toes","Don't lock knees at top"]},"Barbell_Deadlift":{"setup":"Bar over mid-foot. Shins ~1 inch from bar. Shoulder-width grip.","cues":["Pull SLACK out of bar before lifting \u2014 no jerking","Push the floor away \u2014 drive through whole foot","Hips and shoulders rise together \u2014 no morning-gooding","Lockout is hips through, not lean back \u2014 squeeze glutes"]},"Romanian_Deadlift":{"setup":"Bar at hip level (rack pull start). Soft knees, neutral spine.","cues":["Push hips BACK \u2014 not down \u2014 until you feel hamstring stretch","Bar stays close to legs the whole way \u2014 drag it down","Knees stay slightly bent \u2014 don't bend more on descent","Squeeze glutes to drive bar back up \u2014 no jerking"]},"Sumo_Deadlift":{"setup":"Wide stance, toes turned out 30-45 degrees. Hands inside knees.","cues":["Knees push out HARD \u2014 track over toes throughout","More upright torso than conventional \u2014 hip-dominant","Drive feet into floor and OUT, like spreading floor apart","Better for tall lifters or those with long torso"]},"Stiff-Legged_Barbell_Deadlift":{"setup":"Bar on floor. Soft knees \u2014 locked at this angle throughout.","cues":["Knees stay slightly bent \u2014 don't straighten them on descent","Push hips back, hinge from hips not waist","Bar stays close to legs the whole way","Lower than RDL \u2014 true stiff-leg goes to floor, not knee height"]},"Good_Morning":{"setup":"Bar high on traps (like high-bar squat). Soft knees.","cues":["Hinge at hips \u2014 like RDL but bar is on your back","Lighter weight than you think \u2014 heavy good mornings tweak backs","Stop when torso parallel to floor (or earlier if mobility limits)","Drive hips forward to return \u2014 squeeze glutes hard"]},"Barbell_Hip_Thrust":{"setup":"Upper back on bench. Bar over hips, padded. Feet flat, shins vertical at top.","cues":["Drive through HEELS, not toes","Squeeze glutes HARD at lockout \u2014 that's the whole point","Chin tucked at top, ribs down \u2014 don't arch lower back","Full ROM \u2014 touch hips to floor between reps"]},"Barbell_Glute_Bridge":{"setup":"Lying on floor, knees bent, feet flat. Bar over hips, padded.","cues":["Same form as hip thrust but smaller ROM","Drive heels into floor, squeeze glutes at top","Don't arch lower back \u2014 tuck chin and ribs","Pause at top for 1-2 seconds for max activation"]},"Barbell_Walking_Lunge":{"setup":"Bar on traps like back squat. Feet hip-width.","cues":["Step long enough that front shin stays vertical at bottom","Back knee descends to within an inch of floor","Drive through front HEEL to step forward","Don't rush \u2014 control each rep, especially the descent"]},"Dumbbell_Lunges":{"setup":"Dumbbells at sides. Stand tall.","cues":["Keep torso UPRIGHT \u2014 leaning forward stresses lower back","Step length determines emphasis: long = glutes, short = quads","Front knee tracks over middle of foot, not collapsing in","Drive through whole front foot to return"]},"Step-up_with_Knee_Raise":{"setup":"Box at knee height. Stand close to box.","cues":["Drive through front foot ONLY \u2014 don't push off rear toe","Bring rear knee up to hip height at top for added challenge","Step DOWN under control \u2014 eccentric matters","Box height = quad emphasis (low) or glute emphasis (high)"]},"Leg_Extensions":{"setup":"Knees aligned with machine pivot. Pads on shins, just above ankles.","cues":["Squeeze quads HARD at top \u2014 pause for a beat","Don't hyperextend knees \u2014 full extension is fine, force is not","Slow descent \u2014 eccentric is gold for quad growth","Avoid jerking the weight \u2014 light enough for clean reps"]},"Lying_Leg_Curls":{"setup":"Knees just past edge of pad. Pads on lower calves.","cues":["Hips stay pressed into pad \u2014 don't lift them to cheat","Squeeze hamstrings at top \u2014 full curl","Slow eccentric \u2014 hamstrings respond to time under tension","Point or flex toes to bias different parts of hamstrings"]},"Standing_Calf_Raises":{"setup":"Balls of feet on platform, heels free to drop.","cues":["FULL ROM \u2014 heels drop below platform, rise to highest point","Pause at top, squeeze calves","Slow descent \u2014 calves love eccentric load","Heavy is fine \u2014 calves are dense, respond to load"]},"Plank":{"setup":"Forearms on floor, elbows under shoulders. Body in straight line.","cues":["Squeeze glutes and abs \u2014 don't let hips sag","Tuck chin slightly, neutral spine head to heels","Quality over time \u2014 30 seconds of perfect beats 2 minutes of broken","Breathe normally \u2014 no holding breath"]},"Hanging_Leg_Raise":{"setup":"Hang from bar, full extension. Slight forward swing minimized.","cues":["Lift knees to chest (or legs to bar for advanced)","Slight pelvic tilt at top \u2014 not just hip flexors","No swinging \u2014 control means real ab work","Lower under control \u2014 eccentric matters"]},"Crunches":{"setup":"Lying on back, knees bent, hands behind head or crossed on chest.","cues":["Lift shoulder blades off floor \u2014 that's the whole ROM","Don't pull on neck \u2014 hands are light support only","Exhale on the way up, fully contract abs","Slow return \u2014 don't bounce off floor"]},"Russian_Twist":{"setup":"Sit, lean back to ~45 degrees. Feet up or on floor. Weight at chest.","cues":["Rotate from torso, not arms","Touch weight to floor on each side \u2014 full rotation","Keep torso angle locked \u2014 don't bob up and down","Feet up = harder, feet on floor = easier"]},"Pallof_Press_With_Rotation":{"setup":"Cable at chest height. Stand sideways, weight at chest.","cues":["RESIST rotation \u2014 that's the whole exercise","Press straight out from chest, hold, return","Don't let the cable pull your torso toward the machine","Light weight \u2014 anti-rotation is endurance, not max strength"]},"Power_Clean":{"setup":"Bar over mid-foot, shoulder-width grip. Hips lower than shoulders.","cues":["First pull (off floor): controlled, like deadlift to knee","Second pull (jump): explosive triple extension \u2014 ankles, knees, hips","Catch in front-rack: elbows snap forward and high","TECHNICAL LIFT \u2014 learn from a coach before loading heavy"]},"Clean_and_Press":{"setup":"Combines power clean with overhead press.","cues":["Catch the clean clean before pressing \u2014 don't blend the lifts","Use leg drive for the press \u2014 push press is acceptable","Lockout overhead with biceps by ears","Heavy compound \u2014 full-body loading. Form first, load later."]},"Front_Squat_Clean_Grip":{"setup":"Bar racked on front delts, elbows high, fingertip grip.","cues":["Elbows up THROUGHOUT \u2014 if elbows drop, bar follows","More upright torso than back squat","Crossed-arm grip is acceptable if mobility limits clean grip","Lighter than back squat \u2014 quad-dominant"]},"cali_pistol":{"setup":"Stand on one leg. Free leg extended forward. Hold a counterweight (light DB) or use a TRX/pole for assistance.","cues":["Lower SLOWLY \u2014 the eccentric is where strength builds","Keep heel down throughout, do not rise onto toes","Counterweight in front shifts your COG and makes balance easier","Drive through full foot to return, not just heel"]},"cali_archpullup":{"setup":"Hang from bar wider than shoulder-width. Both hands grip but most weight loads ONE arm.","cues":["Pull to ONE side \u2014 working arm bends, other stays straight","Squeeze the working lat at top","Lower controlled \u2014 don't let working arm snap to extension","Build unilateral strength toward one-arm pull-up"]},"cali_jumpsq":{"setup":"Stand shoulder-width. Hands free for arm swing.","cues":["Quarter-squat down, then EXPLODE up","Use arm swing for vertical drive","Land soft \u2014 absorb through bent knees","Quality over height \u2014 power output drops with fatigue"]},"cali_wallsit":{"setup":"Back flat against wall. Slide down until thighs parallel to floor.","cues":["Knees stay over ankles, not collapsed inward","Press lower back into wall \u2014 no gap","Hands free or arms folded \u2014 no resting them on thighs","Quality time matters \u2014 30 sec of true parallel beats 60 sec at 45 degrees"]},"cali_cossack":{"setup":"Wide stance, feet pointed forward. Shift to one side.","cues":["Working leg bends deeply, other leg stays straight","Heel of working leg stays planted","Straight leg's toe points up to feel hamstring stretch","Builds mobility AND strength in same movement"]},"cali_handstand":{"setup":"Kick up against wall, hands shoulder-width about a foot from wall.","cues":["Active shoulders \u2014 push the floor away","Stack hips over shoulders, feet pointed","Squeeze glutes and abs to lock body into one line","Look between hands, not at the floor"]},"cali_lsit":{"setup":"Sit between parallel bars or floor. Hands flat, arms straight, push body up.","cues":["Press DOWN HARD \u2014 active depression of shoulders","Legs straight and parallel to floor (or tucked if learning)","Lock arms, don't bend elbows","Build from tuck \u2014> one leg \u2014> full L over weeks"]},"cali_planche":{"setup":"Start in push-up position. Lean shoulders FAR forward over hands.","cues":["Hands rotated outward (fingers point back or sideways)","Lean forward until heels lift off floor naturally","Hollow body \u2014 abs and glutes squeezed","Progress: tuck \u2014> advanced tuck \u2014> straddle \u2014> full"]},"cali_lever":{"setup":"Hang from bar in active position. Lean back as you pull legs up.","cues":["Pull straight arms DOWN toward your body to lift legs","Hollow body throughout \u2014 abs locked, ribs down","Start tucked, then progress to advanced tuck and beyond","Negative reps (lower from inverted hang) build strength"]},"cali_archpush":{"setup":"Push-up position with hands wider than normal. Slight side shift.","cues":["Lower toward ONE hand \u2014 working arm bends, other stays straighter","Keep core tight \u2014 don't twist or sag","Lighter side hand supports balance, not body weight","Builds toward one-arm push-up"]},"cali_pseudo":{"setup":"Push-up position with hands at hip level, fingers pointed back (or sideways).","cues":["Lean shoulders forward over wrists","Body forms straight line, hollow body","Hands rotated to take wrist pressure off","Builds planche strength without full body weight load yet"]},"cali_handstandpu":{"setup":"Kick into handstand against wall. Lower head toward floor.","cues":["Lower until head taps mat between hands","Press back up with full body tension","Wrist mobility matters \u2014 warm up shoulders and wrists","Tripod from negative-only reps first if weak"]},"end_z2":{"cues":["Conversational pace \u2014 you can speak in full sentences","Nose-breathing test: if you can breathe through nose only, you're at Z2","Don't chase pace \u2014 chase the EFFORT and breathing","Builds aerobic engine \u2014 the most valuable adaptation for any endurance athlete"]},"end_threshold":{"cues":["Hard but sustainable \u2014 'comfortably uncomfortable'","Should be able to speak short phrases, not full sentences","Right at lactate threshold \u2014 not all-out, not easy","Holds the pace where you can stay just below 'redline'"]},"end_intervals":{"cues":["Work intervals are 95-100% effort","Rest matters as much as work \u2014 recover fully between","Quality > volume \u2014 stop when intensity drops","Best done well-fueled and well-rested"]},"sport_sprint":{"cues":["Full effort \u2014 sprints aren't 'fast jogging'","Walk back as rest \u2014 90 sec minimum","6-10 reps is enough \u2014 quality first","Warm up THOROUGHLY \u2014 hamstring pulls love cold sprints"]},"sport_agility":{"cues":["Quality cuts > volume","Plant on the outside foot, drive off it","Stay low \u2014 chest down, hips down","Quick feet, sharp angles \u2014 like you're playing your sport"]}};
 
 // ─── HAND-CURATED TOP ALTERNATIVES ────────────────────────────────────────────
 // For each curated exercise, 1-3 hand-picked alternatives ranked by movement
 // pattern + loading profile + stimulus equivalence. Most similar first.
 // Only the 62 curated exercises have entries here; other exercises fall back
 // to the standard tier-based alternative finder.
-const TOP_ALTERNATIVES = {"Barbell_Bench_Press_-_Medium_Grip":["Dumbbell_Bench_Press","Machine_Bench_Press","Pushups"],"Dumbbell_Bench_Press":["Barbell_Bench_Press_-_Medium_Grip","Machine_Bench_Press","Dumbbell_Bench_Press_with_Neutral_Grip"],"Incline_Dumbbell_Press":["Barbell_Incline_Bench_Press_-_Medium_Grip","Hammer_Grip_Incline_DB_Bench_Press","Incline_Cable_Chest_Press"],"Decline_Barbell_Bench_Press":["Decline_Dumbbell_Bench_Press","Dips_-_Chest_Version","Cable_Crossover"],"Pushups":["Push-Ups_With_Feet_Elevated","Incline_Push-Up","Dumbbell_Bench_Press"],"Dips_-_Triceps_Version":["Bench_Dips","Dip_Machine","Close-Grip_Barbell_Bench_Press"],"Cable_Chest_Press":["Standing_Cable_Chest_Press","Dumbbell_Bench_Press","Pushups"],"Dumbbell_Flyes":["Cable_Crossover","Incline_Dumbbell_Flyes","Butterfly"],"Standing_Military_Press":["Seated_Barbell_Military_Press","Dumbbell_Shoulder_Press","Machine_Shoulder_Military_Press"],"Dumbbell_Shoulder_Press":["Seated_Dumbbell_Press","Standing_Dumbbell_Press","Arnold_Dumbbell_Press"],"Seated_Dumbbell_Press":["Dumbbell_Shoulder_Press","Standing_Military_Press","Machine_Shoulder_Military_Press"],"Arnold_Dumbbell_Press":["Seated_Dumbbell_Press","Dumbbell_Shoulder_Press","Cuban_Press"],"Side_Lateral_Raise":["Cable_Seated_Lateral_Raise","Seated_Side_Lateral_Raise","Lateral_Raise_-_With_Bands"],"Cable_Seated_Lateral_Raise":["Side_Lateral_Raise","Standing_Low-Pulley_Deltoid_Raise","Lateral_Raise_-_With_Bands"],"Front_Dumbbell_Raise":["Front_Cable_Raise","Front_Two-Dumbbell_Raise","Front_Plate_Raise"],"Face_Pull":["Cable_Rope_Rear-Delt_Rows","Bent_Over_Dumbbell_Rear_Delt_Raise_With_Head_On_Bench","Reverse_Flyes"],"Bent_Over_Dumbbell_Rear_Delt_Raise_With_Head_On_Bench":["Reverse_Flyes","Reverse_Machine_Flyes","Face_Pull"],"Tricep_Dumbbell_Kickback":["Cable_One_Arm_Tricep_Extension","Reverse_Grip_Triceps_Pushdown","Dumbbell_One-Arm_Triceps_Extension"],"Lying_Triceps_Press":["EZ-Bar_Skullcrusher","Decline_EZ_Bar_Triceps_Extension","Lying_Dumbbell_Tricep_Extension"],"Close-Grip_Barbell_Bench_Press":["Close-Grip_Dumbbell_Press","Smith_Machine_Close-Grip_Bench_Press","JM_Press"],"Triceps_Pushdown":["Triceps_Pushdown_-_Rope_Attachment","Triceps_Pushdown_-_V-Bar_Attachment","Reverse_Grip_Triceps_Pushdown"],"Standing_Overhead_Barbell_Triceps_Extension":["Cable_Rope_Overhead_Triceps_Extension","Standing_Dumbbell_Triceps_Extension","Triceps_Overhead_Extension_with_Rope"],"Chin-Up":["Pullups","Wide-Grip_Lat_Pulldown","V-Bar_Pullup"],"Pullups":["Chin-Up","Wide-Grip_Lat_Pulldown","Weighted_Pull_Ups"],"Wide-Grip_Lat_Pulldown":["Pullups","Close-Grip_Front_Lat_Pulldown","V-Bar_Pulldown"],"Bent_Over_Barbell_Row":["Bent_Over_Two-Dumbbell_Row","T-Bar_Row_with_Handle","Smith_Machine_Bent_Over_Row"],"One-Arm_Dumbbell_Row":["Bent_Over_Two-Dumbbell_Row","Seated_One-arm_Cable_Pulley_Rows","One-Arm_Long_Bar_Row"],"Seated_Cable_Rows":["Bent_Over_Barbell_Row","Bent_Over_Two-Dumbbell_Row","Seated_One-arm_Cable_Pulley_Rows"],"T-Bar_Row_with_Handle":["Bent_Over_Barbell_Row","Bent_Over_Two-Arm_Long_Bar_Row","Lying_T-Bar_Row"],"Barbell_Shrug":["Dumbbell_Shrug","Cable_Shrugs","Smith_Machine_Behind_the_Back_Shrug"],"Barbell_Curl":["Dumbbell_Bicep_Curl","EZ-Bar_Curl","Cable_Preacher_Curl"],"Dumbbell_Bicep_Curl":["Barbell_Curl","Seated_Dumbbell_Curl","Dumbbell_Alternate_Bicep_Curl"],"Alternate_Hammer_Curl":["Hammer_Curls","Cross_Body_Hammer_Curl","Cable_Hammer_Curls_-_Rope_Attachment"],"Preacher_Curl":["One_Arm_Dumbbell_Preacher_Curl","Cable_Preacher_Curl","Machine_Preacher_Curls"],"Concentration_Curls":["Dumbbell_Bicep_Curl","Standing_Concentration_Curl","Seated_Dumbbell_Curl"],"Barbell_Squat":["Front_Squat_Clean_Grip","Hack_Squat","Goblet_Squat"],"Front_Squat_Clean_Grip":["Barbell_Squat","Goblet_Squat","Hack_Squat"],"Split_Squat_with_Dumbbells":["Dumbbell_Lunges","Smith_Single-Leg_Split_Squat","Suspended_Split_Squat"],"Goblet_Squat":["Dumbbell_Squat","Plie_Dumbbell_Squat","Bodyweight_Squat"],"Bodyweight_Squat":["Goblet_Squat","Dumbbell_Squat","Freehand_Jump_Squat"],"Leg_Press":["Hack_Squat","Smith_Machine_Squat","Barbell_Squat"],"Hack_Squat":["Leg_Press","Barbell_Squat","Front_Squat_Clean_Grip"],"Barbell_Deadlift":["Sumo_Deadlift","Trap_Bar_Deadlift","Romanian_Deadlift"],"Romanian_Deadlift":["Stiff-Legged_Barbell_Deadlift","Stiff-Legged_Dumbbell_Deadlift","Good_Morning"],"Sumo_Deadlift":["Barbell_Deadlift","Trap_Bar_Deadlift","Romanian_Deadlift"],"Stiff-Legged_Barbell_Deadlift":["Romanian_Deadlift","Stiff-Legged_Dumbbell_Deadlift","Good_Morning"],"Good_Morning":["Romanian_Deadlift","Stiff_Leg_Barbell_Good_Morning","Hyperextensions_Back_Extensions"],"Barbell_Hip_Thrust":["Barbell_Glute_Bridge","Single_Leg_Glute_Bridge","Pull_Through"],"Barbell_Glute_Bridge":["Barbell_Hip_Thrust","Single_Leg_Glute_Bridge","Hip_Lift_with_Band"],"Barbell_Walking_Lunge":["Dumbbell_Lunges","Barbell_Lunge","Bodyweight_Walking_Lunge"],"Dumbbell_Lunges":["Barbell_Walking_Lunge","Dumbbell_Rear_Lunge","Bodyweight_Walking_Lunge"],"Step-up_with_Knee_Raise":["Dumbbell_Step_Ups","Barbell_Step_Ups","Single-Leg_High_Box_Squat"],"Leg_Extensions":["Single-Leg_Leg_Extension","Hack_Squat","Narrow_Stance_Hack_Squats"],"Lying_Leg_Curls":["Seated_Leg_Curl","Standing_Leg_Curl","Seated_Band_Hamstring_Curl"],"Standing_Calf_Raises":["Seated_Calf_Raise","Standing_Barbell_Calf_Raise","Smith_Machine_Calf_Raise"],"Plank":["Side_Bridge","Suspended_Fallout","Dead_Bug"],"Hanging_Leg_Raise":["Knee_Hip_Raise_On_Parallel_Bars","Flat_Bench_Lying_Leg_Raise","Decline_Reverse_Crunch"],"Crunches":["Cable_Crunch","Decline_Crunch","Crunch_-_Hands_Overhead"],"Russian_Twist":["Cable_Russian_Twists","Standing_Cable_Wood_Chop","Seated_Barbell_Twist"],"Pallof_Press_With_Rotation":["Pallof_Press","Standing_Cable_Lift","Standing_Cable_Wood_Chop"],"Power_Clean":["Hang_Clean","Clean","Clean_from_Blocks"],"Clean_and_Press":["Power_Clean","Push_Press","Clean_and_Jerk"]};
+const TOP_ALTERNATIVES = {"Barbell_Bench_Press_-_Medium_Grip":["Dumbbell_Bench_Press","Machine_Bench_Press","Pushups"],"Dumbbell_Bench_Press":["Barbell_Bench_Press_-_Medium_Grip","Machine_Bench_Press","Dumbbell_Bench_Press_with_Neutral_Grip"],"Incline_Dumbbell_Press":["Barbell_Incline_Bench_Press_-_Medium_Grip","Hammer_Grip_Incline_DB_Bench_Press","Incline_Cable_Chest_Press"],"Decline_Barbell_Bench_Press":["Decline_Dumbbell_Bench_Press","Dips_-_Chest_Version","Cable_Crossover"],"Pushups":["Push-Ups_With_Feet_Elevated","Incline_Push-Up","Dumbbell_Bench_Press"],"Dips_-_Triceps_Version":["Bench_Dips","Dip_Machine","Close-Grip_Barbell_Bench_Press"],"Cable_Chest_Press":["Standing_Cable_Chest_Press","Dumbbell_Bench_Press","Pushups"],"Dumbbell_Flyes":["Cable_Crossover","Incline_Dumbbell_Flyes","Butterfly"],"Standing_Military_Press":["Seated_Barbell_Military_Press","Dumbbell_Shoulder_Press","Machine_Shoulder_Military_Press"],"Dumbbell_Shoulder_Press":["Seated_Dumbbell_Press","Standing_Dumbbell_Press","Arnold_Dumbbell_Press"],"Seated_Dumbbell_Press":["Dumbbell_Shoulder_Press","Standing_Military_Press","Machine_Shoulder_Military_Press"],"Arnold_Dumbbell_Press":["Seated_Dumbbell_Press","Dumbbell_Shoulder_Press","Cuban_Press"],"Side_Lateral_Raise":["Cable_Seated_Lateral_Raise","Seated_Side_Lateral_Raise","Lateral_Raise_-_With_Bands"],"Cable_Seated_Lateral_Raise":["Side_Lateral_Raise","Standing_Low-Pulley_Deltoid_Raise","Lateral_Raise_-_With_Bands"],"Front_Dumbbell_Raise":["Front_Cable_Raise","Front_Two-Dumbbell_Raise","Front_Plate_Raise"],"Face_Pull":["Cable_Rope_Rear-Delt_Rows","Bent_Over_Dumbbell_Rear_Delt_Raise_With_Head_On_Bench","Reverse_Flyes"],"Bent_Over_Dumbbell_Rear_Delt_Raise_With_Head_On_Bench":["Reverse_Flyes","Reverse_Machine_Flyes","Face_Pull"],"Tricep_Dumbbell_Kickback":["Cable_One_Arm_Tricep_Extension","Reverse_Grip_Triceps_Pushdown","Dumbbell_One-Arm_Triceps_Extension"],"Lying_Triceps_Press":["EZ-Bar_Skullcrusher","Decline_EZ_Bar_Triceps_Extension","Lying_Dumbbell_Tricep_Extension"],"Close-Grip_Barbell_Bench_Press":["Close-Grip_Dumbbell_Press","Smith_Machine_Close-Grip_Bench_Press","JM_Press"],"Triceps_Pushdown":["Triceps_Pushdown_-_Rope_Attachment","Triceps_Pushdown_-_V-Bar_Attachment","Reverse_Grip_Triceps_Pushdown"],"Standing_Overhead_Barbell_Triceps_Extension":["Cable_Rope_Overhead_Triceps_Extension","Standing_Dumbbell_Triceps_Extension","Triceps_Overhead_Extension_with_Rope"],"Chin-Up":["Pullups","Wide-Grip_Lat_Pulldown","V-Bar_Pullup"],"Pullups":["Chin-Up","Wide-Grip_Lat_Pulldown","Weighted_Pull_Ups"],"Wide-Grip_Lat_Pulldown":["Pullups","Close-Grip_Front_Lat_Pulldown","V-Bar_Pulldown"],"Bent_Over_Barbell_Row":["Bent_Over_Two-Dumbbell_Row","T-Bar_Row_with_Handle","Smith_Machine_Bent_Over_Row"],"One-Arm_Dumbbell_Row":["Bent_Over_Two-Dumbbell_Row","Seated_One-arm_Cable_Pulley_Rows","One-Arm_Long_Bar_Row"],"Seated_Cable_Rows":["Bent_Over_Barbell_Row","Bent_Over_Two-Dumbbell_Row","Seated_One-arm_Cable_Pulley_Rows"],"T-Bar_Row_with_Handle":["Bent_Over_Barbell_Row","Bent_Over_Two-Arm_Long_Bar_Row","Lying_T-Bar_Row"],"Barbell_Shrug":["Dumbbell_Shrug","Cable_Shrugs","Smith_Machine_Behind_the_Back_Shrug"],"Barbell_Curl":["Dumbbell_Bicep_Curl","EZ-Bar_Curl","Cable_Preacher_Curl"],"Dumbbell_Bicep_Curl":["Barbell_Curl","Seated_Dumbbell_Curl","Dumbbell_Alternate_Bicep_Curl"],"Alternate_Hammer_Curl":["Hammer_Curls","Cross_Body_Hammer_Curl","Cable_Hammer_Curls_-_Rope_Attachment"],"Preacher_Curl":["One_Arm_Dumbbell_Preacher_Curl","Cable_Preacher_Curl","Machine_Preacher_Curls"],"Concentration_Curls":["Dumbbell_Bicep_Curl","Standing_Concentration_Curl","Seated_Dumbbell_Curl"],"Barbell_Squat":["Front_Squat_Clean_Grip","Hack_Squat","Goblet_Squat"],"Front_Squat_Clean_Grip":["Barbell_Squat","Goblet_Squat","Hack_Squat"],"Split_Squat_with_Dumbbells":["Dumbbell_Lunges","Smith_Single-Leg_Split_Squat","Suspended_Split_Squat"],"Goblet_Squat":["Dumbbell_Squat","Plie_Dumbbell_Squat","Bodyweight_Squat"],"Bodyweight_Squat":["Goblet_Squat","Dumbbell_Squat","Freehand_Jump_Squat"],"Leg_Press":["Hack_Squat","Smith_Machine_Squat","Barbell_Squat"],"Hack_Squat":["Leg_Press","Barbell_Squat","Front_Squat_Clean_Grip"],"Barbell_Deadlift":["Sumo_Deadlift","Trap_Bar_Deadlift","Romanian_Deadlift"],"Romanian_Deadlift":["Stiff-Legged_Barbell_Deadlift","Stiff-Legged_Dumbbell_Deadlift","Good_Morning"],"Sumo_Deadlift":["Barbell_Deadlift","Trap_Bar_Deadlift","Romanian_Deadlift"],"Stiff-Legged_Barbell_Deadlift":["Romanian_Deadlift","Stiff-Legged_Dumbbell_Deadlift","Good_Morning"],"Good_Morning":["Romanian_Deadlift","Stiff_Leg_Barbell_Good_Morning","Hyperextensions_Back_Extensions"],"Barbell_Hip_Thrust":["Barbell_Glute_Bridge","Single_Leg_Glute_Bridge","Pull_Through"],"Barbell_Glute_Bridge":["Barbell_Hip_Thrust","Single_Leg_Glute_Bridge","Hip_Lift_with_Band"],"Barbell_Walking_Lunge":["Dumbbell_Lunges","Barbell_Lunge","Bodyweight_Walking_Lunge"],"Dumbbell_Lunges":["Barbell_Walking_Lunge","Dumbbell_Rear_Lunge","Bodyweight_Walking_Lunge"],"Step-up_with_Knee_Raise":["Dumbbell_Step_Ups","Barbell_Step_Ups","Single-Leg_High_Box_Squat"],"Leg_Extensions":["Single-Leg_Leg_Extension","Hack_Squat","Narrow_Stance_Hack_Squats"],"Lying_Leg_Curls":["Seated_Leg_Curl","Standing_Leg_Curl","Seated_Band_Hamstring_Curl"],"Standing_Calf_Raises":["Seated_Calf_Raise","Standing_Barbell_Calf_Raise","Smith_Machine_Calf_Raise"],"Plank":["Side_Bridge","Suspended_Fallout","Dead_Bug"],"Hanging_Leg_Raise":["Knee_Hip_Raise_On_Parallel_Bars","Flat_Bench_Lying_Leg_Raise","Decline_Reverse_Crunch"],"Crunches":["Cable_Crunch","Decline_Crunch","Crunch_-_Hands_Overhead"],"Russian_Twist":["Cable_Russian_Twists","Standing_Cable_Wood_Chop","Seated_Barbell_Twist"],"Pallof_Press_With_Rotation":["Pallof_Press","Standing_Cable_Lift","Standing_Cable_Wood_Chop"],"Power_Clean":["Hang_Clean","Clean","Clean_from_Blocks"],"Clean_and_Press":["Power_Clean","Push_Press","Clean_and_Jerk"],"Weighted_Pull_Ups":["Pullups","Chin-Up","Wide-Grip_Lat_Pulldown"],"Dumbbell_Shrug":["Barbell_Shrug","Cable_Shrugs","Smith_Machine_Behind_the_Back_Shrug"],"Barbell_Incline_Bench_Press_-_Medium_Grip":["Incline_Dumbbell_Press","Hammer_Grip_Incline_DB_Bench_Press","Barbell_Bench_Press_-_Medium_Grip"],"Front_Barbell_Squat":["Barbell_Squat","Goblet_Squat","Hack_Squat"],"Glute_Ham_Raise":["Lying_Leg_Curls","Good_Morning","Romanian_Deadlift"],"Deficit_Deadlift":["Barbell_Deadlift","Sumo_Deadlift","Stiff-Legged_Barbell_Deadlift"],"Hyperextensions_Back_Extensions":["Romanian_Deadlift","Good_Morning","Glute_Ham_Raise"],"Push_Press":["Standing_Military_Press","Seated_Dumbbell_Press","Clean_and_Press"],"Pallof_Press":["Pallof_Press_With_Rotation","Standing_Cable_Wood_Chop","Plank"],"Standing_Cable_Wood_Chop":["Cable_Russian_Twists","Russian_Twist","Standing_Cable_Lift"],"Push-Up_Wide":["Pushups","Decline_Push-Up","Push-Ups_With_Feet_Elevated"],"Decline_Push-Up":["Pushups","Push-Up_Wide","Dips_-_Triceps_Version"],"Inverted_Row":["One-Arm_Dumbbell_Row","Bent_Over_Two-Dumbbell_Row","Pullups"],"Muscle_Up":["Pullups","Chin-Up","Weighted_Pull_Ups"],"Scapular_Pull-Up":["Pullups","Chin-Up","Inverted_Row"],"Freehand_Jump_Squat":["Bodyweight_Squat","Goblet_Squat","Dumbbell_Squat"],"Single_Leg_Glute_Bridge":["Barbell_Glute_Bridge","Barbell_Hip_Thrust","Hip_Lift_with_Band"],"Clean":["Power_Clean","Hang_Clean","Clean_from_Blocks"],"muscleup":["Pullups","Chin-Up","Weighted_Pull_Ups"],"planche":["Pushups","Push-Ups_With_Feet_Elevated","Decline_Push-Up"],"lsit":["Hanging_Leg_Raise","Knee_Hip_Raise_On_Parallel_Bars","Plank"],"frontlever":["Pullups","Inverted_Row","Hanging_Leg_Raise"],"pikepushup":["Pushups","Standing_Military_Press","Decline_Push-Up"],"wpullups":["Pullups","Chin-Up","Weighted_Pull_Ups"]};
 
 // Lookup helper for hand-curated alternatives. Returns array of DB exercise
 // objects (resolved from IDs), or null if no curated alternatives exist.
@@ -3413,6 +3485,41 @@ function getCuratedCues(programOrDbEx) {
     if (m && CURATED_CUES[m.id]) return CURATED_CUES[m.id];
   }
   return null;
+}
+
+// ─── EXERCISE CUE RESOLVER ─────────────────────────────────────────────────
+// Single entry point for resolving cues for any exercise. Returns
+// { cues: string[], setupNote: string|null, source: 'inline'|'curated'|'none' }
+//
+// Priority order:
+//   1. Inline cues on the exercise object (legacy PROGRAM has these)
+//   2. Curated cues looked up by id/dbId in CURATED_CUES map
+//   3. Empty array (caller decides whether to show a placeholder)
+//
+// The fallback to the curated lookup means template exercises that ship
+// without inline cues (HYPERTROPHY, STRENGTH, POWERLIFTING templates etc)
+// inherit high-quality cues from the curated library automatically.
+function resolveExerciseCues(ex) {
+  if (!ex) return { cues: [], setupNote: null, source: 'none' };
+  // 1. Inline cues take priority (preserve hand-tuned PROGRAM cues)
+  if (Array.isArray(ex.cues) && ex.cues.length > 0) {
+    return {
+      cues: ex.cues,
+      setupNote: ex.setupNote || null,
+      source: 'inline'
+    };
+  }
+  // 2. Curated fallback by dbId / id / name
+  const curated = getCuratedCues(ex);
+  if (curated && curated.cues && curated.cues.length > 0) {
+    return {
+      cues: curated.cues,
+      setupNote: ex.setupNote || curated.setup || null,
+      source: 'curated'
+    };
+  }
+  // 3. Nothing found
+  return { cues: [], setupNote: ex.setupNote || null, source: 'none' };
 }
 
 
@@ -3718,8 +3825,8 @@ function getExerciseLevel(programEx) {
 // alternative to swap; tap "+ Custom Exercise" to enter a custom one. Sheet
 // slides up from the bottom (mobile-first).
 
-function openSwapSheet(originalEx, day) {
-  const sheet = renderSwapSheet(originalEx, day);
+function openSwapSheet(originalEx, day, showAllLevels) {
+  const sheet = renderSwapSheet(originalEx, day, !!showAllLevels);
   document.body.appendChild(sheet);
   // Trigger slide-up animation on next frame
   requestAnimationFrame(() => {
@@ -3739,7 +3846,48 @@ function closeSwapSheet() {
   setTimeout(() => sheet.remove(), 220);
 }
 
-function renderSwapSheet(originalEx, day) {
+// ─── EXPERIENCE-LEVEL ALTERNATIVE FILTERING ───────────────────────────────
+// Maps the user's experience level (beginner/intermediate/advanced) to a max
+// allowed DB level rank. The DB tags exercises as beginner/intermediate/expert
+// (DB uses 'expert' for what we call 'advanced'). Untyped alternatives have
+// rank -1 and are ALWAYS visible — they're presumed safe.
+//
+// Filter is a default-on guard: beginners don't see expert-tier alternatives
+// (a 1-arm pushup as an alternative to bench press is silly for a beginner).
+// User can override per-sheet via the "Show all options" toggle if they want.
+function getMaxDbLevelRankForUser(userLevel) {
+  if (userLevel === 'beginner') return 0;
+  if (userLevel === 'intermediate') return 1;
+  return 2;  // advanced + unknown → see everything
+}
+function getDbLevelRank(dbLevel) {
+  if (dbLevel === 'beginner') return 0;
+  if (dbLevel === 'intermediate') return 1;
+  if (dbLevel === 'expert') return 2;
+  return -1;  // untyped: always visible
+}
+function isAltLevelAppropriate(altEx, userLevel) {
+  if (!altEx) return false;
+  const max = getMaxDbLevelRankForUser(userLevel);
+  const rank = getDbLevelRank(altEx.level);
+  return rank === -1 || rank <= max;
+}
+// Filter an alternatives array; returns {kept, hidden} so caller can decide
+// whether to show the "X hidden" indicator.
+function filterAltsByExperience(arr, userLevel) {
+  if (!Array.isArray(arr)) return { kept: arr || [], hidden: 0 };
+  if (!userLevel || userLevel === 'advanced') return { kept: arr, hidden: 0 };
+  const kept = [];
+  let hidden = 0;
+  arr.forEach(a => {
+    if (isAltLevelAppropriate(a, userLevel)) kept.push(a);
+    else hidden++;
+  });
+  return { kept, hidden };
+}
+
+
+function renderSwapSheet(originalEx, day, showAllLevels) {
   const sheet = el('div', {
     id: 'swap-sheet',
     style: {
@@ -3817,6 +3965,35 @@ function renderSwapSheet(originalEx, day) {
   // Body
   const body = div({padding: '14px 18px'});
 
+  // ── Mid-session WM warning ─────────────────────────────────────────────
+  // When the user opens the swap sheet from within Workout Mode AND has
+  // already logged sets for THIS exercise, surface a clear warning. This
+  // prevents accidental swaps mid-session and explains data preservation
+  // (the prior sets stay in history because logs are keyed by original id).
+  const _wmActive = isWorkoutModeActive();
+  let _midSessionSetCount = 0;
+  if (_wmActive && wmState && wmState.perExerciseLogs && wmState.perExerciseLogs[originalEx.id]) {
+    _midSessionSetCount = (wmState.perExerciseLogs[originalEx.id] || []).filter(Boolean).length;
+  }
+  if (_midSessionSetCount > 0) {
+    const warning = div({
+      background: 'rgba(251, 191, 36, 0.08)',
+      border: '1px solid rgba(251, 191, 36, 0.32)',
+      borderRadius: '10px', padding: '12px 14px',
+      marginBottom: '12px'
+    });
+    warning.appendChild(el('div', {
+      style:{fontSize:'9px',color:'#fbbf24',letterSpacing:'0.2em',textTransform:'uppercase',fontWeight:'700',marginBottom:'6px'}
+    }, '⚠ Mid-Session Swap'));
+    warning.appendChild(el('div', {
+      style:{fontSize:'11px',color:'#ddd',lineHeight:'1.5',marginBottom:'4px'}
+    }, 'You have logged ' + _midSessionSetCount + ' set' + (_midSessionSetCount === 1 ? '' : 's') + ' for ' + (originalEx.name || 'this exercise') + '.'));
+    warning.appendChild(el('div', {
+      style:{fontSize:'10px',color:'#aaa',lineHeight:'1.5'}
+    }, 'Swapping mid-session is fine — your prior sets stay in history under the same slot. The new exercise starts fresh on the next set.'));
+    body.appendChild(warning);
+  }
+
   // Check current swap state for this exercise
   const swaps = getSwapsForDay(currentSwapWeekId(), day);
   const currentSwap = swaps[originalEx.id];
@@ -3836,6 +4013,7 @@ function renderSwapSheet(originalEx, day) {
         clearExerciseSwap(currentSwapWeekId(), day, originalEx.id);
         closeSwapSheet();
         renderActiveTab();
+        if (isWorkoutModeActive()) wmRender();
       }
     });
     resetCard.appendChild(el('span', {style: {fontSize: '18px', flexShrink: '0'}}, '↶'));
@@ -3863,6 +4041,90 @@ function renderSwapSheet(originalEx, day) {
     if (alts.t3) alts.t3 = alts.t3.filter(e => !topAltIds.has(e.id));
   }
 
+  // ── Experience-level filtering ──────────────────────────────────────────
+  // Read user's experience level from goal profile. Filter alternatives so a
+  // beginner doesn't see expert-tier options (and vice versa).
+  // showAllLevels=true bypasses the filter entirely (user clicked toggle).
+  const _gp = (typeof getGoalProfile === 'function') ? getGoalProfile() : null;
+  const userLevel = (_gp && _gp.experienceLevel) || 'intermediate';
+  let totalHidden = 0;
+  let filteredTopAlts = topAlts;
+  if (!showAllLevels && userLevel !== 'advanced') {
+    const r1 = filterAltsByExperience(topAlts, userLevel);
+    filteredTopAlts = r1.kept; totalHidden += r1.hidden;
+    if (alts.t1) { const r = filterAltsByExperience(alts.t1, userLevel); alts.t1 = r.kept; totalHidden += r.hidden; }
+    if (alts.t2) { const r = filterAltsByExperience(alts.t2, userLevel); alts.t2 = r.kept; totalHidden += r.hidden; }
+    if (alts.t3) { const r = filterAltsByExperience(alts.t3, userLevel); alts.t3 = r.kept; totalHidden += r.hidden; }
+  }
+  // Use the filtered topAlts going forward
+  const _topAltsForRender = filteredTopAlts;
+
+  // ── Filter banner ──────────────────────────────────────────────────────
+  // When items were hidden by the level filter, show a small explainer card
+  // with a toggle to reveal everything. Beginners often need this most —
+  // their default view hides expert + intermediate options.
+  if (totalHidden > 0 && !showAllLevels) {
+    const levelLabel = userLevel.charAt(0).toUpperCase() + userLevel.slice(1);
+    const banner = el('button', {
+      class: 'btn',
+      style: {
+        display: 'block', width: '100%', textAlign: 'left',
+        background: 'rgba(59, 223, 255, 0.06)',
+        border: '1px solid rgba(59, 223, 255, 0.25)',
+        borderRadius: '10px', padding: '10px 12px',
+        marginBottom: '12px', cursor: 'pointer'
+      },
+      onclick: () => {
+        // Re-open with showAllLevels=true to bypass the filter for this session
+        closeSwapSheet();
+        setTimeout(() => openSwapSheet(originalEx, day, true), 240);
+      }
+    });
+    const row = div({display: 'flex', alignItems: 'center', gap: '10px'});
+    row.appendChild(el('div', {
+      style: {
+        fontSize: '14px', color: '#3bdfff', flexShrink: '0',
+        fontFamily: "'DM Mono',monospace", fontWeight: '700'
+      }
+    }, '◐'));
+    const txt = div({flex: '1'});
+    txt.appendChild(el('div', {
+      style: {fontSize: '10px', color: '#3bdfff', letterSpacing: '0.16em', textTransform: 'uppercase', fontWeight: '700', marginBottom: '2px'}
+    }, 'Filtered for ' + levelLabel));
+    txt.appendChild(el('div', {
+      style: {fontSize: '10px', color: '#aaa', lineHeight: '1.4'}
+    }, totalHidden + ' option' + (totalHidden === 1 ? '' : 's') + ' hidden as too ' +
+       (userLevel === 'beginner' ? 'advanced' : 'demanding') +
+       ' for your level. Tap to show everything.'));
+    row.appendChild(txt);
+    row.appendChild(el('span', {
+      style: {fontSize: '13px', color: '#3bdfff', flexShrink: '0', opacity: '0.7'}
+    }, '›'));
+    banner.appendChild(row);
+    body.appendChild(banner);
+  }
+  // If user toggled "show all", show a small "filter off" reset card
+  if (showAllLevels && userLevel !== 'advanced') {
+    const offBanner = el('button', {
+      class: 'btn',
+      style: {
+        display: 'block', width: '100%', textAlign: 'left',
+        background: '#0a0a0a',
+        border: '1px solid #2a2a2a',
+        borderRadius: '10px', padding: '8px 12px',
+        marginBottom: '12px', cursor: 'pointer'
+      },
+      onclick: () => {
+        closeSwapSheet();
+        setTimeout(() => openSwapSheet(originalEx, day, false), 240);
+      }
+    });
+    offBanner.appendChild(el('div', {
+      style: {fontSize: '9px', color: '#888', letterSpacing: '0.14em', lineHeight: '1.45'}
+    }, '◑ Showing all levels · tap to filter for ' + (userLevel.charAt(0).toUpperCase() + userLevel.slice(1))));
+    body.appendChild(offBanner);
+  }
+
   function altCard(altEx, tier) {
     const card = el('button', {
       class: 'btn',
@@ -3880,6 +4142,10 @@ function renderSwapSheet(originalEx, day) {
         setExerciseSwap(currentSwapWeekId(), day, originalEx.id, swapData);
         closeSwapSheet();
         renderActiveTab();
+        // Refresh WM if it's currently the active surface (swap initiated
+        // from within the WM quick-swap pill or weight-setup phase). No-op
+        // when the swap originated from the normal workout view.
+        if (isWorkoutModeActive()) wmRender();
       }
     });
     const top = div({display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px', marginBottom: '4px'});
@@ -3927,7 +4193,7 @@ function renderSwapSheet(originalEx, day) {
 
   // Hand-curated top alternatives — when present, render BEFORE the algorithmic
   // tiers with a distinctive accent and star icons indicating ranking.
-  if (topAlts && topAlts.length > 0) {
+  if (_topAltsForRender && _topAltsForRender.length > 0) {
     const bestSec = div({marginBottom: '14px'});
     const bestHdr = div({display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '8px'});
     bestHdr.appendChild(el('div', {
@@ -3938,7 +4204,7 @@ function renderSwapSheet(originalEx, day) {
     }, 'Closest match in movement and stimulus'));
     bestSec.appendChild(bestHdr);
 
-    topAlts.forEach((altEx, i) => {
+    _topAltsForRender.forEach((altEx, i) => {
       const card = el('button', {
         class: 'btn',
         style: {
@@ -3954,6 +4220,7 @@ function renderSwapSheet(originalEx, day) {
           setExerciseSwap(currentSwapWeekId(), day, originalEx.id, swapData);
           closeSwapSheet();
           renderActiveTab();
+          if (isWorkoutModeActive()) wmRender();
         }
       });
       const top = div({display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px', marginBottom: '4px'});
@@ -4470,6 +4737,7 @@ function renderCustomExerciseForm(originalEx, day) {
       closeCustomExerciseForm();
       closeSwapSheet();
       renderActiveTab();
+      if (isWorkoutModeActive()) wmRender();
     }
   }, '✓ Save & Swap');
   actionRow.appendChild(saveBtn);
@@ -5222,6 +5490,243 @@ function applyFocusAreasToDay(day, focusAreas) {
 
   return Object.assign({}, day, {
     exercises: day.exercises.concat(capped)
+  });
+}
+
+
+// ─── EXPERIENCE LEVEL / DIFFICULTY SYSTEM ─────────────────────────────────
+// Three tiers that shape exercise selection AND rep ranges. The CURRENT
+// templates encode the INTERMEDIATE level — beginner and advanced are
+// additive substitutions applied at build time. This preserves backward
+// compatibility: existing users default to intermediate, get identical plans.
+//
+// Beginner: shifts heavy compounds to friendlier variants (DB instead of
+//   barbell on bench, goblet instead of back squat), bumps strength-style
+//   rep ranges higher (more practice volume), and downshifts calisthenics
+//   skill targets (negative pull-ups instead of muscle-ups).
+//
+// Intermediate: unchanged from current templates. The default.
+//
+// Advanced: keeps the heavy compounds but shifts rep ranges lower (heavier
+//   loads), and unlocks more demanding calisthenics progressions (weighted
+//   variants).
+//
+// Substitution invariants:
+//   • The exercise's id stays the original. Workout logs survive level
+//     changes because logs are keyed by id (same as swaps).
+//   • The exercise's sets count + slot position stay the same. Volume
+//     prescription preserved.
+//   • Only dbId/name/cues/primaryMuscles change in a variant swap.
+//   • Rep range changes are recorded so the UI can render a level badge.
+const EXPERIENCE_LEVELS = [
+  {
+    id: 'beginner',
+    label: 'Beginner',
+    icon: '▱▱▱',
+    timeHorizon: '0-12 months of consistent training',
+    description: 'Friendlier exercise variants (dumbbell over barbell, goblet over back squat). Higher rep ranges for skill practice. Calisthenics skills regressed to honest progressions.',
+    honesty: 'Picking Beginner is not a downgrade — it builds the movement quality everything else stands on. Most lifters skip this stage and pay for it later.'
+  },
+  {
+    id: 'intermediate',
+    label: 'Intermediate',
+    icon: '▰▱▱',
+    timeHorizon: '1-3 years of consistent training',
+    description: 'The default templates. Standard rep ranges, barbell compounds, classic calisthenics skill day (muscle-up, planche, L-sit). Most users land here.',
+    honesty: 'If your bench has been the same for 6 months and you can do 8+ unbroken pull-ups, you are intermediate.'
+  },
+  {
+    id: 'advanced',
+    label: 'Advanced',
+    icon: '▰▰▰',
+    timeHorizon: '3+ years and you know your numbers',
+    description: 'Lower rep ranges on heavy compounds (more intensity), weighted bodyweight progressions, paused variants. Demands more recovery.',
+    honesty: 'Be honest — picking Advanced when you are not won\'t give you better results, just sorer recovery. Many "advanced" lifters are well-trained intermediates.'
+  }
+];
+
+// Variants keyed by exercise dbId. Most common compounds and skills covered.
+// Format: { beginner: <variantSpec>|null, advanced: <variantSpec>|null }
+// variantSpec: { dbId, name, primaryMuscles? }
+// null means "use the original for this level" (no substitution).
+const EXERCISE_VARIANTS_BY_DBID = {
+  // ── HEAVY COMPOUNDS — beginners get DB / stability variants ──
+  'Barbell_Bench_Press_-_Medium_Grip': {
+    beginner: { dbId: 'Dumbbell_Bench_Press', name: 'Dumbbell Bench Press', primaryMuscles: ['chest','triceps','shoulders'] },
+    advanced: null
+  },
+  'Barbell_Incline_Bench_Press_-_Medium_Grip': {
+    beginner: { dbId: 'Incline_Dumbbell_Press', name: 'Incline Dumbbell Press', primaryMuscles: ['chest','shoulders','triceps'] },
+    advanced: null
+  },
+  'Barbell_Squat': {
+    beginner: { dbId: 'Goblet_Squat', name: 'Goblet Squat (build the pattern first)', primaryMuscles: ['quadriceps','glutes'] },
+    advanced: null
+  },
+  'Front_Barbell_Squat': {
+    beginner: { dbId: 'Goblet_Squat', name: 'Goblet Squat', primaryMuscles: ['quadriceps','glutes'] },
+    advanced: null
+  },
+  'Barbell_Deadlift': {
+    beginner: { dbId: 'Romanian_Deadlift', name: 'Romanian Deadlift (build the hinge first)', primaryMuscles: ['hamstrings','glutes','lower back'] },
+    advanced: null
+  },
+  'Sumo_Deadlift': {
+    beginner: { dbId: 'Romanian_Deadlift', name: 'Romanian Deadlift', primaryMuscles: ['hamstrings','glutes','lower back'] },
+    advanced: null
+  },
+  'Standing_Military_Press': {
+    beginner: { dbId: 'Seated_Dumbbell_Press', name: 'Seated Dumbbell Press', primaryMuscles: ['shoulders','triceps'] },
+    advanced: null
+  },
+  'Push_Press': {
+    beginner: { dbId: 'Seated_Dumbbell_Press', name: 'Seated Dumbbell Press (no leg drive yet)', primaryMuscles: ['shoulders','triceps'] },
+    advanced: null
+  },
+  // ── OLYMPIC LIFT VARIANTS — beginners skip the explosive components ──
+  'Clean': {
+    beginner: { dbId: 'Romanian_Deadlift', name: 'Romanian Deadlift (build pull pattern first)', primaryMuscles: ['hamstrings','glutes','traps'] },
+    advanced: null
+  },
+  'Power_Clean': {
+    beginner: { dbId: 'Romanian_Deadlift', name: 'Romanian Deadlift', primaryMuscles: ['hamstrings','glutes','traps'] },
+    advanced: null
+  },
+  'Hang_Clean': {
+    beginner: { dbId: 'Romanian_Deadlift', name: 'Romanian Deadlift', primaryMuscles: ['hamstrings','glutes','traps'] },
+    advanced: null
+  },
+  // ── PULLING — advanced gets weighted ──
+  'Pullups': {
+    beginner: { dbId: 'Wide-Grip_Lat_Pulldown', name: 'Lat Pulldown (until 5 strict pull-ups)', primaryMuscles: ['lats','biceps'] },
+    advanced: { dbId: 'Weighted_Pull_Ups', name: 'Weighted Pull-Up', primaryMuscles: ['lats','biceps'] }
+  },
+  'Bent_Over_Barbell_Row': {
+    beginner: { dbId: 'One-Arm_Dumbbell_Row', name: 'Single-Arm DB Row (lower-back-friendly)', primaryMuscles: ['lats','upper back'] },
+    advanced: null
+  },
+  // ── PUSH-UPS / DIPS — advanced gets weighted/harder ──
+  'Pushups': {
+    beginner: null,  // already accessible
+    advanced: { dbId: 'Weighted_Pull_Ups', name: 'Weighted Push-Up (plate on back)', primaryMuscles: ['chest','triceps','shoulders'] }
+  },
+  'Dips_-_Triceps_Version': {
+    beginner: { dbId: 'Pushups', name: 'Push-Up (until 8 strict bench dips)', primaryMuscles: ['chest','triceps'] },
+    advanced: null  // weighted dips already in templates where appropriate
+  },
+  'Inverted_Row': {
+    beginner: null,  // already accessible
+    advanced: { dbId: 'Weighted_Pull_Ups', name: 'Weighted Pull-Up', primaryMuscles: ['lats','biceps'] }
+  }
+};
+
+// Variants keyed by template exercise id (for PROGRAM templates that don't
+// use dbIds, especially the calisthenics skill day). This is where the
+// beginner→advanced span is widest — bodyweight skills scale enormously.
+const EXERCISE_VARIANTS_BY_ID = {
+  // ── PROGRAM (calisthenics-strength hybrid) SKILL DAY ──
+  'muscleup': {
+    beginner: { name: 'Negative Pull-Up Progressions', primaryMuscles: ['lats','biceps','core'] },
+    advanced: { name: 'Weighted Muscle-Up (when consistent)', primaryMuscles: ['lats','biceps','triceps','core'] }
+  },
+  'planche': {
+    beginner: { name: 'Planche Lean Hold', primaryMuscles: ['shoulders','core'] },
+    advanced: { name: 'Tuck → Straddle Planche Hold', primaryMuscles: ['shoulders','core'] }
+  },
+  'lsit': {
+    beginner: { name: 'Tuck L-Sit Hold', primaryMuscles: ['core','hip flexors'] },
+    advanced: { name: 'V-Sit / Manna Progression', primaryMuscles: ['core','hip flexors'] }
+  },
+  'frontlever': {
+    beginner: { name: 'Tuck Front Lever Hold', primaryMuscles: ['lats','core'] },
+    advanced: { name: 'Full Front Lever (10s+ holds)', primaryMuscles: ['lats','core'] }
+  },
+  'pikepushup': {
+    beginner: { name: 'Pike Push-Up (feet on floor)', primaryMuscles: ['shoulders','triceps'] },
+    advanced: { name: 'Wall-Assisted Handstand Push-Up', primaryMuscles: ['shoulders','triceps'] }
+  },
+  'wpullups': {
+    beginner: { name: 'Strict Pull-Up (no added weight)', primaryMuscles: ['lats','biceps'] },
+    advanced: null
+  },
+  // ── ENDURANCE TEMPLATES — keep intervals/Z2 the same; only strength
+  // maintenance exercises benefit from variants (already covered by dbId map)
+  'end_rdl': { beginner: null, advanced: null },
+  // ── SPORT TEMPLATES — keep skill day generic; power lifts get DB-friendly
+  // beginner variants where the dbId map doesn't already cover them
+  'sport_practice': { beginner: null, advanced: null }
+};
+
+// Single resolver: check dbId first, then id. Returns variant spec or null.
+function getExerciseVariant(ex, level) {
+  if (!ex || !level || level === 'intermediate') return null;
+  if (ex.dbId && EXERCISE_VARIANTS_BY_DBID[ex.dbId]) {
+    const v = EXERCISE_VARIANTS_BY_DBID[ex.dbId][level];
+    if (v) return v;
+  }
+  if (ex.id && EXERCISE_VARIANTS_BY_ID[ex.id]) {
+    const v = EXERCISE_VARIANTS_BY_ID[ex.id][level];
+    if (v) return v;
+  }
+  return null;
+}
+
+// Apply a difficulty variant to an exercise. Preserves id, sets, slot
+// position; only dbId/name/muscles change. Tagged with _variantLevel and
+// _originalName/_originalDbId so the UI can show a level badge.
+function applyExerciseVariant(originalEx, level) {
+  if (!originalEx) return originalEx;
+  if (!level || level === 'intermediate') return originalEx;
+  const variant = getExerciseVariant(originalEx, level);
+  if (!variant) return originalEx;
+  return Object.assign({}, originalEx, {
+    dbId: variant.dbId || originalEx.dbId,
+    name: variant.name,
+    primaryMuscles: variant.primaryMuscles || originalEx.primaryMuscles,
+    _variantLevel: level,
+    _originalName: originalEx.name,
+    _originalDbId: originalEx.dbId || null
+  });
+}
+
+// Adjust reps string based on difficulty. Only shifts "heavy strength"
+// ranges (max ≤ 6 reps); leaves hypertrophy ranges, time-based reps, and
+// "max" reps unchanged. Returns the (possibly adjusted) reps string.
+function adjustRepsForDifficulty(repsStr, level) {
+  if (!repsStr || typeof repsStr !== 'string') return repsStr;
+  if (!level || level === 'intermediate') return repsStr;
+  // Skip time-based / max / each / qualitative reps
+  if (/max|sec|min|hold|each|Z2|threshold|conversational|min|hr/i.test(repsStr)) return repsStr;
+  const m = repsStr.match(/^(\d+)(?:-(\d+))?$/);
+  if (!m) return repsStr;
+  const min = parseInt(m[1], 10);
+  const max = m[2] ? parseInt(m[2], 10) : min;
+  // Only adjust heavy strength ranges (top of range ≤ 6)
+  if (max > 6) return repsStr;
+  if (level === 'beginner') {
+    // Bump higher for practice volume: +2 to floor, +3 to ceiling
+    return (min + 2) + '-' + (max + 3);
+  }
+  if (level === 'advanced') {
+    // Pull lower for intensity: -2 to both, never below 1
+    const newMin = Math.max(1, min - 2);
+    const newMax = Math.max(newMin + 1, max - 2);
+    return newMin === newMax ? String(newMin) : newMin + '-' + newMax;
+  }
+  return repsStr;
+}
+
+// Apply both variant substitution and rep range adjustment to all exercises
+// in a day. Returns a new day object — does NOT mutate the input.
+function applyDifficultyToDay(day, level) {
+  if (!day || !day.exercises || !level || level === 'intermediate') return day;
+  return Object.assign({}, day, {
+    exercises: day.exercises.map(ex => {
+      const variant = applyExerciseVariant(ex, level);
+      const newReps = adjustRepsForDifficulty(variant.reps, level);
+      if (newReps === variant.reps) return variant;
+      return Object.assign({}, variant, { reps: newReps, _originalReps: ex.reps });
+    })
   });
 }
 
@@ -6511,6 +7016,62 @@ function wmHasSavedSession() {
 
 // ─── PHASE CONTROLLER ─────────────────────────────────────────────────────────
 
+// ─── SWAP-AWARE EXERCISE ACCESSORS ────────────────────────────────────────
+// Centralized helpers so every WM code path reads exercises through the same
+// lens as the normal workout view. Without these, WM would read raw PROGRAM
+// templates and ignore user swaps.
+//
+// Key invariants:
+//   • Return object's `id` is ALWAYS the original exercise's id (because
+//     applyExerciseSwap uses Object.assign({}, originalEx, {...}) which
+//     preserves id). This means workout-log keying stays stable across
+//     swaps — your history survives.
+//   • Return object's `sets`/`reps`/`tempo`/`category` come from the ORIGINAL
+//     exercise (deliberate — swap = different movement, same volume).
+//   • Return object's `name`/`primaryMuscles`/`cues`/`level`/`equipment`
+//     come from the SWAP TARGET.
+//   • Return object has `_swapped: true` and `_originalName` when swapped,
+//     which the WM badge uses to surface the swap state.
+
+function wmGetExercise(exIndex) {
+  const day = PROGRAM[activeDay];
+  if (!day || !day.exercises) return null;
+  const idx = (typeof exIndex === 'number') ? exIndex : (wmState && wmState.exIndex);
+  if (idx == null || idx < 0 || idx >= day.exercises.length) return null;
+  const originalEx = day.exercises[idx];
+  const swaps = getSwapsForDay(currentSwapWeekId(), day.day);
+  return applyExerciseSwap(originalEx, swaps[originalEx.id]);
+}
+
+// Get swap-applied array of all exercises for a given day. Used by
+// wmRenderWorkoutSummary which iterates the full day's exercises rather
+// than indexing one at a time.
+function wmGetExercisesForDay(day) {
+  if (!day || !day.exercises) return [];
+  const swaps = getSwapsForDay(currentSwapWeekId(), day.day);
+  return day.exercises.map(originalEx => applyExerciseSwap(originalEx, swaps[originalEx.id]));
+}
+
+// Revert the swap for the currently-active WM exercise. Clears the swap from
+// storage, then re-renders WM so the original exercise appears.
+function wmRevertCurrentSwap() {
+  if (!wmState) return;
+  const day = PROGRAM[activeDay];
+  if (!day || !day.exercises) return;
+  const originalEx = day.exercises[wmState.exIndex];
+  if (!originalEx) return;
+  clearExerciseSwap(currentSwapWeekId(), day.day, originalEx.id);
+  // Reset weight prefill since the original exercise may have different
+  // weight history. Don't touch perExerciseLogs — those are keyed by
+  // original id so they survive the revert.
+  const prev = getPreviousExerciseLog(day.day, originalEx.id);
+  wmState.currentWeight = (prev && prev.sets && prev.sets[0] && prev.sets[0].weight)
+    ? parseFloat(prev.sets[0].weight) || 0 : 0;
+  wmPersist();
+  wmRender();
+  try { showToast('Reverted to ' + originalEx.name); } catch(e) {}
+}
+
 function wmStartNewSession() {
   const day = PROGRAM[activeDay];
   if (!day.exercises || day.exercises.length === 0) return;
@@ -6527,9 +7088,11 @@ function wmStartNewSession() {
     pendingFeedback: null,
     pausedAt: null
   };
-  // Pre-fill currentWeight from last session if available
-  const ex = day.exercises[0];
-  const prev = getPreviousExerciseLog(day.day, ex.id);
+  // Pre-fill currentWeight from last session if available.
+  // ex.id is the ORIGINAL id (preserved through applyExerciseSwap), so the
+  // weight history lookup pulls from the correct slot regardless of swap state.
+  const ex = wmGetExercise(0);
+  const prev = ex ? getPreviousExerciseLog(day.day, ex.id) : null;
   if (prev && prev.sets && prev.sets[0] && prev.sets[0].weight) {
     wmState.currentWeight = parseFloat(prev.sets[0].weight) || 0;
   } else {
@@ -6588,8 +7151,8 @@ async function wmResetSession() {
   wmTickIntervalId = null;
   wmClearPersisted();
 
-  const ex = day.exercises[0];
-  const prev = getPreviousExerciseLog(day.day, ex.id);
+  const ex = wmGetExercise(0);
+  const prev = ex ? getPreviousExerciseLog(day.day, ex.id) : null;
   const startWeight = (prev && prev.sets && prev.sets[0] && prev.sets[0].weight)
     ? parseFloat(prev.sets[0].weight) || 0
     : 0;
@@ -6623,7 +7186,7 @@ async function wmRequestWakeLock() {
 async function wmSkipExercise() {
   if (!wmState) return;
   const day = PROGRAM[activeDay];
-  const ex = day.exercises[wmState.exIndex];
+  const ex = wmGetExercise(wmState.exIndex);
   const sets = wmState.perExerciseLogs[ex.id] || [];
   const filledCount = sets.filter(Boolean).length;
   const message = filledCount > 0
@@ -6641,8 +7204,8 @@ async function wmSkipExercise() {
   } else {
     wmState.exIndex++;
     wmState.setIndex = 0;
-    const nextEx = day.exercises[wmState.exIndex];
-    const prev = getPreviousExerciseLog(day.day, nextEx.id);
+    const nextEx = wmGetExercise(wmState.exIndex);
+    const prev = nextEx ? getPreviousExerciseLog(day.day, nextEx.id) : null;
     wmState.currentWeight = (prev && prev.sets && prev.sets[0] && prev.sets[0].weight)
       ? parseFloat(prev.sets[0].weight) || 0 : 0;
     wmState.phase = 'weight-setup';
@@ -6658,7 +7221,7 @@ async function wmSkipExercise() {
 async function wmGoBackExercise() {
   if (!wmState || wmState.exIndex <= 0) return;
   const day = PROGRAM[activeDay];
-  const curEx = day.exercises[wmState.exIndex];
+  const curEx = wmGetExercise(wmState.exIndex);
   const curSets = wmState.perExerciseLogs[curEx.id] || [];
   const filledCount = curSets.filter(Boolean).length;
   const message = filledCount > 0
@@ -6675,12 +7238,12 @@ async function wmGoBackExercise() {
 
   wmState.exIndex--;
   wmState.setIndex = 0;
-  const prevEx = day.exercises[wmState.exIndex];
+  const prevEx = wmGetExercise(wmState.exIndex);
   // Re-enter the previous exercise from weight-setup, dropping its session log
   // so the user can redo it cleanly. Old logs from prior weeks still load via
   // getPreviousExerciseLog for placeholder/progression hints.
-  delete wmState.perExerciseLogs[prevEx.id];
-  const prev = getPreviousExerciseLog(day.day, prevEx.id);
+  if (prevEx) delete wmState.perExerciseLogs[prevEx.id];
+  const prev = prevEx ? getPreviousExerciseLog(day.day, prevEx.id) : null;
   wmState.currentWeight = (prev && prev.sets && prev.sets[0] && prev.sets[0].weight)
     ? parseFloat(prev.sets[0].weight) || 0 : 0;
   wmState.phase = 'weight-setup';
@@ -6693,7 +7256,7 @@ async function wmGoBackExercise() {
 function wmAdvance() {
   if (!wmState) return;
   const day = PROGRAM[activeDay];
-  const ex = day.exercises[wmState.exIndex];
+  const ex = wmGetExercise(wmState.exIndex);
   const isHoldExercise = !!parseDurationFromReps(ex.reps);
   const restSec = getDefaultRestSec(ex);
 
@@ -6755,8 +7318,8 @@ function wmAdvance() {
       } else {
         wmState.exIndex++;
         wmState.setIndex = 0;
-        const nextEx = day.exercises[wmState.exIndex];
-        const prev = getPreviousExerciseLog(day.day, nextEx.id);
+        const nextEx = wmGetExercise(wmState.exIndex);
+        const prev = nextEx ? getPreviousExerciseLog(day.day, nextEx.id) : null;
         if (prev && prev.sets && prev.sets[0] && prev.sets[0].weight) {
           wmState.currentWeight = parseFloat(prev.sets[0].weight) || 0;
         } else {
@@ -6778,8 +7341,10 @@ function wmAdvance() {
 // Record the just-completed set into perExerciseLogs and persist to workout storage
 function wmCommitSet(repsOrDuration, feedback, durationSec) {
   if (!wmState) return;
-  const day = PROGRAM[activeDay];
-  const ex = day.exercises[wmState.exIndex];
+  const ex = wmGetExercise(wmState.exIndex);
+  if (!ex) return;
+  // ex.id is the ORIGINAL id (preserved through applyExerciseSwap), so logs
+  // aggregate under the original slot — history survives mid-week swaps.
   if (!wmState.perExerciseLogs[ex.id]) wmState.perExerciseLogs[ex.id] = [];
   const setRecord = {
     weight: wmState.currentWeight + '',
@@ -6841,7 +7406,7 @@ function wmRender() {
 
   if (!wmState) return;
   const day = PROGRAM[activeDay];
-  const ex = day.exercises[wmState.exIndex];
+  const ex = wmGetExercise(wmState.exIndex);
 
   // Top bar — always present, with exit + exercise progress
   const topBar = wmBuildTopBar(day, ex);
@@ -6922,9 +7487,37 @@ function wmBuildTopBar(day, ex) {
     style: {fontSize:'7px', color: mutedFg, letterSpacing:'0.25em', textTransform:'uppercase', marginBottom:'2px', fontWeight: isPrep || isCountdown || isWorking || isRest ? '700' : '400'}
   }, 'WORKOUT MODE · ' + day.title));
   if (ex) {
-    left.appendChild(el('div', {
+    const subRow = div({display:'flex',alignItems:'center',gap:'8px',flexWrap:'wrap'});
+    subRow.appendChild(el('div', {
       style: {fontSize:'10px', color: sublabelColor, fontFamily:"'DM Mono',monospace"}
     }, 'Exercise ' + (wmState.exIndex + 1) + '/' + day.exercises.length + ' · Set ' + (wmState.setIndex + 1) + '/' + ex.sets));
+    // ⇄ Swap badge — appears when the current exercise has been swapped.
+    // Tap to open a confirm with revert option.
+    if (ex._swapped) {
+      const swapBadge = el('button', {
+        class: 'btn',
+        style: {
+          background: isPrep || isCountdown || isWorking || isRest ? 'rgba(0,0,0,0.12)' : 'rgba(59,223,255,0.12)',
+          color: isPrep || isCountdown || isWorking || isRest ? '#000' : '#3bdfff',
+          border: '1px solid ' + (isPrep || isCountdown || isWorking || isRest ? 'rgba(0,0,0,0.25)' : 'rgba(59,223,255,0.4)'),
+          padding: '3px 7px', borderRadius: '4px',
+          fontSize: '8px', fontFamily: "'DM Mono',monospace",
+          letterSpacing: '0.12em', textTransform: 'uppercase',
+          fontWeight: '700', cursor: 'pointer'
+        },
+        onclick: async (e) => {
+          e.stopPropagation();
+          const origName = ex._originalName || 'original exercise';
+          const ok = await showConfirm(
+            'Currently doing ' + ex.name + ' instead of ' + origName + '. Revert to ' + origName + '?',
+            { title: 'Swapped Exercise', confirmLabel: 'Revert', destructive: false }
+          );
+          if (ok) wmRevertCurrentSwap();
+        }
+      }, '⇄ Swapped');
+      subRow.appendChild(swapBadge);
+    }
+    left.appendChild(subRow);
   }
   bar.appendChild(left);
 
@@ -6950,12 +7543,59 @@ function wmBuildTopBar(day, ex) {
 }
 
 // PHASE: Weight Setup (initial, before first set)
+// Detect if Workout Mode is currently active (state exists AND overlay is
+// mounted in DOM). Used by swap-commit handlers to decide whether to refresh
+// the WM display after a swap is applied from any source.
+function isWorkoutModeActive() {
+  return !!(typeof wmState !== 'undefined' && wmState && document.getElementById('wm-overlay'));
+}
+
+// "⇄ Try alternative" pill rendered in the weight-setup phase. Opens the
+// standard swap sheet — the sheet detects WM is active and (a) shows a
+// mid-session warning if sets are already logged, (b) refreshes WM after
+// the swap is committed.
+function wmQuickSwapLink(ex) {
+  const day = PROGRAM[activeDay];
+  const wrap = div({textAlign:'center',marginBottom:'14px'});
+  const btn = el('button', {
+    class: 'btn',
+    style: {
+      background: 'rgba(255,255,255,0.55)',
+      border: '1px solid rgba(0,0,0,0.18)',
+      color: '#000',
+      padding: '8px 14px',
+      borderRadius: '8px',
+      fontFamily: "'DM Mono',monospace",
+      fontSize: '10px',
+      letterSpacing: '0.16em',
+      textTransform: 'uppercase',
+      fontWeight: '700',
+      cursor: 'pointer'
+    },
+    onclick: (e) => {
+      e.stopPropagation();
+      // Open the standard swap sheet for this exercise. The sheet itself
+      // handles the mid-session warning + WM refresh via isWorkoutModeActive.
+      openSwapSheet(ex, day.day);
+    }
+  }, '⇄ Try alternative');
+  wrap.appendChild(btn);
+  return wrap;
+}
+
+
 function wmRenderWeightSetup(ex) {
   const isHold = !!parseDurationFromReps(ex.reps);
   const wrap = div({});
 
   // Exercise header card
   wrap.appendChild(wmExerciseHeaderCard(ex));
+
+  // Quick-swap link — appears between header and weight adjuster on every
+  // exercise's first phase. One-tap path to switch movements without
+  // exiting WM. Hidden during the active hold/working phases to reduce
+  // accidental-tap surface during a set.
+  wrap.appendChild(wmQuickSwapLink(ex));
 
   // Skip weight-setup for hold exercises (no weight) — go straight to start
   if (isHold) {
@@ -7704,11 +8344,13 @@ function wmRenderWorkoutSummary(day) {
     }
   }
 
-  // Per-exercise breakdown — each set tappable to edit
+  // Per-exercise breakdown — each set tappable to edit.
+  // Iterate via wmGetExercisesForDay so display reflects swap targets even
+  // though the logs are keyed by original ids (preserved through swap).
   card.appendChild(el('div', {
     style: {fontSize:'8px',color:'rgba(0,0,0,0.55)',letterSpacing:'0.22em',textTransform:'uppercase',marginTop:'6px',marginBottom:'4px',fontWeight:'700'}
   }, 'Sets · Tap to Edit'));
-  day.exercises.forEach(ex => {
+  wmGetExercisesForDay(day).forEach(ex => {
     const sets = wmState.perExerciseLogs[ex.id];
     if (!sets || sets.length === 0) return;
     const exRow = div({padding:'10px 0',borderTop:'1px solid rgba(0,0,0,0.1)'});
@@ -7814,8 +8456,10 @@ function wmExerciseHeaderCard(ex) {
   meta.appendChild(metaItem('Tempo', ex.tempo));
   card.appendChild(meta);
 
-  // Cues
-  if (ex.cues && ex.cues.length) {
+  // Cues — use unified resolver (inline → curated fallback)
+  const _cueData = (typeof resolveExerciseCues === 'function') ? resolveExerciseCues(ex)
+                  : { cues: (ex.cues || []), setupNote: ex.setupNote || null };
+  if (_cueData.cues && _cueData.cues.length) {
     card.appendChild(el('div', {
       style:{fontSize:'7px',color:'rgba(0,0,0,0.55)',letterSpacing:'0.22em',textTransform:'uppercase',marginBottom:'6px',fontWeight:'700'}
     }, 'Technique'));
@@ -7824,7 +8468,13 @@ function wmExerciseHeaderCard(ex) {
         style:{fontSize:'10px',color:'rgba(0,0,0,0.7)',fontStyle:'italic',marginBottom:'8px',padding:'6px 10px',background:'rgba(0,0,0,0.05)',borderLeft:'2px solid #000',borderRadius:'3px'}
       }, ex.tempo + ' — ' + ex.tempoDesc));
     }
-    ex.cues.forEach(c => {
+    // Optional setup note (renders before cue list when present)
+    if (_cueData.setupNote) {
+      card.appendChild(el('div', {
+        style:{fontSize:'10px',color:'rgba(0,0,0,0.65)',fontStyle:'italic',marginBottom:'8px',padding:'6px 10px',background:'rgba(0,0,0,0.04)',borderLeft:'2px solid rgba(0,0,0,0.3)',borderRadius:'3px'}
+      }, '⚙ ' + _cueData.setupNote));
+    }
+    _cueData.cues.forEach(c => {
       const cueRow = div({display:'flex',gap:'7px',fontSize:'11px',color:'rgba(0,0,0,0.78)',lineHeight:'1.5',marginBottom:'4px'});
       cueRow.appendChild(el('span',{style:{color:'#000',opacity:'0.7',flexShrink:'0',fontWeight:'700'}},'→'));
       cueRow.appendChild(el('span',{},c));
@@ -12477,6 +13127,19 @@ function renderWorkout() {
           el('span',{style:{fontSize:'7px',color:day.accent,border:'1px solid ' + day.accent+'33',padding:'2px 5px',borderRadius:'3px',letterSpacing:'0.1em'}},ex.category),
           level ? el('span',{style:{fontSize:'7px',color:levelColor,border:'1px solid ' + levelColor + '33',padding:'2px 5px',borderRadius:'3px',letterSpacing:'0.1em',textTransform:'uppercase',fontWeight:'700'}}, level) : null,
           ex._swapped ? el('span',{style:{fontSize:'7px',color:'#3bdfff',background:'rgba(59,223,255,0.1)',border:'1px solid rgba(59,223,255,0.3)',padding:'2px 5px',borderRadius:'3px',letterSpacing:'0.1em',fontWeight:'700'}}, '⇄ swapped') : null,
+          // ── Experience-level variant badge ──
+          // Appears when the exercise has been substituted by the difficulty
+          // system (beginner or advanced variant in play). Color-coded:
+          // amber for beginner (gentler variant), purple for advanced (harder).
+          // Intermediate is the default and shows no badge.
+          ex._variantLevel === 'beginner' ? el('span',{
+            title: 'Beginner variant — original was: ' + (ex._originalName || 'standard'),
+            style:{fontSize:'7px',color:'#fbbf24',background:'rgba(251,191,36,0.08)',border:'1px solid rgba(251,191,36,0.3)',padding:'2px 5px',borderRadius:'3px',letterSpacing:'0.1em',fontWeight:'700'}
+          }, '▱▱▱ Beginner') : null,
+          ex._variantLevel === 'advanced' ? el('span',{
+            title: 'Advanced variant — original was: ' + (ex._originalName || 'standard'),
+            style:{fontSize:'7px',color:'#b03bff',background:'rgba(176,59,255,0.08)',border:'1px solid rgba(176,59,255,0.3)',padding:'2px 5px',borderRadius:'3px',letterSpacing:'0.1em',fontWeight:'700'}
+          }, '▰▰▰ Advanced') : null,
           filled>0 ? el('span',{style:{fontSize:'7px',color:'#6aff3b',letterSpacing:'0.1em'}},filled + '/' + ex.sets + ' ✓') : null,
           suggestion ? el('span',{style:{fontSize:'7px',color:'#6aff3b',background:'#0a2a0a',padding:'2px 5px',borderRadius:'3px',letterSpacing:'0.1em',fontWeight:'700'}},'↑ PROGRESS') : null
         ),
@@ -12564,16 +13227,23 @@ function renderWorkout() {
         tempoBox.appendChild(el('span',{style:{color:'#333'}},' — ' + ex.tempoDesc));
         tech.appendChild(tempoBox);
       }
-      // Setup note (from curated cues entry, if present)
-      if (ex.setupNote) {
+      // Setup note + cue list — use the unified resolver. For SWAPPED
+      // exercises specifically, we suppress the curated fallback per the
+      // long-standing decision that cue inheritance after swap can mislead
+      // (form principles vary by movement). In that case we show the
+      // placeholder instead.
+      const _cueData = (typeof resolveExerciseCues === 'function') ? resolveExerciseCues(ex) : null;
+      const _showCurated = _cueData && !ex._swapped;
+      const _effectiveCues = _showCurated ? _cueData.cues : (Array.isArray(ex.cues) ? ex.cues : []);
+      const _effectiveSetup = _showCurated ? _cueData.setupNote : (ex.setupNote || null);
+      if (_effectiveSetup) {
         tech.appendChild(div({
           fontSize:'10px',color:'#a8a8a8',padding:'7px 10px',background:'#0c0c0c',
           borderRadius:'4px',borderLeft:'2px solid #555',marginBottom:'8px',lineHeight:'1.5',fontStyle:'italic'
-        }, '⚙ ' + ex.setupNote));
+        }, '⚙ ' + _effectiveSetup));
       }
-      const cueList = Array.isArray(ex.cues) ? ex.cues : [];
-      if (cueList.length > 0) {
-        cueList.forEach(c => {
+      if (_effectiveCues.length > 0) {
+        _effectiveCues.forEach(c => {
           tech.appendChild(div({display:'flex',gap:'7px',fontSize:'11px',color:'#777',lineHeight:'1.5',marginBottom:'5px'},
             el('span',{style:{color:day.accent,flexShrink:'0',opacity:'0.6'}},'→'),
             el('span',{},c)
@@ -14200,6 +14870,25 @@ function getDisplayMealsForDay(meals, dayType, dayNum) {
   // Locked-plan meals: don't touch — frozen at lock time
   if (meals[0] && meals[0]._fromLockedPlan) return meals;
 
+  // ── Swap resolution (Phase F audit fix) ──────────────────────────────
+  // Resolve meal swaps inline so every consumer of this function sees the
+  // user's actual chosen meals, not the originals. Idempotent when callers
+  // pre-resolve (same swap key → same lookup → same answer). Skipped when
+  // dayNum is unknown since the swap key requires it. Uses the current
+  // week's swap namespace via mealSwapKey's default behavior.
+  if (dayNum != null) {
+    meals = meals.map((origMeal, mi) => {
+      try {
+        const raw = localStorage.getItem(mealSwapKey(dayNum, mi));
+        if (raw) {
+          const swap = JSON.parse(raw);
+          if (swap && typeof swap === 'object') return swap;
+        }
+      } catch(e) {}
+      return origMeal;
+    });
+  }
+
   const profile = (typeof getGoalProfile === 'function') ? getGoalProfile() : null;
   if (!profile || !profile.targetKcal) return meals;
 
@@ -15148,7 +15837,7 @@ function suggestedStyleForGoal(goalTypeId) {
 
 // Compute a complete goal profile from raw inputs. Pure function — all inputs in.
 function computeGoalProfile(inputs) {
-  const { weight, bodyFat, height, age, sex, activityId, goalTypeId, ratePctBw, targetBodyFat, targetWeight, trainingDaysPerWeek, trainingStyle, focusAreas } = inputs;
+  const { weight, bodyFat, height, age, sex, activityId, goalTypeId, ratePctBw, targetBodyFat, targetWeight, trainingDaysPerWeek, trainingStyle, focusAreas, experienceLevel } = inputs;
 
   // ── BMR ──
   const lbm = (bodyFat != null) ? weight * (1 - bodyFat / 100) : null;
@@ -15242,6 +15931,10 @@ function computeGoalProfile(inputs) {
     // program shape on every load.
     trainingStyle: trainingStyle || null,
     focusAreas: Array.isArray(focusAreas) ? focusAreas : [],
+    // Experience level (Phase E). Drives exercise variant substitution and
+    // heavy compound rep range adjustments. Defaults to intermediate which
+    // is a no-op — current templates encode the intermediate variant.
+    experienceLevel: experienceLevel || 'intermediate',
     // Metadata
     version: 1,
     lockedAt: null  // set when user locks
@@ -15413,6 +16106,32 @@ function maybeOfferHybridUpgrade() {
   // Defer slightly so the app renders first and the prompt doesn't compete
   // with first-paint UI
   setTimeout(showHybridUpgradeModal, 1500);
+}
+
+// ─── EXPERIENCE-LEVEL MIGRATION ───────────────────────────────────────────
+// Existing locked profiles from before Phase E have no experienceLevel field.
+// On boot, set them to intermediate (the existing implicit default) so the
+// new plumbing has a value to read. Surface a one-time toast nudging the
+// user to refine their level — but don't force a wizard re-entry, that's
+// too intrusive for a refinement.
+function maybeMigrateExperienceLevel() {
+  const profile = getGoalProfile();
+  if (!profile || !profile.lockedAt) return;
+  if (profile.experienceLevel) return;  // already migrated
+  profile.experienceLevel = 'intermediate';
+  // Migration flag so we only show the toast once
+  profile._experienceLevelMigrated = true;
+  saveGoalProfile(profile);
+  // Rebuild PROGRAM (intermediate is a no-op so this matters only for cache
+  // freshness — the profile reload triggers it)
+  try { syncProgramToProfile(); } catch(e) {}
+  // Show the nudge toast a moment after boot — non-blocking, dismissible
+  // by tapping anywhere, doesn't gate any other behavior
+  setTimeout(() => {
+    try {
+      showToast('Tip: set your experience level in Settings → Goals for better exercise recommendations', 6000);
+    } catch(e) {}
+  }, 3500);
 }
 
 // ─── Per-day-type macro distribution ──────────────────────────────────────
@@ -15659,6 +16378,8 @@ function renderSettingsModal(section) {
     body.appendChild(renderAboutSection());
   } else if (section === 'sync') {
     body.appendChild(renderCloudSyncSection());
+  } else if (section === 'display') {
+    body.appendChild(renderDisplaySection());
   } else {
     body.appendChild(renderSettingsMenu());
   }
@@ -15672,6 +16393,138 @@ function renderSettingsModal(section) {
 //   • Android install button (when beforeinstallprompt was captured)
 //   • iOS install instructions (when on iOS Safari, not standalone)
 //   • App URL for setup on another device
+// ─── TEXT SCALE PRESETS ───────────────────────────────────────────────────
+// Three preset font scales applied via CSS zoom on body. Disabling pinch-zoom
+// (via viewport user-scalable=no) removes the user's ability to zoom in for
+// readability — this picker is the deliberate replacement.
+//
+// Storage: fraser_text_scale_v1 — synced to cloud (added to SYNC_KEY_PREFIXES)
+// Applied: on app boot via applyTextScale(), and immediately on user pick.
+const TEXT_SCALE_KEY = 'fraser_text_scale_v1';
+const TEXT_SCALE_PRESETS = [
+  { id: 'small',  label: 'Small',  value: 1.0,  desc: 'Default size — most content per screen' },
+  { id: 'medium', label: 'Medium', value: 1.15, desc: 'About 15% bigger — easier reading at arm\'s length' },
+  { id: 'large',  label: 'Large',  value: 1.3,  desc: 'About 30% bigger — best for distance reading (phone on bench)' }
+];
+
+function getTextScale() {
+  try {
+    const raw = localStorage.getItem(TEXT_SCALE_KEY);
+    if (!raw) return 'small';  // default
+    const found = TEXT_SCALE_PRESETS.find(p => p.id === raw);
+    return found ? found.id : 'small';
+  } catch(e) { return 'small'; }
+}
+
+function setTextScale(presetId) {
+  const found = TEXT_SCALE_PRESETS.find(p => p.id === presetId);
+  if (!found) return;
+  try { localStorage.setItem(TEXT_SCALE_KEY, presetId); } catch(e) {}
+  applyTextScale();
+}
+
+function applyTextScale() {
+  const presetId = getTextScale();
+  const found = TEXT_SCALE_PRESETS.find(p => p.id === presetId) || TEXT_SCALE_PRESETS[0];
+  try { document.documentElement.style.setProperty('--app-text-scale', String(found.value)); } catch(e) {}
+}
+
+function renderDisplaySection() {
+  const wrap = div({});
+  const currentId = getTextScale();
+
+  // Intro / context card
+  const intro = div({
+    background:'#0e0e0e', border:'1px solid #1e1e1e',
+    borderRadius:'10px', padding:'14px 16px', marginBottom:'14px'
+  });
+  intro.appendChild(el('div', {style:{fontSize:'8px',color:'#3bdfff',letterSpacing:'0.25em',textTransform:'uppercase',fontWeight:'700',marginBottom:'4px'}}, '◐ Text Size'));
+  intro.appendChild(el('div', {style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'18px',color:'#ebebeb',letterSpacing:'0.04em',marginBottom:'6px'}}, 'Choose your size'));
+  intro.appendChild(el('div', {style:{fontSize:'11px',color:'#aaa',lineHeight:'1.55'}},
+    'Pinch-to-zoom is disabled so accidental double-taps don\'t zoom the app while you\'re logging sets. Pick a comfortable text size here instead. Applies everywhere — main views, workout mode, modals.'));
+  wrap.appendChild(intro);
+
+  // Three preset cards
+  TEXT_SCALE_PRESETS.forEach(preset => {
+    const isSelected = preset.id === currentId;
+    const card = el('button', {
+      class: 'btn',
+      style: {
+        display: 'block', width: '100%', textAlign: 'left',
+        background: isSelected
+          ? 'linear-gradient(135deg, rgba(6,214,160,0.12), rgba(6,214,160,0.04))'
+          : '#0e0e0e',
+        border: '1px solid ' + (isSelected ? '#06d6a0' : '#1e1e1e'),
+        borderRadius: '12px', padding: '16px 18px', marginBottom: '10px',
+        cursor: 'pointer', transition: 'all 0.18s ease'
+      },
+      onclick: () => {
+        setTextScale(preset.id);
+        // Re-render so the new selection shows highlighted at the picked size
+        renderSettingsModal('display');
+        try { showToast('Text size: ' + preset.label); } catch(e) {}
+      }
+    });
+
+    const topRow = div({display:'flex',alignItems:'center',gap:'14px'});
+    // "Aa" preview rendered at the actual preset scale so the user sees what
+    // they're picking. Uses font-size scaling (not zoom) so it's independent
+    // of the body's current zoom level — this preview always shows true size
+    // relative to other presets.
+    const previewSize = Math.round(22 * preset.value);
+    const preview = el('div', {
+      style: {
+        width: '54px', height: '54px',
+        background: isSelected ? '#06d6a022' : '#1a1a1a',
+        border: '1px solid ' + (isSelected ? '#06d6a066' : '#2a2a2a'),
+        borderRadius: '10px',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontFamily: "'Bebas Neue',sans-serif",
+        fontSize: previewSize + 'px',
+        color: isSelected ? '#06d6a0' : '#aaa',
+        letterSpacing: '0.04em',
+        flexShrink: '0'
+      }
+    }, 'Aa');
+    topRow.appendChild(preview);
+
+    const text = div({flex:'1'});
+    const titleRow = div({display:'flex',alignItems:'baseline',gap:'8px',marginBottom:'4px'});
+    titleRow.appendChild(el('div', {
+      style: {fontFamily:"'Bebas Neue',sans-serif",fontSize:'18px',color:isSelected?'#06d6a0':'#e0e0e0',letterSpacing:'0.03em'}
+    }, preset.label));
+    titleRow.appendChild(el('div', {
+      style: {fontSize:'9px',color:'#666',fontFamily:"'DM Mono',monospace",letterSpacing:'0.1em'}
+    }, preset.value.toFixed(2) + '×'));
+    if (isSelected) {
+      titleRow.appendChild(el('span', {
+        style: {fontSize:'8px',color:'#06d6a0',background:'#06d6a022',padding:'2px 6px',borderRadius:'4px',letterSpacing:'0.12em',textTransform:'uppercase',fontWeight:'700'}
+      }, '✓ Active'));
+    }
+    text.appendChild(titleRow);
+    text.appendChild(el('div', {
+      style: {fontSize:'10px',color:'#888',lineHeight:'1.5'}
+    }, preset.desc));
+    topRow.appendChild(text);
+
+    card.appendChild(topRow);
+    wrap.appendChild(card);
+  });
+
+  // Footer note about zoom trade-off
+  const note = div({
+    background:'#0a0a0a', border:'1px solid #1a1a1a',
+    borderRadius:'10px', padding:'12px 14px', marginTop:'4px'
+  });
+  note.appendChild(el('div', {style:{fontSize:'9px',color:'#666',letterSpacing:'0.18em',textTransform:'uppercase',fontWeight:'700',marginBottom:'6px'}}, '⊕ Note'));
+  note.appendChild(el('div', {style:{fontSize:'10px',color:'#888',lineHeight:'1.55'}},
+    'Pinch-to-zoom is disabled in this app. If you need bigger text temporarily, the Large preset above gets you to about 30% bigger across every screen — including workout mode and modals.'));
+  wrap.appendChild(note);
+
+  return wrap;
+}
+
+
 function renderAboutSection() {
   const wrap = div({});
 
@@ -15778,6 +16631,7 @@ function renderSettingsMenu() {
     { id:'profile', icon:'👤', label:'Profile',          desc:'Your name, nickname, program label' },
     { id:'goals',   icon:'🎯', label:'Goals',           desc:'Body composition goals + macro targets' },
     { id:'sync',    icon:'☁',  label:'Cloud Sync',       desc:'Optional: sync across devices via Google Drive' },
+    { id:'display', icon:'◐',  label:'Display',          desc:'Text size · readability presets' },
     { id:'about',   icon:'ℹ',  label:'About this app',  desc:'Storage, install, version info' },
     { id:'units',   icon:'📏', label:'Units',           desc:'Coming soon — toggle metric/imperial', disabled:true },
     { id:'reset',   icon:'🔄', label:'Reset App Data',  desc:'Coming soon — wipe local storage', disabled:true }
@@ -16323,14 +17177,101 @@ function renderGoalsSection() {
 // All state held in `wizardState`. Each step renders independently.
 
 let wizardState = null;
+// Tracks last-navigation direction so renderGoalWizard can apply the
+// correct slide animation to the step content wrapper. 'forward' when
+// Continue was tapped, 'back' when Back tapped or progress-bar segment
+// tapped. Reset to null after each render so the attribute is one-shot.
+let _wizLastNavDirection = null;
+
+// ─── WIZARD SESSION STATE PERSISTENCE ─────────────────────────────────────
+// Persist in-progress wizard state to sessionStorage so navigating away
+// from the wizard and back (within the same browser session) preserves
+// the user's current step + entered values. Wipes on:
+//   - commitWizard (success path — fresh start next time)
+//   - browser tab close (sessionStorage scope)
+//   - explicit cancel/reset if we ever add one
+// localStorage isn't right here: a half-finished wizard shouldn't survive
+// across days or sync to other devices.
+const WIZ_SESSION_KEY = 'fraser_wiz_session_v1';
+
+function saveWizSession() {
+  if (!wizardState) return;
+  try {
+    sessionStorage.setItem(WIZ_SESSION_KEY, JSON.stringify(wizardState));
+  } catch(e) { /* private mode / quota — silent fail is fine for this */ }
+}
+
+function loadWizSession() {
+  try {
+    const raw = sessionStorage.getItem(WIZ_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    // Sanity: step must be 1-10
+    if (typeof parsed.step !== 'number' || parsed.step < 1 || parsed.step > 10) return null;
+    return parsed;
+  } catch(e) {
+    return null;
+  }
+}
+
+function clearWizSession() {
+  try { sessionStorage.removeItem(WIZ_SESSION_KEY); } catch(e) {}
+}
+
+// ─── WIZARD STEP VALIDATION MESSAGES ──────────────────────────────────────
+// Returns a short user-facing string explaining what's needed to proceed,
+// or null when the step is valid. Centralizing this means the message
+// appears consistently below the Continue button on every step — no more
+// silent disabled buttons.
+function getWizardStepValidationMessage(step) {
+  const s = wizardState;
+  if (!s) return null;
+  if (step === 1) {
+    if (!(s.weight > 30 && s.weight < 250)) return 'Enter your weight (30-250 kg).';
+    if (!(s.age > 12 && s.age < 100))       return 'Enter your age (12-100).';
+    if (!(s.height > 100))                  return 'Enter your height (>100 cm).';
+    return null;
+  }
+  if (step === 2) return s.activityId ? null : 'Pick your activity level to continue.';
+  if (step === 3) return (s.trainingDaysPerWeek >= 1 && s.trainingDaysPerWeek <= 7)
+    ? null : 'Pick how many days a week you train.';
+  if (step === 4) return s.trainingStyle ? null : 'Pick a training style to continue.';
+  if (step === 5) return s.experienceLevel ? null : 'Pick your experience level to continue.';
+  if (step === 6) {
+    return (Array.isArray(s.focusAreas) && s.focusAreas.length <= 3)
+      ? null : 'Pick up to 3 focus areas (or none).';
+  }
+  if (step === 7) return s.goalTypeId ? null : 'Pick a goal direction (cut, maintain, or bulk).';
+  if (step === 8) {
+    const goal = GOAL_TYPES.find(g => g.id === s.goalTypeId);
+    if (!goal || goal.dir === 0) return null;
+    return (s.targetBodyFat != null || s.targetWeight != null)
+      ? null : 'Set a target weight or body-fat % to continue.';
+  }
+  if (step === 9) {
+    const goal = GOAL_TYPES.find(g => g.id === s.goalTypeId);
+    if (!goal || goal.dir === 0) return null;
+    return (s.ratePctBw != null && s.ratePctBw > 0)
+      ? null : 'Pick how fast you want to progress.';
+  }
+  return null;
+}
 
 function renderGoalWizard() {
   // Initialize state from existing profile or sensible defaults
   if (!wizardState) {
-    const existing = getGoalProfile();
-    const metrics = getAllMetrics();
-    const latest = metrics.length ? metrics[metrics.length - 1] : {};
-    wizardState = existing ? Object.assign({}, existing) : {
+    // First try restoring an in-progress session (user navigated away and
+    // came back without locking). If none, fall through to existing-profile
+    // defaults or fresh defaults.
+    const sessionResume = loadWizSession();
+    if (sessionResume) {
+      wizardState = sessionResume;
+    } else {
+      const existing = getGoalProfile();
+      const metrics = getAllMetrics();
+      const latest = metrics.length ? metrics[metrics.length - 1] : {};
+      wizardState = existing ? Object.assign({}, existing) : {
       step: 1,
       weight: latest.weight || 78,
       bodyFat: latest.bodyFat || null,
@@ -16345,6 +17286,9 @@ function renderGoalWizard() {
       targetWeight: null,
       trainingStyle: 'hypertrophy',  // default style (Phase A)
       focusAreas: [],                 // 0-3 selections from FOCUS_AREA_MODULES keys
+      // Experience level (Phase E). Default to intermediate which is a no-op
+      // — current templates encode the intermediate variant.
+      experienceLevel: 'intermediate',
       // Phase C: tracks whether the user explicitly tapped a training-style
       // card. If false, picking a goal type auto-updates trainingStyle to the
       // recommended default. Set true on any style-card tap.
@@ -16354,6 +17298,7 @@ function renderGoalWizard() {
     // Defensive defaults for users reopening the wizard with an older profile
     if (wizardState.trainingStyle === undefined) wizardState.trainingStyle = 'hypertrophy';
     if (!Array.isArray(wizardState.focusAreas)) wizardState.focusAreas = [];
+    if (!wizardState.experienceLevel) wizardState.experienceLevel = 'intermediate';
     // Existing users who locked before Phase C land here with the flag missing.
     // Treat them as having manually picked (preserves their current style across
     // goal changes — don't quietly shift a locked-in user's choice).
@@ -16361,39 +17306,91 @@ function renderGoalWizard() {
       wizardState._trainingStyleManuallyPicked = !!existing;
     }
     wizardState.step = 1;
+    }
   }
+  // Persist current state to sessionStorage on every render. Every mutation
+  // path (step nav, input change, card tap) re-renders the wizard, so this
+  // single point captures all state changes.
+  saveWizSession();
 
   const wrap = div({});
 
-  // Stepper indicator — 9 steps now (Identity / Activity / Frequency / Style /
-  // Focus / GoalType / Target / Rate / Review)
-  const stepper = div({display:'flex',gap:'4px',marginBottom:'18px',alignItems:'center'});
-  for (let i = 1; i <= 9; i++) {
+  // Stepper indicator — 10 steps. Completed steps (i < current) are
+  // tap-to-jump-back: tapping rewinds the wizard to that step so users
+  // can edit earlier answers without grinding through Back arrows.
+  // Active and upcoming steps are not clickable (no forward skip).
+  const stepperWrap = div({marginBottom:'10px'});
+  const stepper = div({display:'flex',gap:'4px',alignItems:'center'});
+  for (let i = 1; i <= 10; i++) {
     const isActive = i === wizardState.step;
     const isDone = i < wizardState.step;
-    stepper.appendChild(el('div',{
+    const seg = el(isDone ? 'button' : 'div', isDone ? {
+      class: 'btn',
+      'aria-label': 'Jump back to step ' + i,
+      'data-wiz-step-jump': String(i),
+      style: {
+        flex:'1', height:'8px', borderRadius:'4px',
+        background: '#06d6a0',
+        border: 'none', padding: '0', cursor: 'pointer',
+        transition: 'background 0.22s cubic-bezier(0.32, 0.72, 0, 1), transform 0.15s ease',
+        // Make the tap target taller than the visible bar by adding a
+        // hit-area expander below
+        position: 'relative'
+      },
+      onclick: () => {
+        if (i >= wizardState.step) return;
+        _wizLastNavDirection = 'back';
+        wizardState.step = i;
+        renderSettingsModal('goal_wizard');
+      }
+    } : {
       style:{
         flex:'1', height:'3px', borderRadius:'2px',
-        background: isDone ? '#06d6a0' : (isActive ? '#06d6a0' : '#1e1e1e'),
+        background: isActive ? '#06d6a0' : '#1e1e1e',
         transition:'background 0.22s cubic-bezier(0.32, 0.72, 0, 1)'
       }
-    }));
+    });
+    stepper.appendChild(seg);
   }
-  wrap.appendChild(stepper);
+  stepperWrap.appendChild(stepper);
+  // Step counter caption — clarifies position and confirms tap-to-jump-back is available
+  const stepperCaption = div({
+    fontSize:'9px',color:'#666',letterSpacing:'0.18em',textTransform:'uppercase',
+    fontWeight:'700',marginTop:'8px',marginBottom:'8px',
+    fontFamily:"'DM Mono',monospace"
+  });
+  stepperCaption.appendChild(el('span',{}, 'Step ' + wizardState.step + ' of 10'));
+  if (wizardState.step > 1) {
+    stepperCaption.appendChild(el('span', {
+      style: { color:'#06d6a0aa', marginLeft:'10px', letterSpacing:'0.06em',
+               textTransform:'none', fontStyle:'italic' }
+    }, '· tap a completed step to edit it'));
+  }
+  stepperWrap.appendChild(stepperCaption);
+  wrap.appendChild(stepperWrap);
 
-  // Step content (1=Identity, 2=Activity, 3=Frequency, 4=Style, 5=Focus,
-  //               6=GoalType, 7=Target, 8=Rate, 9=Review)
+  // Step content (1=Identity, 2=Activity, 3=Frequency, 4=Style, 5=Experience,
+  //               6=Focus, 7=GoalType, 8=Target, 9=Rate, 10=Review)
   let stepUI;
   if (wizardState.step === 1)      stepUI = renderWizStep1Identity();
   else if (wizardState.step === 2) stepUI = renderWizStep2Activity();
   else if (wizardState.step === 3) stepUI = renderWizStep3Frequency();
   else if (wizardState.step === 4) stepUI = renderWizStep4TrainingStyle();
-  else if (wizardState.step === 5) stepUI = renderWizStep5FocusAreas();
-  else if (wizardState.step === 6) stepUI = renderWizStep6GoalType();
-  else if (wizardState.step === 7) stepUI = renderWizStep7Target();
-  else if (wizardState.step === 8) stepUI = renderWizStep8Rate();
-  else if (wizardState.step === 9) stepUI = renderWizStep9Review();
-  wrap.appendChild(stepUI);
+  else if (wizardState.step === 5) stepUI = renderWizStep5Experience();
+  else if (wizardState.step === 6) stepUI = renderWizStep6FocusAreas();
+  else if (wizardState.step === 7) stepUI = renderWizStep7GoalType();
+  else if (wizardState.step === 8) stepUI = renderWizStep8Target();
+  else if (wizardState.step === 9) stepUI = renderWizStep9Rate();
+  else if (wizardState.step === 10) stepUI = renderWizStep10Review();
+  // Wrap step UI with the animation host. data-wiz-step-anim drives the
+  // slide-in CSS keyframe. Direction is set by the last nav action.
+  const stepHost = div({});
+  if (_wizLastNavDirection) {
+    stepHost.setAttribute('data-wiz-step-anim', _wizLastNavDirection);
+    _wizLastNavDirection = null;  // one-shot — clear so re-renders without nav don't re-animate
+  }
+  stepHost.appendChild(stepUI);
+  wrap.appendChild(stepHost);
 
   // Nav buttons
   const navRow = div({display:'flex',gap:'10px',marginTop:'20px'});
@@ -16407,10 +17404,10 @@ function renderGoalWizard() {
         letterSpacing:'0.18em', textTransform:'uppercase',
         cursor:'pointer', fontWeight:'700'
       },
-      onclick: () => { wizardState.step--; renderSettingsModal('goal_wizard'); }
+      onclick: () => { _wizLastNavDirection = 'back'; wizardState.step--; renderSettingsModal('goal_wizard'); }
     }, '‹ Back'));
   }
-  if (wizardState.step < 9) {
+  if (wizardState.step < 10) {
     const validStep = isWizardStepValid(wizardState.step);
     navRow.appendChild(el('button',{
       id: 'wiz-continue',
@@ -16426,6 +17423,7 @@ function renderGoalWizard() {
       },
       onclick: () => {
         if (!isWizardStepValid(wizardState.step)) return;
+        _wizLastNavDirection = 'forward';
         wizardState.step++;
         renderSettingsModal('goal_wizard');
       }
@@ -16445,6 +17443,30 @@ function renderGoalWizard() {
   }
   wrap.appendChild(navRow);
 
+  // Validation message — appears below the Continue button when the current
+  // step is invalid. Single-source-of-truth: getWizardStepValidationMessage.
+  // Replaces the prior pattern of silently-disabled buttons + inconsistent
+  // per-step inline errors.
+  const validationMsg = getWizardStepValidationMessage(wizardState.step);
+  if (validationMsg && wizardState.step < 10) {
+    const msgBox = div({
+      marginTop:'10px',
+      padding:'8px 12px',
+      background:'rgba(251, 191, 36, 0.05)',
+      border:'1px solid rgba(251, 191, 36, 0.20)',
+      borderLeft:'2px solid #fbbf24',
+      borderRadius:'6px'
+    });
+    msgBox.appendChild(el('div',{
+      style:{
+        fontSize:'10px',color:'#fbbf24bb',lineHeight:'1.5',
+        fontFamily:"'DM Mono',monospace",letterSpacing:'0.02em'
+      },
+      id:'wiz-validation-msg'
+    }, validationMsg));
+    wrap.appendChild(msgBox);
+  }
+
   return wrap;
 }
 
@@ -16454,14 +17476,15 @@ function isWizardStepValid(step) {
   if (step === 2) return !!s.activityId;
   if (step === 3) return !!s.trainingDaysPerWeek && s.trainingDaysPerWeek >= 1 && s.trainingDaysPerWeek <= 7;
   if (step === 4) return !!s.trainingStyle;                              // Training Style — must pick one
-  if (step === 5) return Array.isArray(s.focusAreas) && s.focusAreas.length <= 3;  // Focus Areas — 0-3 (0 is fine)
-  if (step === 6) return !!s.goalTypeId;
-  if (step === 7) {
+  if (step === 5) return !!s.experienceLevel;                            // Experience level — must pick one
+  if (step === 6) return Array.isArray(s.focusAreas) && s.focusAreas.length <= 3;  // Focus Areas — 0-3 (0 is fine)
+  if (step === 7) return !!s.goalTypeId;
+  if (step === 8) {
     const goal = GOAL_TYPES.find(g => g.id === s.goalTypeId);
     if (!goal || goal.dir === 0) return true;  // maintain/recomp don't need target
     return (s.targetBodyFat != null) || (s.targetWeight != null);
   }
-  if (step === 8) {
+  if (step === 9) {
     const goal = GOAL_TYPES.find(g => g.id === s.goalTypeId);
     if (!goal || goal.dir === 0) return true;
     return s.ratePctBw != null && s.ratePctBw > 0;
@@ -16473,11 +17496,25 @@ function isWizardStepValid(step) {
 // the modal (which would blow away input focus). Called from input handlers.
 function refreshWizardContinueButton() {
   const btn = document.getElementById('wiz-continue');
-  if (!btn) return;
-  const valid = isWizardStepValid(wizardState.step);
-  btn.style.background = valid ? 'linear-gradient(135deg, #06d6a0, #04a37b)' : '#1a1a1a';
-  btn.style.color = valid ? '#000' : '#555';
-  btn.style.cursor = valid ? 'pointer' : 'default';
+  if (btn) {
+    const valid = isWizardStepValid(wizardState.step);
+    btn.style.background = valid ? 'linear-gradient(135deg, #06d6a0, #04a37b)' : '#1a1a1a';
+    btn.style.color = valid ? '#000' : '#555';
+    btn.style.cursor = valid ? 'pointer' : 'default';
+  }
+  // Live-update validation message text as the user types
+  const msgEl = document.getElementById('wiz-validation-msg');
+  if (msgEl) {
+    const newMsg = getWizardStepValidationMessage(wizardState.step);
+    if (newMsg) {
+      msgEl.textContent = newMsg;
+      msgEl.parentNode.style.display = '';
+    } else {
+      msgEl.parentNode.style.display = 'none';
+    }
+  }
+  // Persist on every input change too
+  saveWizSession();
 }
 
 // ─── WIZARD STEP 1 — IDENTITY ─────────────────────────────────────────────
@@ -17023,12 +18060,101 @@ function renderWizStep4TrainingStyle() {
 }
 
 
-// ─── WIZARD STEP 5 — FOCUS AREAS ────────────────────────────────────────────
+// ─── WIZARD STEP 5 — EXPERIENCE LEVEL ──────────────────────────────────────
+// Three tier picker (Beginner / Intermediate / Advanced). Drives exercise
+// variant substitution + heavy compound rep range adjustment in
+// buildProgramFromFrequency. Intermediate is the default and a no-op —
+// current templates encode that level.
+function renderWizStep5Experience() {
+  const wrap = div({});
+  wrap.appendChild(stepHeader('Experience level', 'How long have you been training consistently? This shapes which exercises you see and what rep ranges you get. Pick honestly — picking Advanced when you\'re not just makes you sore, not stronger.'));
+
+  EXPERIENCE_LEVELS.forEach(level => {
+    const isSelected = wizardState.experienceLevel === level.id;
+    const card = el('button', {
+      class: 'btn',
+      style: {
+        display: 'block', width: '100%', textAlign: 'left',
+        background: isSelected
+          ? 'linear-gradient(135deg, rgba(6,214,160,0.12), rgba(6,214,160,0.04))'
+          : '#0e0e0e',
+        border: '1px solid ' + (isSelected ? '#06d6a0' : '#1e1e1e'),
+        borderRadius: '12px', padding: '14px 16px', marginBottom: '10px',
+        cursor: 'pointer', transition: 'all 0.18s ease'
+      },
+      onclick: () => {
+        wizardState.experienceLevel = level.id;
+        renderSettingsModal('goal_wizard');
+      }
+    });
+
+    const topRow = div({display:'flex',alignItems:'center',gap:'12px',marginBottom:'6px'});
+    // Tier icon (▱▱▱ / ▰▱▱ / ▰▰▰) shows the level intuitively
+    topRow.appendChild(el('span', {
+      style: {
+        fontSize: '18px',
+        fontFamily: "'DM Mono',monospace",
+        color: isSelected ? '#06d6a0' : '#666',
+        letterSpacing: '0.04em',
+        flexShrink: '0',
+        fontWeight: '700'
+      }
+    }, level.icon));
+    const titleCol = div({flex:'1'});
+    titleCol.appendChild(el('div', {
+      style: {fontFamily:"'Bebas Neue',sans-serif",fontSize:'18px',color:isSelected?'#06d6a0':'#e0e0e0',letterSpacing:'0.03em'}
+    }, level.label));
+    titleCol.appendChild(el('div', {
+      style: {fontSize:'10px',color:'#888',marginTop:'2px',fontFamily:"'DM Mono',monospace",letterSpacing:'0.04em'}
+    }, level.timeHorizon));
+    topRow.appendChild(titleCol);
+    if (isSelected) {
+      topRow.appendChild(el('span', {
+        style: {fontSize:'8px',color:'#06d6a0',background:'#06d6a022',padding:'2px 6px',borderRadius:'4px',letterSpacing:'0.12em',textTransform:'uppercase',fontWeight:'700',flexShrink:'0'}
+      }, '✓ Active'));
+    }
+    card.appendChild(topRow);
+
+    card.appendChild(el('div', {
+      style: {fontSize:'11px',color:'#aaa',lineHeight:'1.55',marginBottom:'8px'}
+    }, level.description));
+
+    // Honesty calibration note — uses muted yellow to feel like advice, not
+    // a warning. Important for the Advanced card especially.
+    card.appendChild(el('div', {
+      style: {
+        fontSize:'9px', color:'#888', lineHeight:'1.55',
+        paddingLeft:'8px', borderLeft:'2px solid #2a2a2a',
+        fontStyle:'italic'
+      }
+    }, level.honesty));
+
+    wrap.appendChild(card);
+  });
+
+  // Migration hint — if user was on intermediate by default (never picked),
+  // gently nudge them that this is a meaningful choice. Otherwise stay quiet.
+  if (!wizardState.experienceLevel || wizardState.experienceLevel === 'intermediate') {
+    const note = div({
+      background:'#0a0a0a', border:'1px solid #1a1a1a',
+      borderRadius:'10px', padding:'12px 14px', marginTop:'4px'
+    });
+    note.appendChild(el('div', {style:{fontSize:'9px',color:'#666',letterSpacing:'0.18em',textTransform:'uppercase',fontWeight:'700',marginBottom:'6px'}}, '⊕ How this changes your plan'));
+    note.appendChild(el('div', {style:{fontSize:'10px',color:'#888',lineHeight:'1.55'}},
+      'Beginner: heavy compounds shift to friendlier variants (DB bench, goblet squat), rep ranges bump higher (5-8 instead of 3-5). Calisthenics skills regress to progression-builders. Advanced: rep ranges drop lower (1-3 on heavy), weighted bodyweight variants appear. Intermediate: current templates as-is.'));
+    wrap.appendChild(note);
+  }
+
+  return wrap;
+}
+
+
+// ─── WIZARD STEP 6 — FOCUS AREAS ────────────────────────────────────────────
 // User can pick 0-3 body parts to emphasize. Each focus area adds 1-2 accessory
 // exercises to relevant training days. Skipping (selecting 0) is fine — the
 // program runs at standard volume.
 
-function renderWizStep5FocusAreas() {
+function renderWizStep6FocusAreas() {
   const wrap = div({});
   wrap.appendChild(stepHeader('Focus areas (optional)', 'Pick up to 3 body parts to emphasize. Extra accessory work gets added to days that train those muscles. Skip if you want balanced volume.'));
 
@@ -17105,7 +18231,7 @@ function renderWizStep5FocusAreas() {
 
 
 // ─── WIZARD STEP 6 — GOAL TYPE ────────────────────────────────────────────
-function renderWizStep6GoalType() {
+function renderWizStep7GoalType() {
   const wrap = div({});
   wrap.appendChild(stepHeader('What\'s the goal?', 'Different goals = different macros. Cut prioritizes muscle preservation; bulk maximizes growth; recomp/maintain hold steady.'));
 
@@ -17159,7 +18285,7 @@ function renderWizStep6GoalType() {
 }
 
 // ─── WIZARD STEP 5 — TARGET ───────────────────────────────────────────────
-function renderWizStep7Target() {
+function renderWizStep8Target() {
   const wrap = div({});
   const goal = GOAL_TYPES.find(g => g.id === wizardState.goalTypeId);
 
@@ -17317,7 +18443,7 @@ function renderWizStep7Target() {
 }
 
 // ─── WIZARD STEP 6 — RATE (THE EDUCATIONAL CORE) ──────────────────────────
-function renderWizStep8Rate() {
+function renderWizStep9Rate() {
   const wrap = div({});
   const goal = GOAL_TYPES.find(g => g.id === wizardState.goalTypeId);
 
@@ -17416,52 +18542,118 @@ function renderWizStep8Rate() {
 }
 
 // ─── WIZARD STEP 7 — REVIEW ───────────────────────────────────────────────
-function renderWizStep9Review() {
+function renderWizStep10Review() {
   const wrap = div({});
   wrap.appendChild(stepHeader('Review & Lock', 'Final macros below. Lock to apply across the entire app — daily targets, per-day macros, and meal planning will update.'));
 
   const profile = computeGoalProfile(wizardState);
 
-  // Summary card
-  const summary = div({background:'#0e0e0e',border:'1px solid #1e1e1e',borderRadius:'12px',padding:'18px',marginBottom:'14px'});
-
+  // ── Shared building blocks for the grouped cards ─────────────────────
   function reviewRow(label, val) {
-    const r = div({display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:'8px',fontSize:'11px'});
+    const r = div({display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:'8px',fontSize:'11px',gap:'10px'});
     r.appendChild(el('span',{style:{color:'#888',letterSpacing:'0.05em'}}, label));
-    r.appendChild(el('span',{style:{color:'#e0e0e0',fontFamily:"'DM Mono',monospace",fontWeight:'700'}}, val));
+    r.appendChild(el('span',{style:{color:'#e0e0e0',fontFamily:"'DM Mono',monospace",fontWeight:'700',textAlign:'right'}}, val));
     return r;
   }
-  summary.appendChild(reviewRow('Body weight', wizardState.weight + ' kg' + (wizardState.bodyFat ? ' @ '+wizardState.bodyFat+'% BF' : '')));
-  if (profile.lbm != null) summary.appendChild(reviewRow('Lean body mass', profile.lbm + ' kg'));
-  summary.appendChild(reviewRow('BMR ('+profile.bmrFormula+')', profile.bmr + ' kcal'));
-  summary.appendChild(reviewRow('Activity', wizardState.activityId + ' (×' + profile.activityMult + ')'));
-  summary.appendChild(reviewRow('Training', wizardState.trainingDaysPerWeek + ' day' + (wizardState.trainingDaysPerWeek === 1 ? '' : 's') + '/week'));
-  // Training style + focus areas (Phase A additions)
+
+  // Group card: header line with title + Edit link that jumps back, plus body
+  // contents. Tap-Edit drops the user back to the relevant step and uses the
+  // back-slide animation so the navigation feels coherent.
+  function groupCard(title, jumpToStep, contentRows) {
+    const card = div({
+      background:'#0e0e0e',
+      border:'1px solid #1e1e1e',
+      borderRadius:'12px',
+      padding:'14px 16px',
+      marginBottom:'12px'
+    });
+    const hdr = div({display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:'10px',paddingBottom:'8px',borderBottom:'1px solid #1a1a1a'});
+    hdr.appendChild(el('div',{
+      style:{fontSize:'9px',color:'#06d6a0',letterSpacing:'0.32em',textTransform:'uppercase',fontWeight:'700'}
+    }, title));
+    if (jumpToStep != null) {
+      hdr.appendChild(el('button',{
+        class:'btn',
+        style:{
+          background:'transparent', color:'#888', border:'none',
+          padding:'2px 6px', borderRadius:'4px', cursor:'pointer',
+          fontFamily:"'DM Mono',monospace", fontSize:'9px',
+          letterSpacing:'0.18em', textTransform:'uppercase', fontWeight:'700'
+        },
+        onclick: () => {
+          _wizLastNavDirection = 'back';
+          wizardState.step = jumpToStep;
+          renderSettingsModal('goal_wizard');
+        }
+      }, '✎ Edit'));
+    }
+    card.appendChild(hdr);
+    contentRows.forEach(r => card.appendChild(r));
+    return card;
+  }
+
+  // ── Group 1: BODY (Step 1 — weight, BF, height, age, sex) ──
+  const bodyRows = [];
+  bodyRows.push(reviewRow('Weight', wizardState.weight + ' kg' + (wizardState.bodyFat ? ' @ ' + wizardState.bodyFat + '% BF' : '')));
+  if (profile.lbm != null) bodyRows.push(reviewRow('Lean body mass', profile.lbm + ' kg'));
+  bodyRows.push(reviewRow('Height', wizardState.height + ' cm'));
+  bodyRows.push(reviewRow('Age · Sex', wizardState.age + ' · ' + (wizardState.sex === 'M' ? 'Male' : 'Female')));
+  bodyRows.push(reviewRow('BMR (' + profile.bmrFormula + ')', profile.bmr + ' kcal'));
+  wrap.appendChild(groupCard('Body', 1, bodyRows));
+
+  // ── Group 2: TRAINING (Steps 2-6 — activity, frequency, style, experience, focus) ──
+  const trainingRows = [];
+  trainingRows.push(reviewRow('Activity', wizardState.activityId + ' (×' + profile.activityMult + ')'));
+  trainingRows.push(reviewRow('Frequency', wizardState.trainingDaysPerWeek + ' day' + (wizardState.trainingDaysPerWeek === 1 ? '' : 's') + '/week'));
   if (wizardState.trainingStyle) {
     const tsObj = TRAINING_STYLES.find(t => t.id === wizardState.trainingStyle);
-    summary.appendChild(reviewRow('Style', tsObj ? tsObj.label : wizardState.trainingStyle));
+    trainingRows.push(reviewRow('Style', tsObj ? tsObj.label : wizardState.trainingStyle));
+  }
+  if (wizardState.experienceLevel) {
+    const levelObj = (typeof EXPERIENCE_LEVELS !== 'undefined') ? EXPERIENCE_LEVELS.find(l => l.id === wizardState.experienceLevel) : null;
+    const levelLabel = levelObj ? levelObj.label : wizardState.experienceLevel;
+    trainingRows.push(reviewRow('Experience', levelLabel));
   }
   if (wizardState.focusAreas && wizardState.focusAreas.length > 0) {
     const focusLabels = wizardState.focusAreas
       .map(f => (FOCUS_AREA_MODULES[f] && FOCUS_AREA_MODULES[f].label) || f)
       .join(', ');
-    summary.appendChild(reviewRow('Focus', focusLabels));
+    trainingRows.push(reviewRow('Focus', focusLabels));
+  } else {
+    trainingRows.push(reviewRow('Focus', 'None'));
   }
-  summary.appendChild(reviewRow('TDEE', profile.tdee + ' kcal'));
+  // Activity is step 2, but the broader "training context" lives across 2-6.
+  // Jump back to the most edit-likely step in this group: training style (4).
+  wrap.appendChild(groupCard('Training', 4, trainingRows));
+
+  // ── Group 3: GOAL & RATE (Steps 7-9 — goal type, target, rate, TDEE math) ──
+  const goalRows = [];
+  goalRows.push(reviewRow('TDEE', profile.tdee + ' kcal'));
+  const goalObj = GOAL_TYPES.find(g => g.id === wizardState.goalTypeId);
+  goalRows.push(reviewRow('Goal', goalObj ? goalObj.label : wizardState.goalTypeId));
   if (profile.dailyDelta !== 0) {
-    summary.appendChild(reviewRow('Daily ' + (profile.goalDir < 0 ? 'deficit' : 'surplus'),
+    goalRows.push(reviewRow('Daily ' + (profile.goalDir < 0 ? 'deficit' : 'surplus'),
       Math.abs(profile.dailyDelta) + ' kcal'));
   }
-  if (profile.weeksToGoal != null) {
-    summary.appendChild(reviewRow('Timeline', profile.weeksToGoal + ' weeks'));
+  if (wizardState.targetWeight != null) {
+    goalRows.push(reviewRow('Target weight', wizardState.targetWeight + ' kg'));
   }
-  wrap.appendChild(summary);
+  if (wizardState.targetBodyFat != null) {
+    goalRows.push(reviewRow('Target BF', wizardState.targetBodyFat + '%'));
+  }
+  if (wizardState.ratePctBw != null && wizardState.ratePctBw > 0) {
+    goalRows.push(reviewRow('Rate', wizardState.ratePctBw + '%/wk'));
+  }
+  if (profile.weeksToGoal != null) {
+    goalRows.push(reviewRow('Timeline', profile.weeksToGoal + ' weeks'));
+  }
+  wrap.appendChild(groupCard('Goal & Rate', 7, goalRows));
 
-  // Macro card (highlighted)
-  const macros = div({background:'linear-gradient(135deg, rgba(6,214,160,0.1), rgba(6,214,160,0.02))',border:'1px solid #06d6a055',borderRadius:'12px',padding:'18px',marginBottom:'14px'});
+  // ── Group 4: DAILY MACROS (computed result — highlighted) ──
+  const macros = div({background:'linear-gradient(135deg, rgba(6,214,160,0.1), rgba(6,214,160,0.02))',border:'1px solid #06d6a055',borderRadius:'12px',padding:'18px',marginBottom:'12px'});
   macros.appendChild(el('div',{
     style:{fontSize:'9px',color:'#06d6a0',letterSpacing:'0.32em',textTransform:'uppercase',fontWeight:'700',marginBottom:'10px'}
-  }, 'Daily Targets'));
+  }, 'Daily Macro Targets'));
 
   const macGrid = div({display:'grid',gridTemplateColumns:'repeat(2, 1fr)',gap:'10px'});
   function macBox(label, val, color) {
@@ -17477,7 +18669,7 @@ function renderWizStep9Review() {
   macros.appendChild(macGrid);
   wrap.appendChild(macros);
 
-  // Day-type preview
+  // ── Day-type preview (carbs flex with training intensity) ──
   const preview = div({background:'#0e0e0e',border:'1px solid #1e1e1e',borderRadius:'12px',padding:'14px 16px',marginBottom:'10px'});
   preview.appendChild(el('div',{
     style:{fontSize:'9px',color:'#888',letterSpacing:'0.32em',textTransform:'uppercase',fontWeight:'700',marginBottom:'8px'}
@@ -17505,8 +18697,8 @@ function commitWizard() {
   saveGoalProfile(profile);
   // Goal targets just changed — invalidate scaled meal cache
   if (typeof clearMealScalingCache === 'function') clearMealScalingCache();
-  // Clear wizard state so next open starts fresh
   wizardState = null;
+  clearWizSession();
   // Apply training-frequency program to PROGRAM array IN PLACE so all 40+
   // existing PROGRAM[X] references pick up the new structure automatically.
   syncProgramToProfile();
@@ -20925,6 +22117,11 @@ function registerServiceWorker() {
     //   • 404 (SW file missing): the HTML is being viewed outside its
     //     deployment context (Claude preview, ad-hoc upload, etc). Expected
     //     and harmless — log as info, not warning.
+    //   • iOS app-bound-domain rejection: iOS Safari has a security policy
+    //     where SWs only register on domains the app explicitly trusts. When
+    //     viewing on a third-party domain (preview, dev relay), iOS throws
+    //     "Job rejected for non app-bound domain". Expected when not viewing
+    //     from the canonical deployed origin.
     //   • Anything else (private browsing, security policy, WebView limits,
     //     network error): legitimate runtime issue worth surfacing.
     // The app still works fully in either case — service worker only adds
@@ -20933,8 +22130,12 @@ function registerServiceWorker() {
     const isMissingFile = msg.indexOf('404') >= 0 ||
                           msg.indexOf('bad HTTP response') >= 0 ||
                           msg.indexOf('not found') >= 0;
+    const isAppBoundDomain = msg.indexOf('app-bound') >= 0 ||
+                             msg.indexOf('Job rejected') >= 0;
     if (isMissingFile) {
       console.info('[PWA] Service worker not registered — service-worker.js not found at this URL. Expected when viewing outside the deployed site.');
+    } else if (isAppBoundDomain) {
+      console.info('[PWA] Service worker not registered — iOS blocks SW registration on non-app-bound domains. Expected when viewing in a preview/dev relay. The deployed PWA at the canonical origin registers normally.');
     } else {
       console.warn('[PWA] Service worker registration failed:', err);
     }
@@ -20952,12 +22153,20 @@ function registerServiceWorker() {
 // ─── INIT ────────────────────────────────────────────────────────────
 registerServiceWorker();
 renderOfflineIndicator();
+// Apply saved text-scale preference before first render so the user's
+// chosen size is in effect from the very first paint. No-op (1.0×) for
+// users who haven't picked one.
+applyTextScale();
 // Auto-pull from cloud if sync is enabled (no-op when off — costs nothing
 // for users who haven't opted in). Runs 2s after boot so app renders first.
 initCloudSync();
 // Offer the one-time Hybrid upgrade to existing 'general' style users.
 // Silent for everyone else (already on a named style, or no locked profile).
 maybeOfferHybridUpgrade();
+// Phase E migration: existing locked profiles get experienceLevel default
+// (intermediate) + a one-time nudge toast. Silent if already migrated or
+// no locked profile.
+maybeMigrateExperienceLevel();
 // Defer iOS hint: wait until after first paint + user has had a moment to
 // see the app. 4 seconds is enough to load and orient, not so long that
 // they've already navigated away.
@@ -21094,7 +22303,11 @@ const SYNC_KEY_PREFIXES = [
   'fraser_pantry_',
   'fraser_shopping_',
   'fraser_shopping_settings_v1',
-  'fraser_prepflag_'
+  'fraser_prepflag_',
+  // Display preferences — text size syncs so the preference follows the user
+  // across devices. UI-only state (PWA install hint dismissed, etc.) does NOT
+  // sync because it's per-device by nature.
+  'fraser_text_scale_v1'
 ];
 
 function isSyncableKey(key) {
