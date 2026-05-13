@@ -72,7 +72,286 @@
     --halo-breathing: 32px;
     --halo-clearance: calc(var(--halo-nav-height-expanded) + var(--halo-breathing) + env(safe-area-inset-bottom, 0px));
   }
-  html,body{height:100%;background:#080808;color:#ebebeb;font-family:'DM Mono','Courier New',monospace;overscroll-behavior:none}
+
+  /* ─── DARK VISUAL LANGUAGE TOKENS (Upgrade.A) ─────────────────────────
+     Source of truth for the dark theme. Values extracted from the swap
+     modal (Sessions 13b/c) which is the canonical reference. Two layout
+     metaphors are supported:
+       Main tabs: page is --bg-base, cards POP up to --bg-card (lighter)
+       Modals:    page is --bg-elevated, cards SINK to --bg-card-nested
+     Use these variables in all new visual work rather than hardcoded
+     hex values. Existing inline styles are migrated progressively in
+     Upgrade.A-F. Never hardcode colours in new code — always use
+     var(--token). */
+  :root {
+    /* Surfaces */
+    --bg-base:           #080808;   /* body background; where most surfaces sit */
+    --bg-elevated:       #0e0e0e;   /* one level up; modal overlays, expanded panels */
+    --bg-card:           #0e0e0e;   /* card on base — pops out from the page */
+    --bg-card-nested:    #080808;   /* card on elevated — sinks into the surface */
+    --bg-card-hover:     #101010;   /* tap/hover affordance */
+    --bg-card-highlight: #0d0a05;   /* highest-recommended glow background */
+    --bg-inset:          #0a0a0a;   /* deeper inset, for macro tiles, kcal pills */
+    --bg-pill-blue:      #0a1620;   /* cuisine pill distinctive background */
+
+    /* Text scale */
+    --text-primary:    #ebebeb;     /* meal names, headlines */
+    --text-secondary:  #cfcfcf;     /* descriptions, macro counts */
+    --text-tertiary:   #9a9a9a;     /* slot labels, metadata */
+    --text-muted:      #7a7a7a;     /* small labels, optional indicators */
+    --text-footnote:   #5a5a5a;     /* source attributions, footnotes */
+    --text-disabled:   #333;        /* dot indicators, separators */
+
+    /* Borders */
+    --border-subtle:  #1a1a1a;      /* card outlines, inset boundaries */
+    --border-default: #2a2a2a;      /* button outlines, close button */
+
+    /* Accent: orange — HIGHEST RECOMMENDED, primary CTAs, energy */
+    --accent-primary:        #ff6b3b;
+    --accent-primary-soft:   rgba(255,107,59,0.10);
+    --accent-primary-border: #ff6b3b66;
+    --accent-primary-shadow: 0 0 0 1px rgba(255,107,59,0.13), 0 4px 14px rgba(255,107,59,0.10);
+
+    /* Accent: cyan — cuisine pills, informational, secondary */
+    --accent-info:        #9ad6ff;
+    --accent-info-bg:     #0a1620;
+    --accent-info-border: #3b9eff44;
+
+    /* Status */
+    --status-success: #6aff3b;
+    --status-warning: #fbbf24;
+    --status-info:    #3bdfff;
+
+    /* Radii */
+    --radius-card:  10px;
+    --radius-chip:  4px;
+    --radius-pill:  999px;
+
+    /* Card padding — used across swap modal */
+    --pad-card: 12px 14px;
+
+    /* Card transition — subtle scale + color shift on tap */
+    --transition-card: background-color 0.18s ease, border-color 0.18s ease, transform 0.10s ease;
+
+    /* ── MOTION (Upgrade.F) ────────────────────────────────────────────
+       Single source of truth for all animation timing and easing. These
+       cascade into the keyframe-based card/tab animations defined below.
+       Reduced-motion users get an override later in this stylesheet. */
+    --motion-fast:           0.15s;
+    --motion-base:           0.22s;
+    --motion-slow:           0.32s;
+    --motion-stagger-step:   35ms;     /* delay between cascading card entries */
+    --motion-ease-out:       cubic-bezier(0.32, 0.72, 0, 1);
+    --motion-ease-in-out:    cubic-bezier(0.4, 0, 0.2, 1);
+    /* Tap/active scale — used on .btn-press and interactive primitives */
+    --transform-press: scale(0.96);
+  }
+
+  /* ─── MOTION KEYFRAMES (Upgrade.F) ────────────────────────────────────
+     Subtle fade + upward slide for tab content + cards. Always pair with
+     a `prefers-reduced-motion: reduce` override (defined further down)
+     so users who opted out get the final state with no motion. */
+  @keyframes tabContentEnter {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes cardEnter {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes checkAnim {
+    0%   { transform: scale(0.6); opacity: 0; }
+    60%  { transform: scale(1.18); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
+  /* Tab content fade-in. Applied by renderActiveTab() on the visible tab
+     wrapper. The animation runs every time the active tab changes. */
+  .tab-content-active {
+    animation: tabContentEnter var(--motion-base) var(--motion-ease-out) both;
+  }
+
+  /* Card entry — applied to a parent container. Children matching .card
+     or .dark-card get a staggered fade-in. Stagger cascades for the
+     first ~8 cards via nth-child; beyond that they fade in together.
+     This avoids needing inline --i values on every card. */
+  .stagger-entry > .card,
+  .stagger-entry > .dark-card {
+    animation: cardEnter var(--motion-base) var(--motion-ease-out) both;
+  }
+  .stagger-entry > :nth-child(1) { animation-delay: 0ms; }
+  .stagger-entry > :nth-child(2) { animation-delay: 35ms; }
+  .stagger-entry > :nth-child(3) { animation-delay: 70ms; }
+  .stagger-entry > :nth-child(4) { animation-delay: 105ms; }
+  .stagger-entry > :nth-child(5) { animation-delay: 140ms; }
+  .stagger-entry > :nth-child(6) { animation-delay: 175ms; }
+  .stagger-entry > :nth-child(7) { animation-delay: 210ms; }
+  .stagger-entry > :nth-child(8) { animation-delay: 245ms; }
+  /* Beyond the 8th child, share the last delay — no further visible
+     stagger but they still fade in cleanly. */
+  .stagger-entry > :nth-child(n+9) { animation-delay: 245ms; }
+
+  /* Button press — subtle scale on :active. Use on any tap target that
+     should feel "responsive" to touch. Already applied to .dark-card via
+     its existing :active rule; this is for non-card buttons. */
+  .btn-press {
+    transition: transform var(--motion-fast) var(--motion-ease-out);
+  }
+  .btn-press:active {
+    transform: var(--transform-press);
+  }
+
+  /* Satisfying check animation — applied to the check glyph inside a
+     freshly-checked checkbox. Pairs with the orange shopping checkbox. */
+  .check-anim {
+    animation: checkAnim var(--motion-base) var(--motion-ease-out) both;
+  }
+
+  /* Smoother horizontal carousels — applied to day selector + cuisine
+     pill rows. snap-mandatory feels too rigid for the day pills so we
+     use proximity, which lets users drag freely but settles on a pill. */
+  .carousel-snap {
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+  }
+  .carousel-snap > * {
+    scroll-snap-align: start;
+  }
+
+  /* ── ACCESSIBILITY: keyboard focus (Upgrade.F) ────────────────────
+     Visible focus ring for keyboard navigation. Uses :focus-visible so
+     mouse/touch users don't see it on tap — only keyboard tabbing does.
+     Orange ring matches the accent system. */
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+    border-radius: var(--radius-chip);
+  }
+
+  /* Minimum tap target — WCAG 2.5.8 AA Level Minimum is 24x24 CSS px.
+     We default .btn to at least 32px tall, which exceeds the minimum
+     and gets close to the AAA Enhanced (44x44) target where physically
+     possible without disrupting tight grids. Components that need
+     smaller hit areas (set-clear button in the 5-col workout grid) opt
+     out by setting explicit width/height. */
+  .btn {
+    min-height: 32px;
+  }
+
+  /* ── ACCESSIBILITY: respect prefers-reduced-motion ──────────────────
+     Users who opt out of motion via system settings see no animations
+     or transitions. We do NOT remove the final state — opacity:1 and
+     transform:none are the resting positions, so reduced-motion users
+     still see fully-rendered cards immediately. */
+  @media (prefers-reduced-motion: reduce) {
+    .tab-content-active,
+    .stagger-entry > .card,
+    .stagger-entry > .dark-card,
+    .check-anim {
+      animation: none !important;
+    }
+    .dark-card,
+    .btn-press,
+    * {
+      transition-duration: 0.001s !important;
+      animation-duration: 0.001s !important;
+    }
+  }
+  
+
+  /* ─── REUSABLE COMPONENTS ─────────────────────────────────────────────
+     A small set of reusable dark-card primitives. Apply via class name
+     and let CSS variables do the rest. New surfaces in Upgrade.B-F
+     should reach for these first before inline styles. */
+  .dark-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    transition: var(--transition-card);
+  }
+  .dark-card:active {
+    transform: scale(0.985);
+    background: var(--bg-card-hover);
+  }
+  .dark-card.dc-highest-rec {
+    background: var(--bg-card-highlight);
+    border-color: var(--accent-primary-border);
+    box-shadow: var(--accent-primary-shadow);
+  }
+
+  /* Macro delta chip — used in swap modal AND nutrition tab to show
+     macro positions relative to a target. Three colour variants. */
+  .delta-chip {
+    display: inline-block;
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: var(--radius-chip);
+    letter-spacing: 0.04em;
+  }
+  .delta-chip-on   { color: var(--status-success); background: rgba(106,255,59,0.10); border: 1px solid rgba(106,255,59,0.30); }
+  .delta-chip-off  { color: var(--accent-primary); background: var(--accent-primary-soft); border: 1px solid var(--accent-primary-border); }
+  .delta-chip-mid  { color: var(--text-tertiary); background: rgba(154,154,154,0.08); border: 1px solid rgba(154,154,154,0.22); }
+
+  /* Cuisine pill — already used in nutrition tab + swap modal; canonicalise. */
+  .cuisine-pill {
+    font-size: 7px;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--accent-info);
+    background: var(--accent-info-bg);
+    border: 1px solid var(--accent-info-border);
+    border-radius: 3px;
+    padding: 2px 5px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+
+  /* Highest-recommended-style badge — small uppercase Bebas chip */
+  .hr-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--accent-primary);
+    background: var(--accent-primary-soft);
+    border: 1px solid var(--accent-primary-border);
+    padding: 3px 8px;
+    border-radius: var(--radius-chip);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+
+  /* Progression chip — pill-shaped, indicates the next-session weight
+     direction (up / down / hold). Sits on --bg-elevated for the
+     "raised" feel. Three variants for the three progression states. */
+  .progress-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    padding: 4px 9px;
+    border-radius: var(--radius-pill);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+  }
+  .progress-chip-up   { color: var(--accent-primary); border-color: var(--accent-primary-border); background: var(--accent-primary-soft); }
+  .progress-chip-down { color: var(--status-warning); border-color: rgba(251,191,36,0.30);       background: rgba(251,191,36,0.08); }
+  .progress-chip-hold { color: var(--text-tertiary); border-color: var(--border-default);        background: var(--bg-elevated); }
+  html,body{height:100%;background:var(--bg-base);color:var(--text-primary);font-family:'DM Mono','Courier New',monospace;overscroll-behavior:none}
   /* ─── ACCESSIBILITY / INPUT BEHAVIOR ──────────────────────────────────
      touch-action:manipulation kills the 300ms double-tap-zoom delay on
      iOS Safari. Combined with the viewport meta's user-scalable=no, this
@@ -269,7 +548,7 @@
   </div>
 
   <!-- DAY SELECTOR -->
-  <div style="display:flex;gap:4px;padding:12px 18px;overflow-x:auto;border-bottom:1px solid #111;scrollbar-width:none" id="day-selector"></div>
+  <div class="carousel-snap" style="display:flex;gap:4px;padding:12px 18px;overflow-x:auto;border-bottom:1px solid #111;scrollbar-width:none" id="day-selector"></div>
 
   <!-- REORDER HINT -->
   <div id="reorder-hint"></div>
@@ -349,6 +628,10 @@ let expandedEx = null;
 let expandedMeal = null;
 let openMealSections = {};
 let useMetric = true;
+// Shopping tab — group-by mode. 'aisle' (default, shop-route order) or
+// 'cuisine' (group by which cuisines drove each ingredient). Toggled
+// via the segmented control at the top of the shopping list.
+let shoppingViewMode = 'aisle';
 // Nutrition tab — module-level state for new view toggles.
 // nutritionTargetMode: 'today' shows the day-type-specific target; 'weekly'
 // shows the weekly average. Default to 'today' so users see context-relevant
@@ -3907,8 +4190,8 @@ function renderSwapSheet(originalEx, day, showAllLevels) {
   const inner = el('div', {
     'data-sheet-inner': 'true',
     style: {
-      background: '#0a0a0a',
-      borderTop: '1px solid #1e1e1e',
+      background: 'var(--bg-inset)',
+      borderTop: '1px solid var(--border-default)',
       borderRadius: '20px 20px 0 0',
       maxHeight: '85vh',
       overflowY: 'auto',
@@ -4366,8 +4649,8 @@ function renderHistorySheet(originalEx, dayAccent) {
   const inner = el('div', {
     'data-sheet-inner': 'true',
     style: {
-      background: '#0a0a0a',
-      borderTop: '1px solid #1e1e1e',
+      background: 'var(--bg-inset)',
+      borderTop: '1px solid var(--border-default)',
       borderRadius: '20px 20px 0 0',
       maxHeight: '85vh',
       overflowY: 'auto',
@@ -4548,8 +4831,8 @@ function renderCustomExerciseForm(originalEx, day) {
   const inner = el('div', {
     'data-sheet-inner': 'true',
     style: {
-      background: '#0a0a0a',
-      borderTop: '1px solid #1e1e1e',
+      background: 'var(--bg-inset)',
+      borderTop: '1px solid var(--border-default)',
       borderRadius: '20px 20px 0 0',
       maxHeight: '85vh',
       overflowY: 'auto',
@@ -4592,9 +4875,9 @@ function renderCustomExerciseForm(originalEx, day) {
     const chip = el('button', {
       class: 'btn',
       style: {
-        background: isOn ? '#06d6a0' : '#0a0a0a',
+        background: isOn ? 'var(--accent-primary)' : '#0a0a0a',
         color: isOn ? '#000' : '#aaa',
-        border: '1px solid ' + (isOn ? '#06d6a0' : '#1e1e1e'),
+        border: '1px solid ' + (isOn ? 'var(--accent-primary)' : '#1e1e1e'),
         padding: '6px 10px', borderRadius: '14px',
         fontSize: '10px', fontFamily: "'DM Mono',monospace",
         letterSpacing: '0.05em', cursor: 'pointer', textTransform: 'lowercase'
@@ -10755,7 +11038,7 @@ function renderDaySelector() {
     const dateLabel = formatShortDate(dateForPill);
 
     // Border: today has a glowing border; active overrides
-    let borderColor = '#1a1a1a';
+    let borderColor = 'var(--border-subtle)';
     if (active) borderColor = d.accent;
     else if (isToday) borderColor = d.accent + '88';
 
@@ -10766,8 +11049,8 @@ function renderDaySelector() {
       style:{
         flex:'0 0 auto',
         minWidth:'74px',
-        background: active ? d.accent : '#0e0e0e',
-        color: active ? '#000' : '#555',
+        background: active ? d.accent : 'var(--bg-card)',
+        color: active ? '#000' : 'var(--text-footnote)',
         border: '1px solid ' + borderColor,
         borderRadius:'6px',
         padding:'7px 8px',
@@ -11325,11 +11608,19 @@ function renderActiveTab() {
   ['overview','train','fuel','water','sleep','shopping','history'].forEach(t => {
     const wrap = document.getElementById('tab-'+t);
     wrap.style.display = t===activeTab?'block':'none';
+    // Strip the entry class from inactive tabs so the next activation gets
+    // a fresh animation. CSS animations don't replay unless the class is
+    // re-added — toggling it on each render achieves that.
+    wrap.classList.remove('tab-content-active');
     if (t === activeTab) {
       // Faint top-edge ambient gradient + very subtle full-tab tint
-      wrap.style.background = 'linear-gradient(180deg, ' + tabAccent + '0c 0%, transparent 180px), #080808';
+      wrap.style.background = 'linear-gradient(180deg, ' + tabAccent + '0c 0%, transparent 180px), var(--bg-base)';
       wrap.style.minHeight = '60vh';
       wrap.style.transition = 'background 0.3s';
+      // Force a reflow so the class re-application triggers the keyframe
+      // animation rather than being deduplicated. Tiny cost, big UX win.
+      void wrap.offsetWidth;
+      wrap.classList.add('tab-content-active');
     }
   });
   if(activeTab==='overview')  renderOverview();
@@ -13084,6 +13375,11 @@ function renderWorkout() {
   const day = PROGRAM[activeDay];
   const list = document.getElementById('exercise-list');
   list.innerHTML = '';
+  // Card entry stagger — exercise cards cascade in on render. Honored by
+  // the .stagger-entry CSS rule via animation-delay per :nth-child. The
+  // class is set fresh each render so the animation replays on every
+  // day/week switch, but not on per-set logging (no re-render then).
+  list.classList.add('stagger-entry');
   const wLog = getWorkoutLog(day.day);
   const swaps = getSwapsForDay(currentSwapWeekId(), day.day);
 
@@ -13118,7 +13414,7 @@ function renderWorkout() {
     // but shouldn't visually claim a PR.
     const suggestion = (rawSuggestion && rawSuggestion.reason === 'progress') ? rawSuggestion : null;
 
-    const card = el('div',{class:'card',style:{background:'#0e0e0e',border:'1px solid ' + (isOpen?day.accent+'33':'#1a1a1a'),borderRadius:'8px',marginBottom:'7px',overflow:'hidden'}});
+    const card = el('div',{class:'card dark-card',style:{background:'var(--bg-card)',border:'1px solid ' + (isOpen?day.accent+'33':'var(--border-subtle)'),borderRadius:'var(--radius-card)',marginBottom:'7px',overflow:'hidden',transition:'var(--transition-card)'}});
 
     const header = div({padding:'12px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',gap:'6px'},
       div({flex:'1',minWidth:'0'},
@@ -13140,8 +13436,8 @@ function renderWorkout() {
             title: 'Advanced variant — original was: ' + (ex._originalName || 'standard'),
             style:{fontSize:'7px',color:'#b03bff',background:'rgba(176,59,255,0.08)',border:'1px solid rgba(176,59,255,0.3)',padding:'2px 5px',borderRadius:'3px',letterSpacing:'0.1em',fontWeight:'700'}
           }, '▰▰▰ Advanced') : null,
-          filled>0 ? el('span',{style:{fontSize:'7px',color:'#6aff3b',letterSpacing:'0.1em'}},filled + '/' + ex.sets + ' ✓') : null,
-          suggestion ? el('span',{style:{fontSize:'7px',color:'#6aff3b',background:'#0a2a0a',padding:'2px 5px',borderRadius:'3px',letterSpacing:'0.1em',fontWeight:'700'}},'↑ PROGRESS') : null
+          filled>0 ? el('span',{style:{fontSize:'7px',color:'var(--status-success)',letterSpacing:'0.1em'}},filled + '/' + ex.sets + ' \u2713') : null,
+          suggestion ? el('span',{class:'progress-chip progress-chip-up',style:{fontSize:'8px'}},'\u2191 Progress') : (rawSuggestion && rawSuggestion.reason === 'repeat' ? el('span',{class:'progress-chip progress-chip-hold',style:{fontSize:'8px'},title:'Didn\'t hit top reps last session — hold weight'},'\u2192 Hold') : null)
         ),
         el('div',{style:{fontSize:'9px',color:'#6a6a6a'}},ex.sets + ' × ' + ex.reps + ' · T: ' + ex.tempo)
       ),
@@ -13150,9 +13446,10 @@ function renderWorkout() {
       el('button',{
         class:'btn',
         title:'View history',
+        'aria-label':'View history for ' + ex.name,
         style:{
-          background:'transparent',color:'#666',
-          border:'1px solid #1e1e1e',
+          background:'transparent',color:'var(--text-tertiary)',
+          border:'1px solid var(--border-subtle)',
           padding:'6px 9px',borderRadius:'5px',
           fontSize:'13px',cursor:'pointer',flexShrink:'0'
         },
@@ -13162,15 +13459,16 @@ function renderWorkout() {
       el('button',{
         class:'btn',
         title:'Swap exercise',
+        'aria-label':'Swap ' + ex.name + ' for an alternative',
         style:{
-          background:'transparent',color:'#666',
-          border:'1px solid #1e1e1e',
+          background:'transparent',color:'var(--text-tertiary)',
+          border:'1px solid var(--border-subtle)',
           padding:'6px 9px',borderRadius:'5px',
           fontSize:'13px',cursor:'pointer',flexShrink:'0'
         },
         onclick: (e) => { e.stopPropagation(); openSwapSheet(originalEx, day.day); }
       }, '⇄'),
-      el('span',{style:{color:'#2a2a2a',fontSize:'14px',transition:'transform 0.2s',display:'inline-block',transform:isOpen?'rotate(180deg)':'rotate(0deg)',flexShrink:'0'}}, '▾')
+      el('span',{style:{color:'var(--border-default)',fontSize:'14px',transition:'transform 0.2s',display:'inline-block',transform:isOpen?'rotate(180deg)':'rotate(0deg)',flexShrink:'0'},'aria-hidden':'true'}, '▾')
     );
     header.style.cursor='pointer';
     header.onclick = () => {
@@ -13182,12 +13480,14 @@ function renderWorkout() {
     if(isOpen) {
       const body = div({borderTop:'1px solid #161616'});
 
-      // Progression suggestion banner
+      // Progression suggestion banner — uses accent-primary visual
+      // language so it feels like the swap modal's HIGHEST RECOMMENDED
+      // card. A genuine "this is the recommended next move" treatment.
       if (suggestion) {
         const progBanner = div({
           padding: '10px 14px',
-          background: '#0a2a0a',
-          borderBottom: '1px solid #1a1a1a',
+          background: 'var(--bg-card-highlight)',
+          borderBottom: '1px solid var(--accent-primary-border)',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
@@ -13195,12 +13495,15 @@ function renderWorkout() {
           flexWrap: 'wrap'
         });
         const progLeft = div({});
-        progLeft.appendChild(el('div',{style:{fontSize:'8px',color:'#6aff3b',letterSpacing:'0.18em',textTransform:'uppercase',fontWeight:'700',marginBottom:'3px'}},'Progression Ready'));
-        progLeft.appendChild(el('div',{style:{fontSize:'10px',color:'#aaa',lineHeight:'1.4'}},'Last session you completed all sets at top reps. Try ' + suggestion.newWeight + 'kg today (was ' + suggestion.oldWeight + 'kg).'));
+        progLeft.appendChild(el('div',{
+          class:'hr-badge',
+          style:{ marginBottom:'5px' }
+        }, '\u2726 Progression Ready'));
+        progLeft.appendChild(el('div',{style:{fontSize:'10px',color:'var(--text-secondary)',lineHeight:'1.4'}},'Last session you completed all sets at top reps. Try ' + suggestion.newWeight + 'kg today (was ' + suggestion.oldWeight + 'kg).'));
         progBanner.appendChild(progLeft);
         const applyBtn = el('button',{
           class:'btn',
-          style:{background:'#6aff3b',color:'#000',border:'none',padding:'7px 11px',borderRadius:'5px',fontFamily:"'DM Mono',monospace",fontSize:'9px',letterSpacing:'0.12em',cursor:'pointer',fontWeight:'700',textTransform:'uppercase',whiteSpace:'nowrap'},
+          style:{background:'var(--accent-primary)',color:'#000',border:'none',padding:'7px 11px',borderRadius:'5px',fontFamily:"'DM Mono',monospace",fontSize:'9px',letterSpacing:'0.12em',cursor:'pointer',fontWeight:'700',textTransform:'uppercase',whiteSpace:'nowrap',boxShadow:'var(--accent-primary-shadow)'},
           onclick: (e) => {
             e.stopPropagation();
             const cur = getWorkoutLog(day.day);
@@ -13213,18 +13516,18 @@ function renderWorkout() {
             saveData('workout', day.day, {...cur, [originalEx.id]:{...ex2, sets}});
             renderWorkout();
           }
-        }, 'Apply ' + suggestion.newWeight + 'kg');
+        }, '\u2191 Apply ' + suggestion.newWeight + 'kg');
         progBanner.appendChild(applyBtn);
         body.appendChild(progBanner);
       }
 
-      const tech = div({padding:'12px 14px',background:'#090909'});
+      const tech = div({padding:'12px 14px',background:'var(--bg-inset)'});
       tech.appendChild(el('div',{style:{fontSize:'7px',letterSpacing:'0.22em',color:day.accent,textTransform:'uppercase',marginBottom:'8px'}},'Technique'));
       if(ex.tempoDesc) {
-        const tempoBox = div({fontSize:'9px',color:'#8a8a8a',padding:'7px 10px',background:'#0e0e0e',borderRadius:'4px',borderLeft:'2px solid ' + day.accent,marginBottom:'8px'});
-        tempoBox.appendChild(el('span',{style:{color:'#6a6a6a',textTransform:'uppercase',letterSpacing:'0.1em'}},'Tempo '));
-        tempoBox.appendChild(el('span',{style:{color:'#999'}},ex.tempo));
-        tempoBox.appendChild(el('span',{style:{color:'#333'}},' — ' + ex.tempoDesc));
+        const tempoBox = div({fontSize:'9px',color:'var(--text-tertiary)',padding:'7px 10px',background:'var(--bg-card)',borderRadius:'4px',borderLeft:'2px solid ' + day.accent,marginBottom:'8px'});
+        tempoBox.appendChild(el('span',{style:{color:'var(--text-tertiary)',textTransform:'uppercase',letterSpacing:'0.1em'}},'Tempo '));
+        tempoBox.appendChild(el('span',{style:{color:'var(--text-secondary)'}},ex.tempo));
+        tempoBox.appendChild(el('span',{style:{color:'var(--text-disabled)'}},' \u2014 ' + ex.tempoDesc));
         tech.appendChild(tempoBox);
       }
       // Setup note + cue list — use the unified resolver. For SWAPPED
@@ -13238,14 +13541,14 @@ function renderWorkout() {
       const _effectiveSetup = _showCurated ? _cueData.setupNote : (ex.setupNote || null);
       if (_effectiveSetup) {
         tech.appendChild(div({
-          fontSize:'10px',color:'#a8a8a8',padding:'7px 10px',background:'#0c0c0c',
-          borderRadius:'4px',borderLeft:'2px solid #555',marginBottom:'8px',lineHeight:'1.5',fontStyle:'italic'
-        }, '⚙ ' + _effectiveSetup));
+          fontSize:'10px',color:'var(--text-tertiary)',padding:'7px 10px',background:'var(--bg-card)',
+          borderRadius:'4px',borderLeft:'2px solid var(--text-footnote)',marginBottom:'8px',lineHeight:'1.5',fontStyle:'italic'
+        }, '\u2699 ' + _effectiveSetup));
       }
       if (_effectiveCues.length > 0) {
         _effectiveCues.forEach(c => {
-          tech.appendChild(div({display:'flex',gap:'7px',fontSize:'11px',color:'#777',lineHeight:'1.5',marginBottom:'5px'},
-            el('span',{style:{color:day.accent,flexShrink:'0',opacity:'0.6'}},'→'),
+          tech.appendChild(div({display:'flex',gap:'7px',fontSize:'11px',color:'var(--text-muted)',lineHeight:'1.5',marginBottom:'5px'},
+            el('span',{style:{color:day.accent,flexShrink:'0',opacity:'0.6'}},'\u2192'),
             el('span',{},c)
           ));
         });
@@ -13254,8 +13557,8 @@ function renderWorkout() {
         // to the original exercise's cues (per user's explicit preference) — show
         // a clear placeholder so the user knows this is intentional.
         tech.appendChild(div({
-          fontSize:'10px',color:'#5a5a5a',lineHeight:'1.5',padding:'8px 10px',
-          background:'#0c0c0c',borderRadius:'4px',borderLeft:'2px dashed #2a2a2a',
+          fontSize:'10px',color:'var(--text-footnote)',lineHeight:'1.5',padding:'8px 10px',
+          background:'var(--bg-card)',borderRadius:'4px',borderLeft:'2px dashed var(--border-default)',
           fontStyle:'italic'
         }, 'No curated cues yet for this exercise. Form principles vary by movement, so we don\'t auto-inherit cues from the original. Consult a coach or reference for technique.'));
       }
@@ -13263,21 +13566,21 @@ function renderWorkout() {
 
       const setsDiv = div({padding:'12px 14px'});
       const setsHdr = div({display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'});
-      setsHdr.appendChild(el('div',{style:{fontSize:'7px',letterSpacing:'0.2em',color:'#333',textTransform:'uppercase'}},'Log Sets'));
+      setsHdr.appendChild(el('div',{style:{fontSize:'7px',letterSpacing:'0.2em',color:'var(--text-disabled)',textTransform:'uppercase'}},'Log Sets'));
       if (prev) {
-        setsHdr.appendChild(el('div',{style:{fontSize:'7px',color:'#6a6a6a',letterSpacing:'0.1em'}},'Last: ' + Math.abs(prev.weekOffset - weekOffset) + 'w ago'));
+        setsHdr.appendChild(el('div',{style:{fontSize:'7px',color:'var(--text-tertiary)',letterSpacing:'0.1em'}},'Last: ' + Math.abs(prev.weekOffset - weekOffset) + 'w ago'));
       }
       setsDiv.appendChild(setsHdr);
 
       const hdr = div({display:'grid',gridTemplateColumns:'24px 1fr 1fr 1fr 28px',gap:'5px',marginBottom:'5px'});
-      ['#','KG','REPS','NOTE',''].forEach(h => hdr.appendChild(el('div',{style:{fontSize:'7px',color:'#2a2a2a',letterSpacing:'0.12em',textAlign:'center'}},h)));
+      ['#','KG','REPS','NOTE',''].forEach(h => hdr.appendChild(el('div',{style:{fontSize:'7px',color:'var(--border-default)',letterSpacing:'0.12em',textAlign:'center'}},h)));
       setsDiv.appendChild(hdr);
 
       for(let si=0;si<ex.sets;si++) {
         const s = exLog.sets?.[si]||{};
         const prevSet = prev && prev.sets ? (prev.sets[si] || {}) : null;
         const row = div({display:'grid',gridTemplateColumns:'24px 1fr 1fr 1fr 28px',gap:'5px',marginBottom:'4px',alignItems:'center'});
-        row.appendChild(el('div',{style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'13px',color:s.reps?day.accent:'#222',textAlign:'center'}},(si+1)+''));
+        row.appendChild(el('div',{style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'13px',color:s.reps?day.accent:'var(--border-default)',textAlign:'center'}},(si+1)+''));
 
         ['weight','reps'].forEach(field => {
           // Show prior week value as placeholder when no current value
@@ -13312,7 +13615,7 @@ function renderWorkout() {
         // Per-set clear button
         const setClearBtn = el('button',{
           class:'btn',
-          style:{background:'transparent',color:'#6a6a6a',border:'1px solid #1a1a1a',borderRadius:'4px',padding:'0',width:'24px',height:'24px',fontSize:'12px',cursor:'pointer',lineHeight:'1'},
+          style:{background:'transparent',color:'var(--text-tertiary)',border:'1px solid var(--border-subtle)',borderRadius:'4px',padding:'0',width:'24px',height:'24px',fontSize:'12px',cursor:'pointer',lineHeight:'1'},
           title:'Clear this set',
           onclick: (e) => {
             e.stopPropagation();
@@ -23398,7 +23701,7 @@ function showCuisinePreferencesModal(onClose) {
     id: 'cuisine-prefs-overlay',
     style: {
       position:'fixed', top:'0', left:'0', right:'0', bottom:'0',
-      background: '#0e0e0e',
+      background: 'var(--bg-elevated)',
       zIndex:'10005',
       overflow:'auto'
     }
@@ -23406,7 +23709,7 @@ function showCuisinePreferencesModal(onClose) {
 
   const modal = el('div', {
     style:{
-      background:'#0e0e0e',
+      background: 'var(--bg-elevated)',
       padding:'24px 16px 100px',
       width:'100%',
       maxWidth:'520px',
@@ -23419,7 +23722,7 @@ function showCuisinePreferencesModal(onClose) {
   // Eyebrow + headline (matching the new swap-modal voice)
   modal.appendChild(el('div', {
     style:{
-      fontSize:'9px', color:'#ff6b3b',
+      fontSize:'9px', color:'var(--accent-primary)',
       letterSpacing:'0.25em', textTransform:'uppercase',
       fontWeight:'700', marginBottom:'6px'
     }
@@ -23427,12 +23730,12 @@ function showCuisinePreferencesModal(onClose) {
   modal.appendChild(el('div', {
     style:{
       fontFamily:"'Bebas Neue',sans-serif", fontSize:'30px',
-      color:'#ebebeb', letterSpacing:'0.04em',
+      color:'var(--text-primary)', letterSpacing:'0.04em',
       marginBottom:'10px', lineHeight:'1.05'
     }
   }, 'Which cuisines do you cook?'));
   modal.appendChild(el('div', {
-    style:{ fontSize:'12px', color:'#9a9a9a', lineHeight:'1.5', marginBottom:'20px' }
+    style:{ fontSize:'12px', color:'var(--text-tertiary)', lineHeight:'1.5', marginBottom:'20px' }
   }, 'Pick a few. We will prioritise these when suggesting swaps for your meal slots. You can change this anytime.'));
 
   // Multi-select grid — 2-up
@@ -23446,8 +23749,8 @@ function showCuisinePreferencesModal(onClose) {
     const card = el('button',{
       'data-cuisine-id': cuisine.id,
       style:{
-        background:'#0a0a0a',
-        border:'1px solid #2a2a2a',
+        background:'var(--bg-inset)',
+        border:'1px solid var(--border-default)',
         borderRadius:'10px',
         padding:'14px 10px 12px',
         cursor:'pointer',
@@ -23473,7 +23776,7 @@ function showCuisinePreferencesModal(onClose) {
     card.appendChild(el('span',{
       style:{
         fontFamily:"'Bebas Neue',sans-serif",
-        fontSize:'14px', color:'#cfcfcf',
+        fontSize:'14px', color:'var(--text-secondary)',
         letterSpacing:'0.06em', textAlign:'center', lineHeight:'1.15'
       }
     }, shortLabel.toUpperCase()));
@@ -23760,14 +24063,14 @@ function renderSettingsModal(section) {
 
   // Top bar
   const top = div({
-    position:'sticky', top:'0', background:'#0a0a0a',
-    borderBottom:'1px solid #1e1e1e',
+    position:'sticky', top:'0', background:'var(--bg-inset)',
+    borderBottom:'1px solid var(--border-subtle)',
     padding:'env(safe-area-inset-top, 12px) 16px 12px',
     zIndex:'10', display:'flex', justifyContent:'space-between', alignItems:'center', gap:'10px'
   });
   const titleCol = div({});
   titleCol.appendChild(el('div',{
-    style:{fontSize:'8px',color:'#666',letterSpacing:'0.32em',textTransform:'uppercase',fontWeight:'700',marginBottom:'2px'}
+    style:{fontSize:'8px',color:'var(--text-tertiary)',letterSpacing:'0.32em',textTransform:'uppercase',fontWeight:'700',marginBottom:'2px'}
   }, '⚙ Settings'));
   let titleText = 'Settings';
   if (section === 'goals')        titleText = 'Goals';
@@ -23780,8 +24083,8 @@ function renderSettingsModal(section) {
   top.appendChild(el('button',{
     class:'btn',
     style:{
-      background:'transparent',color:'#888',
-      border:'1px solid #2a2a2a',
+      background:'transparent',color:'var(--text-muted)',
+      border:'1px solid var(--border-default)',
       padding:'6px 12px',borderRadius:'6px',
       fontFamily:"'DM Mono',monospace",fontSize:'9px',
       letterSpacing:'0.15em',textTransform:'uppercase',
@@ -23806,6 +24109,15 @@ function renderSettingsModal(section) {
     body.appendChild(renderCloudSyncSection());
   } else if (section === 'display') {
     body.appendChild(renderDisplaySection());
+  } else if (section === 'preferences') {
+    // Cuisine selection modal — opens from Session 13d's dedicated UI.
+    // Close the settings overlay first so the cuisine modal stacks cleanly
+    // (it has its own z-index and overlay).
+    closeSettings();
+    if (typeof showCuisinePreferencesModal === 'function') {
+      showCuisinePreferencesModal(() => { /* no follow-up; user can close */ });
+    }
+    return;
   } else {
     body.appendChild(renderSettingsMenu());
   }
@@ -23861,12 +24173,12 @@ function renderDisplaySection() {
 
   // Intro / context card
   const intro = div({
-    background:'#0e0e0e', border:'1px solid #1e1e1e',
+    background:'var(--bg-card)', border:'1px solid var(--border-subtle)',
     borderRadius:'10px', padding:'14px 16px', marginBottom:'14px'
   });
   intro.appendChild(el('div', {style:{fontSize:'8px',color:'#3bdfff',letterSpacing:'0.25em',textTransform:'uppercase',fontWeight:'700',marginBottom:'4px'}}, '◐ Text Size'));
-  intro.appendChild(el('div', {style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'18px',color:'#ebebeb',letterSpacing:'0.04em',marginBottom:'6px'}}, 'Choose your size'));
-  intro.appendChild(el('div', {style:{fontSize:'11px',color:'#aaa',lineHeight:'1.55'}},
+  intro.appendChild(el('div', {style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'18px',color:'var(--text-primary)',letterSpacing:'0.04em',marginBottom:'6px'}}, 'Choose your size'));
+  intro.appendChild(el('div', {style:{fontSize:'11px',color:'var(--text-secondary)',lineHeight:'1.55'}},
     'Pinch-to-zoom is disabled so accidental double-taps don\'t zoom the app while you\'re logging sets. Pick a comfortable text size here instead. Applies everywhere — main views, workout mode, modals.'));
   wrap.appendChild(intro);
 
@@ -23880,7 +24192,7 @@ function renderDisplaySection() {
         background: isSelected
           ? 'linear-gradient(135deg, rgba(6,214,160,0.12), rgba(6,214,160,0.04))'
           : '#0e0e0e',
-        border: '1px solid ' + (isSelected ? '#06d6a0' : '#1e1e1e'),
+        border: '1px solid ' + (isSelected ? 'var(--accent-primary)' : '#1e1e1e'),
         borderRadius: '12px', padding: '16px 18px', marginBottom: '10px',
         cursor: 'pointer', transition: 'all 0.18s ease'
       },
@@ -23901,8 +24213,8 @@ function renderDisplaySection() {
     const preview = el('div', {
       style: {
         width: '54px', height: '54px',
-        background: isSelected ? '#06d6a022' : '#1a1a1a',
-        border: '1px solid ' + (isSelected ? '#06d6a066' : '#2a2a2a'),
+        background: isSelected ? 'var(--accent-primary-soft)' : '#1a1a1a',
+        border: '1px solid ' + (isSelected ? 'var(--accent-primary-border)' : '#2a2a2a'),
         borderRadius: '10px',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontFamily: "'Bebas Neue',sans-serif",
@@ -23917,10 +24229,10 @@ function renderDisplaySection() {
     const text = div({flex:'1'});
     const titleRow = div({display:'flex',alignItems:'baseline',gap:'8px',marginBottom:'4px'});
     titleRow.appendChild(el('div', {
-      style: {fontFamily:"'Bebas Neue',sans-serif",fontSize:'18px',color:isSelected?'#06d6a0':'#e0e0e0',letterSpacing:'0.03em'}
+      style: {fontFamily:"'Bebas Neue',sans-serif",fontSize:'18px',color: isSelected ? 'var(--accent-primary)' : 'var(--text-primary)',letterSpacing:'0.03em'}
     }, preset.label));
     titleRow.appendChild(el('div', {
-      style: {fontSize:'9px',color:'#666',fontFamily:"'DM Mono',monospace",letterSpacing:'0.1em'}
+      style: {fontSize:'9px',color:'var(--text-tertiary)',fontFamily:"'DM Mono',monospace",letterSpacing:'0.1em'}
     }, preset.value.toFixed(2) + '×'));
     if (isSelected) {
       titleRow.appendChild(el('span', {
@@ -23929,7 +24241,7 @@ function renderDisplaySection() {
     }
     text.appendChild(titleRow);
     text.appendChild(el('div', {
-      style: {fontSize:'10px',color:'#888',lineHeight:'1.5'}
+      style: {fontSize:'10px',color:'var(--text-muted)',lineHeight:'1.5'}
     }, preset.desc));
     topRow.appendChild(text);
 
@@ -23939,11 +24251,11 @@ function renderDisplaySection() {
 
   // Footer note about zoom trade-off
   const note = div({
-    background:'#0a0a0a', border:'1px solid #1a1a1a',
+    background:'var(--bg-inset)', border:'1px solid var(--border-subtle)',
     borderRadius:'10px', padding:'12px 14px', marginTop:'4px'
   });
-  note.appendChild(el('div', {style:{fontSize:'9px',color:'#666',letterSpacing:'0.18em',textTransform:'uppercase',fontWeight:'700',marginBottom:'6px'}}, '⊕ Note'));
-  note.appendChild(el('div', {style:{fontSize:'10px',color:'#888',lineHeight:'1.55'}},
+  note.appendChild(el('div', {style:{fontSize:'9px',color:'var(--text-tertiary)',letterSpacing:'0.18em',textTransform:'uppercase',fontWeight:'700',marginBottom:'6px'}}, '⊕ Note'));
+  note.appendChild(el('div', {style:{fontSize:'10px',color:'var(--text-muted)',lineHeight:'1.55'}},
     'Pinch-to-zoom is disabled in this app. If you need bigger text temporarily, the Large preset above gets you to about 30% bigger across every screen — including workout mode and modals.'));
   wrap.appendChild(note);
 
@@ -23956,18 +24268,18 @@ function renderAboutSection() {
 
   // Version card
   const ver = div({
-    background:'#0e0e0e', border:'1px solid #1e1e1e', borderRadius:'10px',
+    background:'var(--bg-card)', border:'1px solid var(--border-subtle)', borderRadius:'10px',
     padding:'14px 16px', marginBottom:'10px'
   });
   ver.appendChild(el('div', {style:{fontSize:'8px',color:'#3bdfff',letterSpacing:'0.25em',textTransform:'uppercase',fontWeight:'700',marginBottom:'4px'}}, '◆ FLOW Tracker'));
-  ver.appendChild(el('div', {style:{fontSize:'13px',color:'#e0e0e0',fontFamily:"'Bebas Neue',sans-serif",letterSpacing:'0.04em',marginBottom:'4px'}}, 'Version 1.0'));
-  ver.appendChild(el('div', {style:{fontSize:'10px',color:'#666',lineHeight:'1.5'}},
+  ver.appendChild(el('div', {style:{fontSize:'13px',color:'var(--text-primary)',fontFamily:"'Bebas Neue',sans-serif",letterSpacing:'0.04em',marginBottom:'4px'}}, 'Version 1.0'));
+  ver.appendChild(el('div', {style:{fontSize:'10px',color:'var(--text-tertiary)',lineHeight:'1.5'}},
     'Personal training, nutrition, and progression tracker. Works offline once installed.'));
   wrap.appendChild(ver);
 
   // Cross-device awareness — most important note
   const storage = div({
-    background:'#0e0e0e', border:'1px solid #fbbf2433', borderRadius:'10px',
+    background:'var(--bg-card)', border:'1px solid #fbbf2433', borderRadius:'10px',
     padding:'14px 16px', marginBottom:'10px'
   });
   storage.appendChild(el('div', {style:{fontSize:'8px',color:'#fbbf24',letterSpacing:'0.25em',textTransform:'uppercase',fontWeight:'700',marginBottom:'6px'}}, '◐ Your Data'));
@@ -23977,7 +24289,7 @@ function renderAboutSection() {
     'Each device has its own profile. To set up a partner or use a second device, visit the app URL from that device and configure separately.'));
   // The URL — make it easy to share
   const urlBox = div({background:'#161616', padding:'8px 10px', borderRadius:'6px', marginTop:'8px'});
-  urlBox.appendChild(el('div', {style:{fontSize:'8px',color:'#666',letterSpacing:'0.15em',textTransform:'uppercase',marginBottom:'3px'}}, 'App URL'));
+  urlBox.appendChild(el('div', {style:{fontSize:'8px',color:'var(--text-tertiary)',letterSpacing:'0.15em',textTransform:'uppercase',marginBottom:'3px'}}, 'App URL'));
   urlBox.appendChild(el('div', {style:{fontSize:'11px',color:'#3bdfff',fontFamily:"'DM Mono',monospace",wordBreak:'break-all'}}, location.origin + location.pathname));
   storage.appendChild(urlBox);
   wrap.appendChild(storage);
@@ -23985,7 +24297,7 @@ function renderAboutSection() {
   // Install section — only show if not already installed
   if (!isPWAStandalone()) {
     const install = div({
-      background:'#0e0e0e', border:'1px solid #3bdfff33', borderRadius:'10px',
+      background:'var(--bg-card)', border:'1px solid #3bdfff33', borderRadius:'10px',
       padding:'14px 16px', marginBottom:'10px'
     });
     install.appendChild(el('div', {style:{fontSize:'8px',color:'#3bdfff',letterSpacing:'0.25em',textTransform:'uppercase',fontWeight:'700',marginBottom:'6px'}}, '◆ Install as App'));
@@ -24020,14 +24332,14 @@ function renderAboutSection() {
         '<div><span style="color:#3bdfff;font-weight:700">3.</span> Tap <span style="color:#fff">Add</span></div>';
       install.appendChild(steps);
     } else {
-      install.appendChild(el('div', {style:{fontSize:'11px',color:'#888',lineHeight:'1.5'}},
+      install.appendChild(el('div', {style:{fontSize:'11px',color:'var(--text-muted)',lineHeight:'1.5'}},
         'Look for an install icon in your browser address bar, or use your browser menu → Install / Add to Home Screen.'));
     }
     wrap.appendChild(install);
   } else {
     // Already installed — small confirmation
     const installed = div({
-      background:'#0e0e0e', border:'1px solid #6aff3b33', borderRadius:'10px',
+      background:'var(--bg-card)', border:'1px solid #6aff3b33', borderRadius:'10px',
       padding:'12px 14px', marginBottom:'10px'
     });
     installed.appendChild(el('div', {style:{fontSize:'10px',color:'#6aff3b',lineHeight:'1.5'}},
@@ -24037,14 +24349,14 @@ function renderAboutSection() {
 
   // Connection status
   const conn = div({
-    background:'#0e0e0e', border:'1px solid #1e1e1e', borderRadius:'10px',
+    background:'var(--bg-card)', border:'1px solid var(--border-subtle)', borderRadius:'10px',
     padding:'12px 14px'
   });
-  conn.appendChild(el('div', {style:{fontSize:'8px',color:'#666',letterSpacing:'0.25em',textTransform:'uppercase',fontWeight:'700',marginBottom:'4px'}}, '◴ Connection'));
+  conn.appendChild(el('div', {style:{fontSize:'8px',color:'var(--text-tertiary)',letterSpacing:'0.25em',textTransform:'uppercase',fontWeight:'700',marginBottom:'4px'}}, '◴ Connection'));
   const isOff = !navigator.onLine;
   conn.appendChild(el('div', {style:{fontSize:'11px',color: isOff ? '#fbbf24' : '#6aff3b',lineHeight:'1.5'}},
     isOff ? '◐ Offline — using cached data' : '✓ Online'));
-  conn.appendChild(el('div', {style:{fontSize:'10px',color:'#666',marginTop:'3px',lineHeight:'1.5'}},
+  conn.appendChild(el('div', {style:{fontSize:'10px',color:'var(--text-tertiary)',marginTop:'3px',lineHeight:'1.5'}},
     'App works fully offline once installed. Your changes save locally and persist between sessions.'));
   wrap.appendChild(conn);
 
@@ -24056,6 +24368,7 @@ function renderSettingsMenu() {
   const items = [
     { id:'profile', icon:'👤', label:'Profile',          desc:'Your name, nickname, program label' },
     { id:'goals',   icon:'🎯', label:'Goals',           desc:'Body composition goals + macro targets' },
+    { id:'preferences', icon:'🍽', label:'Preferences',  desc:'Cuisines you enjoy · meal suggestions' },
     { id:'sync',    icon:'☁',  label:'Cloud Sync',       desc:'Optional: sync across devices via Google Drive' },
     { id:'display', icon:'◐',  label:'Display',          desc:'Text size · readability presets' },
     { id:'about',   icon:'ℹ',  label:'About this app',  desc:'Storage, install, version info' },
@@ -24064,29 +24377,30 @@ function renderSettingsMenu() {
   ];
   items.forEach(item => {
     const row = el('button',{
-      class:'btn',
+      class:'btn dark-card',
       style:{
         width:'100%', textAlign:'left',
-        background: item.disabled ? '#0a0a0a' : '#0e0e0e',
-        border:'1px solid #1e1e1e',
-        padding:'14px 16px', borderRadius:'10px',
+        background: item.disabled ? 'var(--bg-inset)' : 'var(--bg-card)',
+        border:'1px solid var(--border-subtle)',
+        padding:'14px 16px', borderRadius:'var(--radius-card)',
         marginBottom:'8px',
         display:'flex', alignItems:'center', gap:'14px',
         cursor: item.disabled ? 'default' : 'pointer',
-        opacity: item.disabled ? '0.45' : '1'
+        opacity: item.disabled ? '0.45' : '1',
+        transition:'var(--transition-card)'
       },
       onclick: item.disabled ? null : (() => renderSettingsModal(item.id))
     });
     row.appendChild(el('span',{style:{fontSize:'22px',flexShrink:'0'}}, item.icon));
     const txt = div({flex:'1'});
     txt.appendChild(el('div',{
-      style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'15px',color:'#e0e0e0',letterSpacing:'0.04em',lineHeight:'1.1'}
+      style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'15px',color:'var(--text-primary)',letterSpacing:'0.04em',lineHeight:'1.1'}
     }, item.label));
     txt.appendChild(el('div',{
-      style:{fontSize:'10px',color:'#888',marginTop:'3px',lineHeight:'1.4'}
+      style:{fontSize:'10px',color:'var(--text-muted)',marginTop:'3px',lineHeight:'1.4'}
     }, item.desc));
     row.appendChild(txt);
-    if (!item.disabled) row.appendChild(el('span',{style:{color:'#444',fontSize:'14px'}},'›'));
+    if (!item.disabled) row.appendChild(el('span',{style:{color:'var(--text-disabled)',fontSize:'14px'}},'›'));
     wrap.appendChild(row);
   });
   return wrap;
@@ -24101,21 +24415,21 @@ function renderProfileSection() {
 
   // ─── Display name card ───
   const nameCard = div({
-    background:'#0e0e0e', border:'1px solid #1e1e1e', borderRadius:'12px',
+    background:'var(--bg-card)', border:'1px solid var(--border-subtle)', borderRadius:'12px',
     padding:'18px', marginBottom:'14px'
   });
   nameCard.appendChild(el('div',{
     style:{fontSize:'8px',color:'#06d6a0',letterSpacing:'0.32em',textTransform:'uppercase',fontWeight:'700',marginBottom:'10px'}
   }, '👤 Display Name'));
   nameCard.appendChild(el('div',{
-    style:{fontSize:'12px',color:'#888',lineHeight:'1.55',marginBottom:'14px'}
+    style:{fontSize:'12px',color:'var(--text-muted)',lineHeight:'1.55',marginBottom:'14px'}
   }, 'Your name appears in the header and personalized greetings throughout the app.'));
 
   // Real name input
   function inputRow(label, key, placeholder) {
     const row = div({marginBottom:'12px'});
     row.appendChild(el('label',{
-      style:{fontSize:'9px',color:'#888',letterSpacing:'0.2em',textTransform:'uppercase',fontWeight:'700',display:'block',marginBottom:'5px'}
+      style:{fontSize:'9px',color:'var(--text-muted)',letterSpacing:'0.2em',textTransform:'uppercase',fontWeight:'700',display:'block',marginBottom:'5px'}
     }, label));
     const input = el('input',{
       type:'text',
@@ -24123,8 +24437,8 @@ function renderProfileSection() {
       placeholder: placeholder || '',
       maxlength: 30,
       style:{
-        width:'100%', background:'#080808', color:'#e0e0e0',
-        border:'1px solid #1e1e1e', borderRadius:'8px',
+        width:'100%', background:'var(--bg-base)', color:'var(--text-primary)',
+        border:'1px solid var(--border-subtle)', borderRadius:'8px',
         padding:'12px 14px', fontFamily:"'DM Mono',monospace",
         fontSize:'14px', boxSizing:'border-box'
       }
@@ -24139,7 +24453,7 @@ function renderProfileSection() {
   // Display preference toggle (only meaningful if nickname is set)
   const prefRow = div({marginBottom:'14px'});
   prefRow.appendChild(el('label',{
-    style:{fontSize:'9px',color:'#888',letterSpacing:'0.2em',textTransform:'uppercase',fontWeight:'700',display:'block',marginBottom:'6px'}
+    style:{fontSize:'9px',color:'var(--text-muted)',letterSpacing:'0.2em',textTransform:'uppercase',fontWeight:'700',display:'block',marginBottom:'6px'}
   }, 'Show in app'));
   const prefSeg = div({display:'flex',gap:'6px'});
   function prefBtn(val, label) {
@@ -24148,9 +24462,9 @@ function renderProfileSection() {
       class:'btn',
       style:{
         flex:'1',
-        background: isOn ? '#06d6a0' : '#0a0a0a',
+        background: isOn ? 'var(--accent-primary)' : '#0a0a0a',
         color: isOn ? '#000' : '#888',
-        border:'1px solid ' + (isOn ? '#06d6a0' : '#1e1e1e'),
+        border:'1px solid ' + (isOn ? 'var(--accent-primary)' : '#1e1e1e'),
         padding:'10px', borderRadius:'8px',
         fontFamily:"'DM Mono',monospace", fontSize:'10px',
         letterSpacing:'0.15em', fontWeight:'700',
@@ -24176,20 +24490,20 @@ function renderProfileSection() {
 
   // ─── Program label card ───
   const labelCard = div({
-    background:'#0e0e0e', border:'1px solid #1e1e1e', borderRadius:'12px',
+    background:'var(--bg-card)', border:'1px solid var(--border-subtle)', borderRadius:'12px',
     padding:'18px', marginBottom:'14px'
   });
   labelCard.appendChild(el('div',{
     style:{fontSize:'8px',color:'#06d6a0',letterSpacing:'0.32em',textTransform:'uppercase',fontWeight:'700',marginBottom:'10px'}
   }, '🏷 Program Label'));
   labelCard.appendChild(el('div',{
-    style:{fontSize:'12px',color:'#888',lineHeight:'1.55',marginBottom:'14px'}
+    style:{fontSize:'12px',color:'var(--text-muted)',lineHeight:'1.55',marginBottom:'14px'}
   }, 'The label next to your name in the header. By default, this auto-derives from your locked goal (e.g. "Cut Program"). Override to set a custom label like "Pre-Wedding Cut" or "Holiday Recomp".'));
 
   // Toggle: auto vs custom
   const overrideRow = div({marginBottom:'12px'});
   overrideRow.appendChild(el('label',{
-    style:{fontSize:'9px',color:'#888',letterSpacing:'0.2em',textTransform:'uppercase',fontWeight:'700',display:'block',marginBottom:'6px'}
+    style:{fontSize:'9px',color:'var(--text-muted)',letterSpacing:'0.2em',textTransform:'uppercase',fontWeight:'700',display:'block',marginBottom:'6px'}
   }, 'Source'));
   const overrideSeg = div({display:'flex',gap:'6px'});
   function overrideBtn(val, label) {
@@ -24198,9 +24512,9 @@ function renderProfileSection() {
       class:'btn',
       style:{
         flex:'1',
-        background: isOn ? '#06d6a0' : '#0a0a0a',
+        background: isOn ? 'var(--accent-primary)' : '#0a0a0a',
         color: isOn ? '#000' : '#888',
-        border:'1px solid ' + (isOn ? '#06d6a0' : '#1e1e1e'),
+        border:'1px solid ' + (isOn ? 'var(--accent-primary)' : '#1e1e1e'),
         padding:'10px', borderRadius:'8px',
         fontFamily:"'DM Mono',monospace", fontSize:'10px',
         letterSpacing:'0.15em', fontWeight:'700',
@@ -24234,10 +24548,10 @@ function renderProfileSection() {
       return '7-Day Program (no goal locked)';
     })();
     const autoBox = div({
-      background:'#080808',border:'1px solid #1a1a1a',borderRadius:'8px',
+      background:'var(--bg-base)',border:'1px solid var(--border-subtle)',borderRadius:'8px',
       padding:'10px 12px',marginBottom:'4px'
     });
-    autoBox.appendChild(el('div',{style:{fontSize:'8px',color:'#666',letterSpacing:'0.18em',textTransform:'uppercase',marginBottom:'4px',fontWeight:'700'}}, 'Currently'));
+    autoBox.appendChild(el('div',{style:{fontSize:'8px',color:'var(--text-tertiary)',letterSpacing:'0.18em',textTransform:'uppercase',marginBottom:'4px',fontWeight:'700'}}, 'Currently'));
     autoBox.appendChild(el('div',{style:{fontSize:'13px',color:'#06d6a0',fontFamily:"'DM Mono',monospace",fontWeight:'700'}}, autoLabel));
     labelCard.appendChild(autoBox);
   }
@@ -24249,14 +24563,14 @@ function renderProfileSection() {
   // who never travel. Setting it explicitly protects against timezone drift,
   // VPN-induced confusion, or system-clock issues.
   const tzCard = div({
-    background:'#0e0e0e', border:'1px solid #1e1e1e', borderRadius:'12px',
+    background:'var(--bg-card)', border:'1px solid var(--border-subtle)', borderRadius:'12px',
     padding:'18px', marginBottom:'14px'
   });
   tzCard.appendChild(el('div',{
     style:{fontSize:'8px',color:'#06d6a0',letterSpacing:'0.32em',textTransform:'uppercase',fontWeight:'700',marginBottom:'10px'}
   }, '🌐 Time Zone'));
   tzCard.appendChild(el('div',{
-    style:{fontSize:'12px',color:'#888',lineHeight:'1.55',marginBottom:'12px'}
+    style:{fontSize:'12px',color:'var(--text-muted)',lineHeight:'1.55',marginBottom:'12px'}
   }, 'Determines when the day rolls over. Default uses your device timezone. Set explicitly if you travel often or want consistency across devices.'));
 
   // Detect browser timezone for default display
@@ -24267,7 +24581,7 @@ function renderProfileSection() {
   // Mode toggle: auto vs custom
   const tzModeRow = div({marginBottom:'12px'});
   tzModeRow.appendChild(el('label',{
-    style:{fontSize:'9px',color:'#888',letterSpacing:'0.2em',textTransform:'uppercase',fontWeight:'700',display:'block',marginBottom:'6px'}
+    style:{fontSize:'9px',color:'var(--text-muted)',letterSpacing:'0.2em',textTransform:'uppercase',fontWeight:'700',display:'block',marginBottom:'6px'}
   }, 'Source'));
   const tzModeSeg = div({display:'flex',gap:'6px'});
   function tzModeBtn(useCustom, label) {
@@ -24277,9 +24591,9 @@ function renderProfileSection() {
       class:'btn',
       style:{
         flex:'1',
-        background: isOn ? '#06d6a0' : '#0a0a0a',
+        background: isOn ? 'var(--accent-primary)' : '#0a0a0a',
         color: isOn ? '#000' : '#888',
-        border:'1px solid ' + (isOn ? '#06d6a0' : '#1e1e1e'),
+        border:'1px solid ' + (isOn ? 'var(--accent-primary)' : '#1e1e1e'),
         padding:'10px', borderRadius:'8px',
         fontFamily:"'DM Mono',monospace", fontSize:'10px',
         letterSpacing:'0.15em', fontWeight:'700',
@@ -24307,7 +24621,7 @@ function renderProfileSection() {
     // Custom UTC offset picker — discrete options covering common zones
     const tzOptionsRow = div({marginBottom:'8px'});
     tzOptionsRow.appendChild(el('label',{
-      style:{fontSize:'9px',color:'#888',letterSpacing:'0.2em',textTransform:'uppercase',fontWeight:'700',display:'block',marginBottom:'6px'}
+      style:{fontSize:'9px',color:'var(--text-muted)',letterSpacing:'0.2em',textTransform:'uppercase',fontWeight:'700',display:'block',marginBottom:'6px'}
     }, 'UTC Offset'));
     const tzOptions = [
       { off: -480, label: 'UTC-8 (PST/LA)' },
@@ -24327,9 +24641,9 @@ function renderProfileSection() {
       const btn = el('button',{
         class:'btn',
         style:{
-          background: isOn ? '#06d6a0' : '#0a0a0a',
+          background: isOn ? 'var(--accent-primary)' : '#0a0a0a',
           color: isOn ? '#000' : '#aaa',
-          border:'1px solid ' + (isOn ? '#06d6a0' : '#1e1e1e'),
+          border:'1px solid ' + (isOn ? 'var(--accent-primary)' : '#1e1e1e'),
           padding:'10px 8px', borderRadius:'6px',
           fontSize:'10px', fontFamily:"'DM Mono',monospace",
           letterSpacing:'0.05em', cursor:'pointer', fontWeight:'600',
@@ -24348,10 +24662,10 @@ function renderProfileSection() {
   } else {
     // Show what auto-detected
     const detectedBox = div({
-      background:'#080808',border:'1px solid #1a1a1a',borderRadius:'8px',
+      background:'var(--bg-base)',border:'1px solid var(--border-subtle)',borderRadius:'8px',
       padding:'10px 12px'
     });
-    detectedBox.appendChild(el('div',{style:{fontSize:'8px',color:'#666',letterSpacing:'0.18em',textTransform:'uppercase',marginBottom:'4px',fontWeight:'700'}}, 'Detected'));
+    detectedBox.appendChild(el('div',{style:{fontSize:'8px',color:'var(--text-tertiary)',letterSpacing:'0.18em',textTransform:'uppercase',marginBottom:'4px',fontWeight:'700'}}, 'Detected'));
     const sign = browserOffsetMin >= 0 ? '+' : '-';
     const hours = Math.floor(Math.abs(browserOffsetMin) / 60);
     const mins = Math.abs(browserOffsetMin) % 60;
@@ -24366,13 +24680,13 @@ function renderProfileSection() {
   const we = new Date(ws); we.setDate(we.getDate() + 6);
   const fmt = (d) => d.toLocaleDateString(undefined, {weekday:'short', day:'numeric', month:'short'});
   const weekDiag = div({
-    background:'#080808', border:'1px dashed #1e1e1e', borderRadius:'8px',
+    background:'var(--bg-base)', border:'1px dashed #1e1e1e', borderRadius:'8px',
     padding:'10px 12px', marginTop:'10px'
   });
-  weekDiag.appendChild(el('div',{style:{fontSize:'8px',color:'#666',letterSpacing:'0.18em',textTransform:'uppercase',marginBottom:'4px',fontWeight:'700'}}, 'Currently'));
-  weekDiag.appendChild(el('div',{style:{fontSize:'11px',color:'#aaa',lineHeight:'1.5'}},
+  weekDiag.appendChild(el('div',{style:{fontSize:'8px',color:'var(--text-tertiary)',letterSpacing:'0.18em',textTransform:'uppercase',marginBottom:'4px',fontWeight:'700'}}, 'Currently'));
+  weekDiag.appendChild(el('div',{style:{fontSize:'11px',color:'var(--text-secondary)',lineHeight:'1.5'}},
     'Week of ' + fmt(ws) + ' – ' + fmt(we)));
-  weekDiag.appendChild(el('div',{style:{fontSize:'9px',color:'#666',marginTop:'2px',fontFamily:"'DM Mono',monospace"}}, 'ISO: ' + currentWeek));
+  weekDiag.appendChild(el('div',{style:{fontSize:'9px',color:'var(--text-tertiary)',marginTop:'2px',fontFamily:"'DM Mono',monospace"}}, 'ISO: ' + currentWeek));
   tzCard.appendChild(weekDiag);
 
   wrap.appendChild(tzCard);
@@ -24388,16 +24702,16 @@ function renderProfileSection() {
     style:{fontSize:'8px',color:'#06d6a0',letterSpacing:'0.32em',textTransform:'uppercase',fontWeight:'700',marginBottom:'10px'}
   }, '👀 Header Preview'));
   const previewInner = div({
-    background:'#080808', border:'1px solid #1e1e1e', borderRadius:'8px',
+    background:'var(--bg-base)', border:'1px solid var(--border-subtle)', borderRadius:'8px',
     padding:'14px 16px'
   });
   const previewTopLine = el('div',{
     id:'profile-preview-program',
-    style:{fontSize:'9px',letterSpacing:'0.25em',color:'#666',textTransform:'uppercase',marginBottom:'4px'}
+    style:{fontSize:'9px',letterSpacing:'0.25em',color:'var(--text-tertiary)',textTransform:'uppercase',marginBottom:'4px'}
   }, '');
   previewInner.appendChild(previewTopLine);
   previewInner.appendChild(el('div',{
-    class:'bebas', style:{fontSize:'24px',letterSpacing:'0.05em',lineHeight:'1',color:'#e0e0e0'}
+    class:'bebas', style:{fontSize:'24px',letterSpacing:'0.05em',lineHeight:'1',color:'var(--text-primary)'}
   }, 'TRAIN + FUEL'));
   previewCard.appendChild(previewInner);
   wrap.appendChild(previewCard);
@@ -24990,9 +25304,9 @@ function renderWizStep1Identity() {
       class:'btn',
       style:{
         flex:'1',
-        background: isOn ? '#06d6a0' : '#0a0a0a',
+        background: isOn ? 'var(--accent-primary)' : '#0a0a0a',
         color: isOn ? '#000' : '#888',
-        border:'1px solid ' + (isOn ? '#06d6a0' : '#1e1e1e'),
+        border:'1px solid ' + (isOn ? 'var(--accent-primary)' : '#1e1e1e'),
         padding:'12px', borderRadius:'8px',
         fontFamily:"'DM Mono',monospace", fontSize:'11px',
         letterSpacing:'0.18em', fontWeight:'700',
@@ -25020,7 +25334,7 @@ function renderWizStep2Activity() {
       style:{
         width:'100%', textAlign:'left', display:'block',
         background: isSelected ? '#06d6a013' : '#0e0e0e',
-        border:'1px solid ' + (isSelected ? '#06d6a0' : '#1e1e1e'),
+        border:'1px solid ' + (isSelected ? 'var(--accent-primary)' : '#1e1e1e'),
         padding:'14px 16px', borderRadius:'10px', marginBottom:'8px',
         cursor:'pointer'
       },
@@ -25055,9 +25369,9 @@ function renderWizStep3Frequency() {
     const btn = el('button',{
       class:'btn',
       style:{
-        background: isOn ? '#06d6a0' : '#0a0a0a',
+        background: isOn ? 'var(--accent-primary)' : '#0a0a0a',
         color: isOn ? '#000' : '#888',
-        border: '1px solid ' + (isOn ? '#06d6a0' : '#1e1e1e'),
+        border: '1px solid ' + (isOn ? 'var(--accent-primary)' : '#1e1e1e'),
         padding: '14px 0', borderRadius: '8px',
         fontFamily: "'Bebas Neue',sans-serif", fontSize: '20px',
         letterSpacing: '0.04em', fontWeight: '700',
@@ -25319,7 +25633,7 @@ function renderWizStep4TrainingStyle() {
       style:{
         display:'block', width:'100%', textAlign:'left',
         background: isSelected ? 'linear-gradient(135deg, rgba(6,214,160,0.12), rgba(6,214,160,0.04))' : '#0e0e0e',
-        border: '1px solid ' + (isSelected ? '#06d6a0' : (isSuggested ? '#3bdfff55' : '#1e1e1e')),
+        border: '1px solid ' + (isSelected ? 'var(--accent-primary)' : (isSuggested ? '#3bdfff55' : '#1e1e1e')),
         borderRadius:'12px', padding:'14px 16px', marginBottom:'8px',
         cursor: isAvailable ? 'pointer' : 'not-allowed',
         transition:'all 0.18s ease',
@@ -25340,7 +25654,7 @@ function renderWizStep4TrainingStyle() {
     topRow.appendChild(el('span',{style:{fontSize:'18px',flexShrink:'0'}}, ts.icon));
     const titleCol = div({flex:'1'});
     titleCol.appendChild(el('div',{
-      style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'16px',color:isSelected?'#06d6a0':'#e0e0e0',letterSpacing:'0.03em'}
+      style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'16px',color: isSelected ? 'var(--accent-primary)' : 'var(--text-primary)',letterSpacing:'0.03em'}
     }, ts.label));
     titleCol.appendChild(el('div',{
       style:{fontSize:'9px',color:'#888',letterSpacing:'0.05em',marginTop:'2px'}
@@ -25504,7 +25818,7 @@ function renderWizStep5Experience() {
         background: isSelected
           ? 'linear-gradient(135deg, rgba(6,214,160,0.12), rgba(6,214,160,0.04))'
           : '#0e0e0e',
-        border: '1px solid ' + (isSelected ? '#06d6a0' : '#1e1e1e'),
+        border: '1px solid ' + (isSelected ? 'var(--accent-primary)' : '#1e1e1e'),
         borderRadius: '12px', padding: '14px 16px', marginBottom: '10px',
         cursor: 'pointer', transition: 'all 0.18s ease'
       },
@@ -25528,7 +25842,7 @@ function renderWizStep5Experience() {
     }, level.icon));
     const titleCol = div({flex:'1'});
     titleCol.appendChild(el('div', {
-      style: {fontFamily:"'Bebas Neue',sans-serif",fontSize:'18px',color:isSelected?'#06d6a0':'#e0e0e0',letterSpacing:'0.03em'}
+      style: {fontFamily:"'Bebas Neue',sans-serif",fontSize:'18px',color: isSelected ? 'var(--accent-primary)' : 'var(--text-primary)',letterSpacing:'0.03em'}
     }, level.label));
     titleCol.appendChild(el('div', {
       style: {fontSize:'10px',color:'#888',marginTop:'2px',fontFamily:"'DM Mono',monospace",letterSpacing:'0.04em'}
@@ -25618,7 +25932,7 @@ function renderWizStep6FocusAreas() {
       style:{
         display:'block',textAlign:'left',
         background: isSelected ? 'linear-gradient(135deg, rgba(6,214,160,0.12), rgba(6,214,160,0.04))' : '#0e0e0e',
-        border: '1px solid ' + (isSelected ? '#06d6a0' : '#1e1e1e'),
+        border: '1px solid ' + (isSelected ? 'var(--accent-primary)' : '#1e1e1e'),
         borderRadius:'10px', padding:'12px',
         cursor: atLimit ? 'not-allowed' : 'pointer',
         transition:'all 0.18s ease',
@@ -25641,7 +25955,7 @@ function renderWizStep6FocusAreas() {
       }, '✓'));
     }
     topRow.appendChild(el('div',{
-      style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'15px',color:isSelected?'#06d6a0':'#e0e0e0',letterSpacing:'0.03em'}
+      style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'15px',color: isSelected ? 'var(--accent-primary)' : 'var(--text-primary)',letterSpacing:'0.03em'}
     }, mod.label));
     card.appendChild(topRow);
     card.appendChild(el('div',{
@@ -25668,7 +25982,7 @@ function renderWizStep7GoalType() {
       style:{
         width:'100%', textAlign:'left', display:'block',
         background: isSelected ? '#06d6a013' : '#0e0e0e',
-        border:'1px solid ' + (isSelected ? '#06d6a0' : '#1e1e1e'),
+        border:'1px solid ' + (isSelected ? 'var(--accent-primary)' : '#1e1e1e'),
         padding:'14px 16px', borderRadius:'10px', marginBottom:'8px',
         cursor:'pointer'
       },
@@ -25913,7 +26227,7 @@ function renderWizStep9Rate() {
       style:{
         width:'100%', textAlign:'left', display:'block',
         background: isSelected ? '#06d6a013' : '#0e0e0e',
-        border:'1px solid ' + (isSelected ? '#06d6a0' : '#1e1e1e'),
+        border:'1px solid ' + (isSelected ? 'var(--accent-primary)' : '#1e1e1e'),
         padding:'14px 16px', borderRadius:'10px', marginBottom:'8px',
         cursor:'pointer'
       },
@@ -26234,6 +26548,10 @@ function renderNutrition() {
   const nLog = getNutriLog(day.day);
   const list = document.getElementById('meal-list');
   list.innerHTML = '';
+  // Card entry stagger — meal cards cascade in on render. CSS honours
+  // the class via animation-delay per :nth-child. Re-applied on each
+  // call so the animation replays on day switches + macro changes.
+  list.classList.add('stagger-entry');
 
   // Units toggle
   const unitsToggle = el('div', {style: {display: 'flex', justifyContent: 'flex-end', marginBottom: '10px'}});
@@ -26708,6 +27026,33 @@ function renderNutrition() {
   // Meal Prep section — only on Nutrition tab, not in any specific day's flow
   list.appendChild(renderMealPrepSection());
 
+  // ── BEST-FIT-OF-DAY (Upgrade.A) ─────────────────────────────────────
+  // For each day, find the single meal that lands closest to its slot's
+  // macro target. That meal gets a small "highest recommended" badge in
+  // the same visual language as the swap modal. Only flagged when the
+  // meal is within 15% of slot kcal target so the badge is meaningful.
+  let bestFitMi = -1;
+  let bestFitScore = Infinity;
+  if (typeof getMealSlotTarget === 'function') {
+    displayMeals.forEach((m, i) => {
+      if (m._optional) return;
+      const target = getMealSlotTarget(m.slot);
+      if (!target || !target.kcal) return;
+      let kcal = m.kcal || m.calories;
+      if (!kcal && typeof estimateMealMacros === 'function') {
+        try { const est = estimateMealMacros(m); kcal = est && est.kcal; } catch(e) {}
+      }
+      if (!kcal) return;
+      const pctOff = Math.abs(kcal - target.kcal) / target.kcal;
+      if (pctOff < bestFitScore) {
+        bestFitScore = pctOff;
+        bestFitMi = i;
+      }
+    });
+    // Only flag if it's actually a good fit (within 15% of slot kcal)
+    if (bestFitScore > 0.15) bestFitMi = -1;
+  }
+
   displayMeals.forEach((meal, mi) => {
     const isSwapped = !!getMealSwap(mi);
     const isOpen = expandedMeal===mi;
@@ -26717,11 +27062,11 @@ function renderNutrition() {
 
     // Optional meals get faded/dotted styling so they're visibly de-emphasized
     const cardBorder = isOptional
-      ? '1px dashed #2a2a2a'
-      : '1px solid ' + (isOpen?sc+'44':isCk?sc+'22':'#1a1a1a');
+      ? '1px dashed var(--border-default)'
+      : '1px solid ' + (isOpen?sc+'44':isCk?sc+'22':'var(--border-subtle)');
     const cardOpacity = isOptional ? '0.5' : '1';
 
-    const card = el('div',{class:'card',style:{background:'#0e0e0e',border:cardBorder,borderRadius:'10px',marginBottom:'7px',overflow:'hidden',opacity:cardOpacity,transition:'opacity 0.2s ease'}});
+    const card = el('div',{class:'card dark-card',style:{background:'var(--bg-card)',border:cardBorder,borderRadius:'var(--radius-card)',marginBottom:'7px',overflow:'hidden',opacity:cardOpacity,transition:'var(--transition-card), opacity 0.2s ease'}});
 
     const hdr = div({padding:'13px 14px',display:'flex',gap:'10px',alignItems:'flex-start',cursor:'pointer'});
     hdr.appendChild(div({width:'38px',height:'38px',borderRadius:'10px',background:sc+'12',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'18px',flexShrink:'0'},meal.icon));
@@ -26729,9 +27074,9 @@ function renderNutrition() {
     const info = div({flex:'1',minWidth:'0'});
     info.appendChild(div({display:'flex',alignItems:'center',gap:'5px',marginBottom:'3px'},
       el('span',{style:{fontSize:'8px',color:sc,fontWeight:'700',letterSpacing:'0.5px',textTransform:'uppercase'}},meal.slot),
-      el('span',{style:{fontSize:'8px',color:'#6a6a6a'}},meal.time)
+      el('span',{style:{fontSize:'8px',color:'var(--text-tertiary)'}},meal.time)
     ));
-    info.appendChild(el('div',{style:{fontSize:'13px',fontWeight:'600',color:'#ddd',marginBottom:'5px',lineHeight:'1.3'}},meal.name));
+    info.appendChild(el('div',{style:{fontSize:'13px',fontWeight:'600',color:'var(--text-primary)',marginBottom:'5px',lineHeight:'1.3'}},meal.name));
     const tagRow = div({display:'flex',gap:'3px',flexWrap:'wrap'});
     // Cuisine pill — auto-inferred for legacy meals that lack a cuisine field.
     // Sits with the other tags so it doesn't add a separate visual row.
@@ -26742,13 +27087,7 @@ function renderNutrition() {
         const cuisineLabel = cuisineMeta ? cuisineMeta.label.split(' /')[0].split(' &')[0].replace('Healthy','').trim() : inferredCuisine;
         const cuisineEmoji = cuisineMeta ? cuisineMeta.emoji : '🍽️';
         tagRow.appendChild(el('span',{
-          style:{
-            fontSize:'7px', letterSpacing:'0.6px', textTransform:'uppercase',
-            color:'#9ad6ff', background:'#0a1620',
-            border:'1px solid #3b9eff44',
-            borderRadius:'3px', padding:'2px 5px',
-            display:'inline-flex', alignItems:'center', gap:'3px'
-          }
+          class:'cuisine-pill'
         }, cuisineEmoji + ' ' + cuisineLabel));
       }
     }
@@ -26897,12 +27236,57 @@ function renderNutrition() {
       const bodyF = displayF || 0;
       const macroPrefix = isEstimated ? '~' : '';
       [{label:'Protein',val:macroPrefix+bodyP+'g',color:'#00E5FF'},{label:'Carbs',val:macroPrefix+bodyC+'g',color:'#A8FF78'},{label:'Fat',val:macroPrefix+bodyF+'g',color:'#FFD166'}].forEach(s=>{
-        mg.appendChild(div({background:'#090909',borderRadius:'8px',padding:'8px 6px',textAlign:'center',border:'1px solid #1a1a1a'},
-          el('div',{style:{fontSize:'7px',color:'#333',letterSpacing:'0.12em',textTransform:'uppercase'}},s.label),
+        mg.appendChild(div({background:'var(--bg-inset)',borderRadius:'8px',padding:'8px 6px',textAlign:'center',border:'1px solid var(--border-subtle)'},
+          el('div',{style:{fontSize:'7px',color:'var(--text-disabled)',letterSpacing:'0.12em',textTransform:'uppercase'}},s.label),
           bebas(18,s.color,s.val)
         ));
       });
       body.appendChild(mg);
+
+      // ── BEST-FIT-OF-DAY BADGE (Upgrade.A) ─────────────────────────────
+      // Small uppercase Bebas chip marking the meal closest to its slot
+      // target. Only renders for the one best-fit meal of the day. Uses
+      // the same .hr-badge styling as the swap modal's HIGHEST
+      // RECOMMENDED so the visual language is consistent.
+      if (mi === bestFitMi) {
+        body.appendChild(el('div', {
+          style: { padding: '6px 14px 0' }
+        }, el('span', { class: 'hr-badge' }, '\u2726 Best fit today')));
+      }
+
+      // ── MACRO DELTA CHIPS vs SLOT TARGET ─────────────────────────────
+      // Shows at a glance how close this meal lands to its slot's macro
+      // ideal. Same visual treatment as the swap modal's delta chips so
+      // the language is consistent across the app.
+      if (typeof getMealSlotTarget === 'function' && displayKcal) {
+        const slotTgt = getMealSlotTarget(meal.slot);
+        if (slotTgt) {
+          const dKcal = displayKcal - slotTgt.kcal;
+          const dP    = (displayP || 0) - slotTgt.protein;
+          const dC    = (displayC || 0) - slotTgt.carbs;
+          const dF    = (displayF || 0) - slotTgt.fat;
+          const fmt = (v) => (v >= 0 ? '+' : '') + Math.round(v);
+          const tier = (v, target) => {
+            if (!target) return 'mid';
+            const pct = Math.abs(v) / target;
+            if (pct <= 0.15) return 'on';
+            if (pct <= 0.35) return 'mid';
+            return 'off';
+          };
+          const deltaRow = div({display:'flex',gap:'4px',flexWrap:'wrap',padding:'8px 14px 0'});
+          [
+            ['kcal', dKcal, slotTgt.kcal],
+            ['P',    dP,    slotTgt.protein],
+            ['C',    dC,    slotTgt.carbs],
+            ['F',    dF,    slotTgt.fat]
+          ].forEach(([label, val, target]) => {
+            deltaRow.appendChild(el('span', {
+              class: 'delta-chip delta-chip-' + tier(val, target)
+            }, label + ' ' + fmt(val)));
+          });
+          body.appendChild(deltaRow);
+        }
+      }
 
       // "Estimated" disclosure shown when displaying a swapped meal with calculated macros
       if (isSwapped && isEstimated) {
@@ -27730,14 +28114,16 @@ function setSystemAlarm(timeStr, label) {
 function renderSleep() {
   const root = document.getElementById('sleep-content');
   root.innerHTML = '';
-  const accent = '#9b72cf'; // sleep purple
+  // Card entry stagger — sleep cards cascade in on render.
+  root.classList.add('stagger-entry');
+  const accent = '#9b72cf'; // sleep purple — tab brand colour, kept as-is
   const settings = getSleepSettings();
 
   // ── HEADER ──
   const hdr = div({marginBottom:'14px'});
-  hdr.appendChild(el('div',{style:{fontSize:'9px',color:'#6a6a6a',letterSpacing:'0.22em',textTransform:'uppercase',marginBottom:'4px'}},'Recovery'));
+  hdr.appendChild(el('div',{style:{fontSize:'9px',color:'var(--text-tertiary)',letterSpacing:'0.22em',textTransform:'uppercase',marginBottom:'4px'}},'Recovery'));
   hdr.appendChild(bebas(34, accent, 'SLEEP'));
-  hdr.appendChild(el('div',{style:{fontSize:'10px',color:'#7a7a7a',marginTop:'3px',letterSpacing:'0.05em'}},'Sleep cycles · 90min each · plan or log'));
+  hdr.appendChild(el('div',{style:{fontSize:'10px',color:'var(--text-muted)',marginTop:'3px',letterSpacing:'0.05em'}},'Sleep cycles · 90min each · plan or log'));
   root.appendChild(hdr);
 
   // ── CURRENT STATUS BANNER (only relevant in evening hours) ──
@@ -27774,18 +28160,18 @@ function renderSleep() {
         sub = 'You should be asleep. Every minute of cycle 1 counts.';
         color = '#ff5b5b'; bg = '#1a0808';
       }
-      const banner = div({background:bg,border:'1px solid ' + color + '40',borderRadius:'10px',padding:'12px 14px',marginBottom:'14px'});
+      const banner = div({background:bg,border:'1px solid ' + color + '40',borderRadius:'var(--radius-card)',padding:'12px 14px',marginBottom:'14px'});
       const bRow = div({display:'flex',alignItems:'center',gap:'8px',marginBottom:'4px'});
-      bRow.appendChild(el('span',{style:{fontSize:'14px'}},'🌙'));
+      bRow.appendChild(el('span',{style:{fontSize:'14px'}},'\ud83c\udf19'));
       bRow.appendChild(el('span',{style:{fontSize:'10px',color:color,letterSpacing:'0.15em',textTransform:'uppercase',fontWeight:'700'}},msg));
       banner.appendChild(bRow);
-      banner.appendChild(el('div',{style:{fontSize:'10px',color:'#aaa',lineHeight:'1.5'}},sub));
+      banner.appendChild(el('div',{style:{fontSize:'10px',color:'var(--text-secondary)',lineHeight:'1.5'}},sub));
       root.appendChild(banner);
     }
   }
 
   // ── MODE TOGGLE ──
-  const modeRow = div({display:'flex',background:'#0c0c0c',border:'1px solid #1a1a1a',borderRadius:'10px',padding:'4px',marginBottom:'14px'});
+  const modeRow = div({display:'flex',background:'var(--bg-card)',border:'1px solid var(--border-subtle)',borderRadius:'var(--radius-card)',padding:'4px',marginBottom:'14px'});
   const modes = [['plan','Plan Tonight'],['log','Log a Night']];
   modes.forEach(([key, label]) => {
     const isActive = sleepMode === key;
@@ -27794,7 +28180,7 @@ function renderSleep() {
       style:{
         flex:'1',
         background: isActive ? accent : 'transparent',
-        color: isActive ? '#000' : '#888',
+        color: isActive ? '#000' : 'var(--text-muted)',
         border:'none',
         borderRadius:'7px',
         padding:'10px',
@@ -27813,8 +28199,8 @@ function renderSleep() {
 
   // ── PLAN MODE ──
   if (sleepMode === 'plan') {
-    const planCard = div({background:'#0c0c0c',border:'1px solid #1a1a1a',borderRadius:'12px',padding:'16px',marginBottom:'12px'});
-    planCard.appendChild(el('div',{style:{fontSize:'8px',color:'#6a6a6a',letterSpacing:'0.22em',textTransform:'uppercase',marginBottom:'12px'}},'Tonight\'s Plan'));
+    const planCard = div({background:'var(--bg-card)',border:'1px solid var(--border-subtle)',borderRadius:'12px',padding:'16px',marginBottom:'12px'});
+    planCard.appendChild(el('div',{style:{fontSize:'8px',color:'var(--text-tertiary)',letterSpacing:'0.22em',textTransform:'uppercase',marginBottom:'12px'}},'Tonight\'s Plan'));
 
     // Tomorrow training day callout
     const tomorrowIdx = getTomorrowActiveDay();
@@ -27823,21 +28209,21 @@ function renderSleep() {
     const rationale = getSleepRationaleForDay(tomorrowIdx);
     const callout = div({background: tomorrowDay.accent + '0d', border: '1px solid ' + tomorrowDay.accent + '33', borderRadius:'8px', padding:'10px 12px', marginBottom:'14px'});
     const calRow = div({display:'flex',alignItems:'center',gap:'8px',marginBottom:'4px'});
-    calRow.appendChild(el('span',{style:{fontSize:'7px',color:'#6a6a6a',letterSpacing:'0.2em',textTransform:'uppercase'}},'Tomorrow'));
+    calRow.appendChild(el('span',{style:{fontSize:'7px',color:'var(--text-tertiary)',letterSpacing:'0.2em',textTransform:'uppercase'}},'Tomorrow'));
     calRow.appendChild(el('span',{style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'15px',color:tomorrowDay.accent,letterSpacing:'0.04em'}}, tomorrowDay.title.toUpperCase()));
-    calRow.appendChild(el('span',{style:{marginLeft:'auto',fontSize:'9px',color:'#9b72cf',letterSpacing:'0.1em',fontWeight:'700'}}, '→ ' + recCycles + ' cycles · ' + (recCycles*1.5) + 'h'));
+    calRow.appendChild(el('span',{style:{marginLeft:'auto',fontSize:'9px',color:accent,letterSpacing:'0.1em',fontWeight:'700'}}, '\u2192 ' + recCycles + ' cycles \u00b7 ' + (recCycles*1.5) + 'h'));
     callout.appendChild(calRow);
-    callout.appendChild(el('div',{style:{fontSize:'10px',color:'#aaa',lineHeight:'1.5'}}, rationale));
+    callout.appendChild(el('div',{style:{fontSize:'10px',color:'var(--text-secondary)',lineHeight:'1.5'}}, rationale));
     planCard.appendChild(callout);
 
     // Wake time input
     const wakeRow = div({display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'});
-    wakeRow.appendChild(el('div',{style:{fontSize:'11px',color:'#aaa'}},'Tomorrow\'s wake time'));
+    wakeRow.appendChild(el('div',{style:{fontSize:'11px',color:'var(--text-secondary)'}},'Tomorrow\'s wake time'));
     const wakeInput = el('input',{
       type:'time',
       value: settings.wakeTime,
       style:{
-        background:'#080808',border:'1px solid #1e1e1e',color:'#ebebeb',
+        background:'var(--bg-base)',border:'1px solid var(--border-subtle)',color:'var(--text-primary)',
         padding:'7px 10px',borderRadius:'6px',fontSize:'14px',
         fontFamily:"'DM Mono',monospace",letterSpacing:'0.05em'
       }
@@ -27851,7 +28237,7 @@ function renderSleep() {
     planCard.appendChild(wakeRow);
 
     // Cycles selector
-    const cyclesLabel = el('div',{style:{fontSize:'11px',color:'#aaa',marginBottom:'6px'}},'Sleep target');
+    const cyclesLabel = el('div',{style:{fontSize:'11px',color:'var(--text-secondary)',marginBottom:'6px'}},'Sleep target');
     planCard.appendChild(cyclesLabel);
     const cyclesRow = div({display:'flex',gap:'5px',marginBottom:'14px'});
     [
@@ -27865,9 +28251,9 @@ function renderSleep() {
         class:'btn',
         style:{
           flex:'1',
-          background: isSelected ? accent + '22' : '#080808',
-          color: isSelected ? accent : '#666',
-          border:'1px solid ' + (isSelected ? accent + '88' : '#1a1a1a'),
+          background: isSelected ? accent + '22' : 'var(--bg-base)',
+          color: isSelected ? accent : 'var(--text-tertiary)',
+          border:'1px solid ' + (isSelected ? accent + '88' : 'var(--border-subtle)'),
           borderRadius:'7px',
           padding:'8px 4px',
           cursor:'pointer',
@@ -27887,18 +28273,18 @@ function renderSleep() {
 
     // Schedule output
     if (sched) {
-      const scheduleBox = div({background:'#080808',borderRadius:'8px',padding:'12px 14px',border:'1px solid #161616',marginBottom:'10px'});
+      const scheduleBox = div({background:'var(--bg-base)',borderRadius:'8px',padding:'12px 14px',border:'1px solid var(--border-subtle)',marginBottom:'10px'});
       const scheduleRows = [
         {lbl:'Start winding down', val:sched.windDownStartStr, sub:'1hr alert', color:'#FFD166', bold:true},
         {lbl:'Be in bed', val:sched.inBedByStr, sub:'30min wind-down', color:'#3bffe8'},
         {lbl:'Asleep by', val:sched.asleepByStr, sub:'cycles begin', color:accent},
-        {lbl:'Wake up', val:sched.wakeTime, sub:settings.cycles + ' cycles · ' + sched.totalHours + 'h', color:'#06d6a0', bold:true}
+        {lbl:'Wake up', val:sched.wakeTime, sub:settings.cycles + ' cycles \u00b7 ' + sched.totalHours + 'h', color:'#06d6a0', bold:true}
       ];
       scheduleRows.forEach((r, i) => {
-        const row = div({display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom: i < scheduleRows.length-1 ? '1px solid #141414' : 'none'});
+        const row = div({display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom: i < scheduleRows.length-1 ? '1px solid var(--border-subtle)' : 'none'});
         const left = div({});
-        left.appendChild(el('div',{style:{fontSize:'10px',color:r.bold ? '#ebebeb' : '#888'}}, r.lbl));
-        left.appendChild(el('div',{style:{fontSize:'8px',color:'#6a6a6a',marginTop:'2px',letterSpacing:'0.05em'}}, r.sub));
+        left.appendChild(el('div',{style:{fontSize:'10px',color:r.bold ? 'var(--text-primary)' : 'var(--text-muted)'}}, r.lbl));
+        left.appendChild(el('div',{style:{fontSize:'8px',color:'var(--text-tertiary)',marginTop:'2px',letterSpacing:'0.05em'}}, r.sub));
         row.appendChild(left);
         row.appendChild(el('div',{style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:r.bold ? '24px' : '20px',color:r.color,letterSpacing:'0.04em'}}, r.val));
         scheduleBox.appendChild(row);
@@ -27920,7 +28306,7 @@ function renderSleep() {
       btnRow.appendChild(setWakeBtn);
       btnRow.appendChild(setWindDownBtn);
       planCard.appendChild(btnRow);
-      planCard.appendChild(el('div',{style:{fontSize:'8px',color:'#333',marginTop:'8px',textAlign:'center',lineHeight:'1.5'}},'Opens system Clock app · Android pre-fills the time, iOS opens to alarms tab.'));
+      planCard.appendChild(el('div',{style:{fontSize:'8px',color:'var(--text-disabled)',marginTop:'8px',textAlign:'center',lineHeight:'1.5'}},'Opens system Clock app \u00b7 Android pre-fills the time, iOS opens to alarms tab.'));
     }
     root.appendChild(planCard);
   }
@@ -27929,8 +28315,8 @@ function renderSleep() {
   if (sleepMode === 'log') {
     const yesterday = getYesterdayKey();
     const today = todayKey();
-    const logCard = div({background:'#0c0c0c',border:'1px solid #1a1a1a',borderRadius:'12px',padding:'16px',marginBottom:'12px'});
-    logCard.appendChild(el('div',{style:{fontSize:'8px',color:'#6a6a6a',letterSpacing:'0.22em',textTransform:'uppercase',marginBottom:'12px'}},'Log a Night'));
+    const logCard = div({background:'var(--bg-card)',border:'1px solid var(--border-subtle)',borderRadius:'12px',padding:'16px',marginBottom:'12px'});
+    logCard.appendChild(el('div',{style:{fontSize:'8px',color:'var(--text-tertiary)',letterSpacing:'0.22em',textTransform:'uppercase',marginBottom:'12px'}},'Log a Night'));
 
     // Date picker — default to yesterday since you'd log in the morning after waking.
     // Max is yesterday because tonight's sleep hasn't happened yet — there's no
@@ -27938,13 +28324,13 @@ function renderSleep() {
     const existingLog = getSleepLog(yesterday) || {};
 
     const dateRow = div({display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'});
-    dateRow.appendChild(el('div',{style:{fontSize:'11px',color:'#aaa'}},'For night of'));
+    dateRow.appendChild(el('div',{style:{fontSize:'11px',color:'var(--text-secondary)'}},'For night of'));
     const dateInput = el('input',{
       type:'date',
       value: existingLog._activeDate || yesterday,
       max: yesterday,  // can't log tonight's sleep before it happens
       style:{
-        background:'#080808',border:'1px solid #1e1e1e',color:'#ebebeb',
+        background:'var(--bg-base)',border:'1px solid var(--border-subtle)',color:'var(--text-primary)',
         padding:'7px 10px',borderRadius:'6px',fontSize:'12px',
         fontFamily:"'DM Mono',monospace"
       }
@@ -27961,43 +28347,45 @@ function renderSleep() {
 
       const log = getSleepLog(selectedDate) || {};
 
-      const bedRow = div({display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid #161616'});
-      bedRow.appendChild(el('div',{style:{fontSize:'11px',color:'#aaa'}},'Fell asleep around'));
+      const bedRow = div({display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid var(--border-subtle)'});
+      bedRow.appendChild(el('div',{style:{fontSize:'11px',color:'var(--text-secondary)'}},'Fell asleep around'));
       const bedInput = el('input',{
         type:'time',
         value: log.bedtime || '22:30',
-        style:{background:'#080808',border:'1px solid #1e1e1e',color:'#ebebeb',padding:'7px 10px',borderRadius:'6px',fontSize:'14px',fontFamily:"'DM Mono',monospace",letterSpacing:'0.05em'}
+        style:{background:'var(--bg-base)',border:'1px solid var(--border-subtle)',color:'var(--text-primary)',padding:'7px 10px',borderRadius:'6px',fontSize:'14px',fontFamily:"'DM Mono',monospace",letterSpacing:'0.05em'}
       });
       bedRow.appendChild(bedInput);
       block.appendChild(bedRow);
 
-      const wakeRow = div({display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid #161616'});
-      wakeRow.appendChild(el('div',{style:{fontSize:'11px',color:'#aaa'}},'Woke up at'));
+      const wakeRow = div({display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid var(--border-subtle)'});
+      wakeRow.appendChild(el('div',{style:{fontSize:'11px',color:'var(--text-secondary)'}},'Woke up at'));
       const wakeInput = el('input',{
         type:'time',
         value: log.wakeTime || '06:30',
-        style:{background:'#080808',border:'1px solid #1e1e1e',color:'#ebebeb',padding:'7px 10px',borderRadius:'6px',fontSize:'14px',fontFamily:"'DM Mono',monospace",letterSpacing:'0.05em'}
+        style:{background:'var(--bg-base)',border:'1px solid var(--border-subtle)',color:'var(--text-primary)',padding:'7px 10px',borderRadius:'6px',fontSize:'14px',fontFamily:"'DM Mono',monospace",letterSpacing:'0.05em'}
       });
       wakeRow.appendChild(wakeInput);
       block.appendChild(wakeRow);
 
-      // Live result preview
-      const resultBox = div({background:'#080808',borderRadius:'8px',padding:'14px',border:'1px solid #161616',marginTop:'12px',textAlign:'center'});
+      // Live result preview — the HERO card. Quality colour kept on the
+      // duration because it's information (red = bad, green = great); the
+      // surface uses tokens.
+      const resultBox = div({background:'var(--bg-base)',borderRadius:'8px',padding:'14px',border:'1px solid var(--border-subtle)',marginTop:'12px',textAlign:'center'});
       const updateResult = () => {
         resultBox.innerHTML = '';
         const dur = calculateSleepDuration(bedInput.value, wakeInput.value);
         if (dur == null) {
-          resultBox.appendChild(el('div',{style:{fontSize:'10px',color:'#6a6a6a'}},'Enter bedtime and wake time'));
+          resultBox.appendChild(el('div',{style:{fontSize:'10px',color:'var(--text-tertiary)'}},'Enter bedtime and wake time'));
           return;
         }
         const cycles = (dur / 90).toFixed(1);
         const quality = getSleepQuality(dur);
-        resultBox.appendChild(el('div',{style:{fontSize:'8px',color:'#6a6a6a',letterSpacing:'0.22em',textTransform:'uppercase',marginBottom:'4px'}},'Time asleep'));
-        resultBox.appendChild(bebas(40, quality ? quality.color : '#ebebeb', formatDuration(dur)));
-        resultBox.appendChild(el('div',{style:{fontSize:'10px',color:'#8a8a8a',marginTop:'4px',fontFamily:"'DM Mono',monospace"}}, cycles + ' sleep cycles'));
+        resultBox.appendChild(el('div',{style:{fontSize:'8px',color:'var(--text-tertiary)',letterSpacing:'0.22em',textTransform:'uppercase',marginBottom:'4px'}},'Time asleep'));
+        resultBox.appendChild(bebas(40, quality ? quality.color : 'var(--text-primary)', formatDuration(dur)));
+        resultBox.appendChild(el('div',{style:{fontSize:'10px',color:'var(--text-muted)',marginTop:'4px',fontFamily:"'DM Mono',monospace"}}, cycles + ' sleep cycles'));
         if (quality) {
           resultBox.appendChild(el('div',{style:{fontSize:'9px',color:quality.color,marginTop:'8px',letterSpacing:'0.15em',textTransform:'uppercase',fontWeight:'700'}}, quality.label));
-          resultBox.appendChild(el('div',{style:{fontSize:'9px',color:'#888',marginTop:'4px',lineHeight:'1.5'}}, quality.advice));
+          resultBox.appendChild(el('div',{style:{fontSize:'9px',color:'var(--text-muted)',marginTop:'4px',lineHeight:'1.5'}}, quality.advice));
         }
       };
       bedInput.onchange = updateResult;
@@ -28019,7 +28407,7 @@ function renderSleep() {
           });
           renderSleep();
         }
-      }, log.bedtime ? '✓ Update Entry' : '+ Save Entry');
+      }, log.bedtime ? '\u2713 Update Entry' : '+ Save Entry');
       block.appendChild(saveBtn);
       updateResult();
       logCard.appendChild(block);
@@ -28031,58 +28419,189 @@ function renderSleep() {
     root.appendChild(logCard);
   }
 
-  // ── HISTORY ──
+  // ── HISTORY (Upgrade.D) ─────────────────────────────────────────────
+  // Tokenized surfaces + streak counter + target line + tap-to-reveal
+  // exact value on bars + insight card. Quality colours on bars are
+  // preserved because they carry information (red = bad night, etc.).
   const allLogs = getAllSleepLogs();
   if (allLogs.length > 0) {
-    const histCard = div({background:'#0c0c0c',border:'1px solid #1a1a1a',borderRadius:'12px',padding:'16px',marginBottom:'12px'});
-    histCard.appendChild(el('div',{style:{fontSize:'8px',color:'#6a6a6a',letterSpacing:'0.22em',textTransform:'uppercase',marginBottom:'12px'}},'Recent Nights'));
+    const histCard = div({background:'var(--bg-card)',border:'1px solid var(--border-subtle)',borderRadius:'12px',padding:'16px',marginBottom:'12px'});
+    histCard.appendChild(el('div',{style:{fontSize:'8px',color:'var(--text-tertiary)',letterSpacing:'0.22em',textTransform:'uppercase',marginBottom:'12px'}},'Recent Nights'));
 
     const last7 = allLogs.slice(-7);
     const avgMin = last7.reduce((a, l) => a + (l.durationMin || 0), 0) / last7.length;
 
-    // Summary numbers
-    const summary = div({display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'12px'});
-    const sumCell = (lbl, val, color) => {
-      const c = div({background:'#080808',borderRadius:'7px',padding:'10px',textAlign:'center',border:'1px solid #161616'});
-      c.appendChild(el('div',{style:{fontSize:'7px',color:'#6a6a6a',letterSpacing:'0.18em',textTransform:'uppercase',marginBottom:'4px'}},lbl));
+    // Sleep goal in minutes (from settings.cycles × 90)
+    const goalMin = (settings.cycles || 5) * 90;
+
+    // Streak counter: count nights from the end backwards while we stay
+    // at-or-above goal. Resets on the first below-goal night.
+    let streak = 0;
+    for (let i = allLogs.length - 1; i >= 0; i--) {
+      if ((allLogs[i].durationMin || 0) >= goalMin) streak++;
+      else break;
+    }
+
+    // Summary numbers — 3 cells: 7-day avg, streak, total nights
+    const summary = div({display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px',marginBottom:'12px'});
+    const sumCell = (lbl, val, color, sub) => {
+      const c = div({background:'var(--bg-inset)',borderRadius:'7px',padding:'10px',textAlign:'center',border:'1px solid var(--border-subtle)'});
+      c.appendChild(el('div',{style:{fontSize:'7px',color:'var(--text-tertiary)',letterSpacing:'0.18em',textTransform:'uppercase',marginBottom:'4px'}},lbl));
       c.appendChild(bebas(22, color, val));
+      if (sub) {
+        c.appendChild(el('div',{style:{fontSize:'7px',color:'var(--text-footnote)',marginTop:'2px',letterSpacing:'0.05em',textTransform:'uppercase'}}, sub));
+      }
       return c;
     };
-    summary.appendChild(sumCell('7-Day Avg', formatDuration(avgMin), avgMin >= 480 ? '#06d6a0' : '#FFD166'));
-    summary.appendChild(sumCell('Nights Logged', allLogs.length + '', '#ebebeb'));
+    summary.appendChild(sumCell('7-Day Avg', formatDuration(avgMin), avgMin >= goalMin ? '#06d6a0' : '#FFD166', avgMin >= goalMin ? 'on target' : 'under'));
+    // Streak — orange accent treatment when active
+    const streakCell = sumCell('Streak', streak + '', streak > 0 ? 'var(--accent-primary)' : 'var(--text-tertiary)', streak === 1 ? 'night' : 'nights');
+    if (streak >= 3) {
+      // Add a subtle orange-glow border when streak is meaningful (3+)
+      streakCell.style.borderColor = 'var(--accent-primary-border)';
+      streakCell.style.background = 'var(--bg-card-highlight)';
+      streakCell.style.boxShadow = 'var(--accent-primary-shadow)';
+    }
+    summary.appendChild(streakCell);
+    summary.appendChild(sumCell('Logged', allLogs.length + '', 'var(--text-primary)', allLogs.length === 1 ? 'night' : 'nights'));
     histCard.appendChild(summary);
 
-    // Bar chart
-    const chart = div({display:'flex',gap:'5px',height:'70px',alignItems:'flex-end',marginBottom:'8px'});
-    const maxDur = Math.max(540, ...last7.map(l => l.durationMin || 0)); // baseline 9h
-    last7.forEach(l => {
+    // ── BAR CHART (with target line + tap-to-reveal) ───────────────────
+    // Chart container holds the bars + an absolutely-positioned target
+    // line at the goal height. Tapping a bar shows a small tooltip with
+    // the exact value below the chart.
+    const chartHeight = 80;
+    const chartWrap = div({position:'relative',height:chartHeight + 'px',marginBottom:'8px'});
+    const chart = div({display:'flex',gap:'5px',height:'100%',alignItems:'flex-end',position:'relative',zIndex:'1'});
+    const maxDur = Math.max(goalMin * 1.15, ...last7.map(l => l.durationMin || 0)); // headroom above target
+
+    // Target line — horizontal dashed line at goal duration
+    const targetPctTop = 100 - (goalMin / maxDur) * 100;
+    const targetLine = div({
+      position:'absolute',
+      left:'0', right:'0',
+      top: targetPctTop + '%',
+      height:'0',
+      borderTop:'1px dashed var(--accent-primary-border)',
+      zIndex:'2',
+      pointerEvents:'none'
+    });
+    chartWrap.appendChild(targetLine);
+    // Target label pill — sits on the right of the line
+    const targetLabel = el('span', {
+      style:{
+        position:'absolute',
+        right:'0',
+        top: 'calc(' + targetPctTop + '% - 8px)',
+        fontSize:'7px',
+        color:'var(--accent-primary)',
+        background:'var(--bg-card)',
+        padding:'1px 4px',
+        borderRadius:'3px',
+        letterSpacing:'0.08em',
+        textTransform:'uppercase',
+        fontFamily:"'DM Mono',monospace",
+        fontWeight:'700',
+        zIndex:'3',
+        pointerEvents:'none'
+      }
+    }, 'Goal ' + formatDuration(goalMin));
+    chartWrap.appendChild(targetLabel);
+
+    // Tooltip box (rendered below the chart) — updates on tap
+    const tooltip = div({
+      fontSize:'9px',color:'var(--text-secondary)',
+      fontFamily:"'DM Mono',monospace",
+      textAlign:'center',
+      minHeight:'14px',
+      marginTop:'6px',
+      letterSpacing:'0.05em'
+    });
+
+    last7.forEach((l, idx) => {
       const dur = l.durationMin || 0;
       const pct = Math.max(4, (dur / maxDur) * 100);
       const q = getSleepQuality(dur);
-      const barColor = q ? q.color : '#333';
-      const col = div({flex:'1',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end',height:'100%'});
-      const bar = div({width:'100%',background:barColor,borderRadius:'3px 3px 0 0',height:pct + '%',minHeight:'4px',position:'relative'});
+      const barColor = q ? q.color : 'var(--text-disabled)';
+      const col = div({flex:'1',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end',height:'100%',cursor:'pointer'});
+      const bar = div({width:'100%',background:barColor,borderRadius:'3px 3px 0 0',height:pct + '%',minHeight:'4px',position:'relative',transition:'opacity 0.15s ease'});
       col.appendChild(bar);
-      // Date label below
-      const dateLbl = l.date.substring(8); // dd
-      col.appendChild(el('div',{style:{fontSize:'7px',color:'#6a6a6a',marginTop:'3px',fontFamily:"'DM Mono',monospace"}}, dateLbl));
+      // Tap reveals exact value in the tooltip
+      col.onclick = () => {
+        tooltip.innerHTML = '';
+        tooltip.appendChild(el('span', {style:{color:barColor}}, formatDuration(dur)));
+        tooltip.appendChild(document.createTextNode(' \u00b7 ' + l.date.substring(5) + ' \u00b7 ' + (q ? q.label : 'no data')));
+      };
       chart.appendChild(col);
     });
-    histCard.appendChild(chart);
-    histCard.appendChild(el('div',{style:{fontSize:'8px',color:'#333',textAlign:'center',marginTop:'4px',lineHeight:'1.5'}}, 'Last ' + last7.length + ' nights · target band 8-10h for body recomp'));
+    chartWrap.appendChild(chart);
+    histCard.appendChild(chartWrap);
+
+    // Date labels row (below chart)
+    const dateRow2 = div({display:'flex',gap:'5px',marginTop:'4px'});
+    last7.forEach(l => {
+      const dateLbl = l.date.substring(8); // dd
+      dateRow2.appendChild(el('div',{style:{flex:'1',fontSize:'7px',color:'var(--text-tertiary)',textAlign:'center',fontFamily:"'DM Mono',monospace"}}, dateLbl));
+    });
+    histCard.appendChild(dateRow2);
+    histCard.appendChild(tooltip);
+    histCard.appendChild(el('div',{style:{fontSize:'8px',color:'var(--text-footnote)',textAlign:'center',marginTop:'4px',lineHeight:'1.5'}}, 'Tap a bar to see the night \u00b7 dashed line = your goal'));
 
     root.appendChild(histCard);
+
+    // ── INSIGHTS CARD (Upgrade.D) ──────────────────────────────────────
+    // Surfaces a simple correlation when we have enough data: nights at/
+    // above goal vs total nights. Acts as positive reinforcement and a
+    // first step toward more sophisticated correlations later.
+    if (allLogs.length >= 3) {
+      const nightsAtGoal = allLogs.filter(l => (l.durationMin || 0) >= goalMin).length;
+      const pctAtGoal = Math.round((nightsAtGoal / allLogs.length) * 100);
+      const last7Goal = last7.filter(l => (l.durationMin || 0) >= goalMin).length;
+      const insightCard = div({
+        background:'var(--bg-elevated)',
+        border:'1px solid var(--border-subtle)',
+        borderRadius:'var(--radius-card)',
+        padding:'12px 14px',
+        marginBottom:'12px'
+      });
+      insightCard.appendChild(el('div',{
+        style:{fontSize:'8px',color:'var(--accent-info)',letterSpacing:'0.22em',textTransform:'uppercase',marginBottom:'8px',fontWeight:'700'}
+      }, '\u2726 Insight'));
+
+      // Pick an insight based on the data shape
+      let headline, body;
+      if (last7Goal >= 5) {
+        headline = 'Strong week — ' + last7Goal + ' of 7 nights at goal';
+        body = 'Your sleep window is on point this week. Training output and recovery should be sharp. Keep the routine.';
+      } else if (last7Goal >= 3) {
+        headline = 'Mixed week — ' + last7Goal + ' of 7 at goal';
+        body = 'Some nights are landing, others falling short. Consistency matters more than averages — pick one hour to start wind-down and protect it.';
+      } else if (avgMin < goalMin - 60) {
+        headline = 'Averaging ' + Math.round((goalMin - avgMin) / 60 * 10) / 10 + 'h under target';
+        body = 'You\'re consistently below the ' + (goalMin/60) + 'h goal. CNS recovery and protein synthesis are likely blunted. Reduce screen time after 9pm for a week and see if your bedtime drifts earlier.';
+      } else {
+        headline = pctAtGoal + '% of all logged nights at goal';
+        body = 'Tracking ' + allLogs.length + ' nights so far. As the dataset grows, this card will surface real patterns — e.g. which training days follow your best sleeps.';
+      }
+      insightCard.appendChild(el('div',{
+        style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'15px',color:'var(--text-primary)',letterSpacing:'0.03em',marginBottom:'4px',lineHeight:'1.25'}
+      }, headline));
+      insightCard.appendChild(el('div',{
+        style:{fontSize:'10px',color:'var(--text-secondary)',lineHeight:'1.5'}
+      }, body));
+      root.appendChild(insightCard);
+    }
   }
 
   // ── WHY SLEEP MATTERS (educational, collapsible) ──
   if (typeof window._sleepEduOpen === 'undefined') window._sleepEduOpen = false;
-  const eduCard = div({background:'#0c0c0c',border:'1px solid #1a1a1a',borderRadius:'12px',marginBottom:'12px',overflow:'hidden'});
+  const eduCard = div({background:'var(--bg-card)',border:'1px solid var(--border-subtle)',borderRadius:'12px',marginBottom:'12px',overflow:'hidden'});
   const eduHdr = el('button',{class:'btn',style:{width:'100%',background:'transparent',border:'none',padding:'14px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'},onclick:()=>{ window._sleepEduOpen = !window._sleepEduOpen; renderSleep(); }});
   const eduLeft = div({});
-  eduLeft.appendChild(el('div',{style:{fontSize:'8px',color:'#6a6a6a',letterSpacing:'0.22em',textTransform:'uppercase'}},'Why Sleep Matters'));
-  eduLeft.appendChild(el('div',{style:{fontSize:'9px',color:'#7a7a7a',marginTop:'3px'}},'For body recomp and training output'));
+  eduLeft.appendChild(el('div',{style:{fontSize:'8px',color:'var(--text-tertiary)',letterSpacing:'0.22em',textTransform:'uppercase'}},'Why Sleep Matters'));
+  eduLeft.appendChild(el('div',{style:{fontSize:'9px',color:'var(--text-muted)',marginTop:'3px'}},'For body recomp and training output'));
   eduHdr.appendChild(eduLeft);
-  eduHdr.appendChild(el('span',{style:{color:'#6a6a6a',fontSize:'10px'}}, window._sleepEduOpen ? '▲' : '▼'));
+  eduHdr.appendChild(el('span',{style:{color:'var(--text-tertiary)',fontSize:'10px'}}, window._sleepEduOpen ? '\u25b2' : '\u25bc'));
   eduCard.appendChild(eduHdr);
 
   if (window._sleepEduOpen) {
@@ -28090,39 +28609,39 @@ function renderSleep() {
 
     // Section: How sleep cycles work
     const sec1 = div({marginBottom:'14px'});
-    sec1.appendChild(el('div',{style:{fontSize:'9px',color:'#9b72cf',letterSpacing:'0.18em',textTransform:'uppercase',marginBottom:'6px',fontWeight:'700'}},'How sleep cycles work'));
-    sec1.appendChild(el('p',{style:{fontSize:'11px',color:'#aaa',lineHeight:'1.6',margin:'0 0 8px'}},'Sleep runs in 90-minute cycles. Each cycle has two halves with completely different jobs:'));
+    sec1.appendChild(el('div',{style:{fontSize:'9px',color:accent,letterSpacing:'0.18em',textTransform:'uppercase',marginBottom:'6px',fontWeight:'700'}},'How sleep cycles work'));
+    sec1.appendChild(el('p',{style:{fontSize:'11px',color:'var(--text-secondary)',lineHeight:'1.6',margin:'0 0 8px'}},'Sleep runs in 90-minute cycles. Each cycle has two halves with completely different jobs:'));
     const cycleParts = [
       {color:'#3bffe8',label:'Deep sleep (front of cycle)',body:'Dominates cycles 1-3 (the first half of your night). This is when growth hormone surges, muscle repair happens, glycogen restores. Cutting sleep short barely touches this — the front-loaded value.'},
-      {color:'#9b72cf',label:'REM sleep (back of cycle)',body:'Dominates cycles 4-6 (the second half). Motor patterns consolidate here — this is where skill learning sticks. Memory, mood, and fat metabolism also live in REM.'}
+      {color:accent,label:'REM sleep (back of cycle)',body:'Dominates cycles 4-6 (the second half). Motor patterns consolidate here — this is where skill learning sticks. Memory, mood, and fat metabolism also live in REM.'}
     ];
     cycleParts.forEach(p => {
-      const row = div({padding:'8px 10px',background:'#080808',borderRadius:'6px',borderLeft:'2px solid ' + p.color,marginBottom:'5px'});
+      const row = div({padding:'8px 10px',background:'var(--bg-base)',borderRadius:'6px',borderLeft:'2px solid ' + p.color,marginBottom:'5px'});
       row.appendChild(el('div',{style:{fontSize:'9px',color:p.color,letterSpacing:'0.1em',textTransform:'uppercase',marginBottom:'3px',fontWeight:'700'}}, p.label));
-      row.appendChild(el('div',{style:{fontSize:'10px',color:'#888',lineHeight:'1.6'}}, p.body));
+      row.appendChild(el('div',{style:{fontSize:'10px',color:'var(--text-muted)',lineHeight:'1.6'}}, p.body));
       sec1.appendChild(row);
     });
-    sec1.appendChild(el('p',{style:{fontSize:'10px',color:'#777',lineHeight:'1.6',margin:'8px 0 0',fontStyle:'italic'}},'Key insight: cutting from 9h to 7h doesn\'t cut 22% off everything — it cuts mostly REM. That\'s why short sleep wrecks Skills day quality even more than strength.'));
+    sec1.appendChild(el('p',{style:{fontSize:'10px',color:'var(--text-muted)',lineHeight:'1.6',margin:'8px 0 0',fontStyle:'italic'}},'Key insight: cutting from 9h to 7h doesn\'t cut 22% off everything — it cuts mostly REM. That\'s why short sleep wrecks Skills day quality even more than strength.'));
     eduBody.appendChild(sec1);
 
     // Section: Cycle-by-cycle differences
     const sec2 = div({marginBottom:'14px'});
-    sec2.appendChild(el('div',{style:{fontSize:'9px',color:'#9b72cf',letterSpacing:'0.18em',textTransform:'uppercase',marginBottom:'6px',fontWeight:'700'}},'5 vs 6 cycles · what\'s the difference?'));
+    sec2.appendChild(el('div',{style:{fontSize:'9px',color:accent,letterSpacing:'0.18em',textTransform:'uppercase',marginBottom:'6px',fontWeight:'700'}},'5 vs 6 cycles \u00b7 what\'s the difference?'));
     const cycleData = [
       {n:'4', h:'6h',  color:'#ff5b5b', label:'Survival',   body:'Testosterone drops 10-15%, cortisol elevates, ghrelin (hunger) up. MPS impaired. Not sustainable. Use only as crisis recovery.'},
       {n:'5', h:'7.5h',color:'#FFD166', label:'Adequate',   body:'Most adults function fine here. Body recomp possible but slower. Strength output ~5% below peak. Workable for Push/Pull/Skills days.'},
       {n:'6', h:'9h',  color:'#06d6a0', label:'Optimal',    body:'GH and testosterone peak. MPS fully active. Recovery from heavy compounds. Cognitive output sharp. This is the target — especially before Legs and Full Body days.'},
-      {n:'7', h:'10.5h',color:'#9b72cf',label:'Deep recovery',body:'Use during deload weeks, after illness, after travel/jet lag. Beyond this regularly suggests something else is off — over-training, low iron, depression.'}
+      {n:'7', h:'10.5h',color:accent,label:'Deep recovery',body:'Use during deload weeks, after illness, after travel/jet lag. Beyond this regularly suggests something else is off — over-training, low iron, depression.'}
     ];
     cycleData.forEach(c => {
-      const row = div({display:'flex',gap:'10px',padding:'9px 10px',background:'#080808',borderRadius:'6px',marginBottom:'5px',border:'1px solid #161616',alignItems:'flex-start'});
+      const row = div({display:'flex',gap:'10px',padding:'9px 10px',background:'var(--bg-base)',borderRadius:'6px',marginBottom:'5px',border:'1px solid var(--border-subtle)',alignItems:'flex-start'});
       const numCol = div({display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',minWidth:'46px',background:c.color + '14',borderRadius:'5px',padding:'6px 4px',border:'1px solid ' + c.color + '33'});
       numCol.appendChild(el('div',{style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'18px',color:c.color,lineHeight:'1'}}, c.n));
       numCol.appendChild(el('div',{style:{fontSize:'8px',color:c.color,marginTop:'2px',letterSpacing:'0.05em'}}, c.h));
       row.appendChild(numCol);
       const txtCol = div({flex:'1'});
       txtCol.appendChild(el('div',{style:{fontSize:'10px',color:c.color,letterSpacing:'0.1em',textTransform:'uppercase',marginBottom:'3px',fontWeight:'700'}}, c.label));
-      txtCol.appendChild(el('div',{style:{fontSize:'10px',color:'#888',lineHeight:'1.6'}}, c.body));
+      txtCol.appendChild(el('div',{style:{fontSize:'10px',color:'var(--text-muted)',lineHeight:'1.6'}}, c.body));
       row.appendChild(txtCol);
       sec2.appendChild(row);
     });
@@ -28130,8 +28649,8 @@ function renderSleep() {
 
     // Section: Training day recommendations
     const sec3 = div({marginBottom:'8px'});
-    sec3.appendChild(el('div',{style:{fontSize:'9px',color:'#9b72cf',letterSpacing:'0.18em',textTransform:'uppercase',marginBottom:'6px',fontWeight:'700'}},'Training day recommendations'));
-    sec3.appendChild(el('p',{style:{fontSize:'10px',color:'#777',lineHeight:'1.6',margin:'0 0 8px'}},'The night before a session matters more than the night after. Plan sleep around tomorrow\'s training:'));
+    sec3.appendChild(el('div',{style:{fontSize:'9px',color:accent,letterSpacing:'0.18em',textTransform:'uppercase',marginBottom:'6px',fontWeight:'700'}},'Training day recommendations'));
+    sec3.appendChild(el('p',{style:{fontSize:'10px',color:'var(--text-muted)',lineHeight:'1.6',margin:'0 0 8px'}},'The night before a session matters more than the night after. Plan sleep around tomorrow\'s training:'));
     const trainRecs = [
       {day:'Wed', title:'Legs',      cycles:'6',  hours:'9h',  rationale:'Heaviest CNS load of the week. Squats and RDLs deplete the nervous system.', accent:'#ff7b3b'},
       {day:'Fri', title:'Full Body', cycles:'6',  hours:'9h',  rationale:'Deadlift volume + compound stack. Total recovery debt is highest.', accent:'#ff3b7b'},
@@ -28142,21 +28661,21 @@ function renderSleep() {
       {day:'Sun', title:'Rest',      cycles:'6+', hours:'9h+', rationale:'Complete rest. Aim for the longest sleep of your week — this is when the deepest recovery and growth happens.', accent:'#6a4c93'}
     ];
     trainRecs.forEach(r => {
-      const row = div({display:'flex',gap:'10px',padding:'8px 10px',background:'#080808',borderRadius:'6px',marginBottom:'4px',alignItems:'center',border:'1px solid #161616'});
+      const row = div({display:'flex',gap:'10px',padding:'8px 10px',background:'var(--bg-base)',borderRadius:'6px',marginBottom:'4px',alignItems:'center',border:'1px solid var(--border-subtle)'});
       const tag = div({minWidth:'62px',padding:'4px 6px',background:r.accent+'14',border:'1px solid '+r.accent+'33',borderRadius:'4px',textAlign:'center'});
       tag.appendChild(el('div',{style:{fontSize:'7px',color:r.accent,letterSpacing:'0.12em',textTransform:'uppercase'}}, r.day));
       tag.appendChild(el('div',{style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'12px',color:r.accent,letterSpacing:'0.04em',marginTop:'1px'}}, r.title.toUpperCase()));
       row.appendChild(tag);
       const mid = div({flex:'1'});
-      mid.appendChild(el('div',{style:{fontSize:'10px',color:'#999',lineHeight:'1.5'}}, r.rationale));
+      mid.appendChild(el('div',{style:{fontSize:'10px',color:'var(--text-secondary)',lineHeight:'1.5'}}, r.rationale));
       row.appendChild(mid);
       const right = div({textAlign:'right',minWidth:'55px'});
-      right.appendChild(el('div',{style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'15px',color:'#9b72cf',letterSpacing:'0.04em'}}, r.cycles));
-      right.appendChild(el('div',{style:{fontSize:'7px',color:'#8a8a8a',letterSpacing:'0.05em'}}, r.hours));
+      right.appendChild(el('div',{style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'15px',color:accent,letterSpacing:'0.04em'}}, r.cycles));
+      right.appendChild(el('div',{style:{fontSize:'7px',color:'var(--text-muted)',letterSpacing:'0.05em'}}, r.hours));
       row.appendChild(right);
       sec3.appendChild(row);
     });
-    sec3.appendChild(el('p',{style:{fontSize:'9px',color:'#8a8a8a',lineHeight:'1.6',margin:'10px 0 0',fontStyle:'italic'}},'Cycles refers to the night before training. Sleep before Wednesday matters for Wednesday\'s Legs session — not Tuesday\'s Pull session.'));
+    sec3.appendChild(el('p',{style:{fontSize:'9px',color:'var(--text-muted)',lineHeight:'1.6',margin:'10px 0 0',fontStyle:'italic'}},'Cycles refers to the night before training. Sleep before Wednesday matters for Wednesday\'s Legs session — not Tuesday\'s Pull session.'));
     eduBody.appendChild(sec3);
 
     eduCard.appendChild(eduBody);
@@ -28394,10 +28913,30 @@ function buildShoppingList() {
   // way, a swap made AFTER locking immediately updates what you need to buy.
   const mealsByDay = buildCurrentPlanSnapshot();
 
+  // ── COST-TIER + CUISINE AGGREGATION (Upgrade.C) ─────────────────────
+  // Track which cuisines drove each ingredient (for the By Cuisine view)
+  // and aggregate cost tiers across the week (for the summary header).
+  const costTierWeights = { cheap: 1, mid: 2, premium: 3 };
+  let costTierSum = 0;
+  let costTierCount = 0;
+
   Object.keys(mealsByDay).forEach(dayNum => {
     const meals = mealsByDay[dayNum] || [];
     meals.forEach(meal => {
       if (!meal || !meal.ingredients) return;
+      // Resolve the meal's cuisine — explicit field first, fall back to
+      // inference (covers legacy meals that lack the field).
+      let mealCuisine = meal.cuisine;
+      if (!mealCuisine && typeof inferCuisineFromAlt === 'function') {
+        try { mealCuisine = inferCuisineFromAlt(meal); } catch(e) { mealCuisine = 'general'; }
+      }
+      mealCuisine = mealCuisine || 'general';
+      // Cost tier — only count meals that declare a tier (DB-sourced recipes)
+      const tier = meal.costTier;
+      if (tier && costTierWeights[tier]) {
+        costTierSum += costTierWeights[tier];
+        costTierCount++;
+      }
       meal.ingredients.forEach(ing => {
         const normalizedName = normalizeIngredientName(ing.n);
         const normalizedMU = normalizeIngredientUnit(ing.mu, normalizedName);
@@ -28407,6 +28946,9 @@ function buildShoppingList() {
         if (items[key]) {
           items[key].amount = items[key].amount + (ing.a || 0);
           items[key].metricAmount = items[key].metricAmount + (ing.m || 0);
+          if (!items[key].cuisines.includes(mealCuisine)) {
+            items[key].cuisines.push(mealCuisine);
+          }
         } else {
           items[key] = {
             name: normalizedName,
@@ -28415,7 +28957,8 @@ function buildShoppingList() {
             unit: normalizedU,
             metricAmount: ing.m || 0,
             metricUnit: normalizedMU,
-            key: key
+            key: key,
+            cuisines: [mealCuisine]
           };
         }
       });
@@ -28456,6 +28999,39 @@ function buildShoppingList() {
     });
   });
   categorized._byAisle = byAisle;
+
+  // ── BY CUISINE GROUPING (Upgrade.C) ─────────────────────────────────
+  // Each ingredient lists the cuisines that drove it; we file it under
+  // EACH cuisine for the By Cuisine view. So shared ingredients (e.g.
+  // chicken breast) appear under multiple cuisine sections, which is
+  // intentional — the user can see the cuisine context for everything
+  // in their basket.
+  const byCuisine = {};
+  Object.values(items).forEach(item => {
+    item.cuisines.forEach(c => {
+      if (!byCuisine[c]) byCuisine[c] = [];
+      byCuisine[c].push(item);
+    });
+  });
+  Object.keys(byCuisine).forEach(c => {
+    byCuisine[c].sort((a, b) => a.name.localeCompare(b.name));
+  });
+  categorized._byCuisine = byCuisine;
+
+  // ── WEEKLY COST TIER ESTIMATE (Upgrade.C) ───────────────────────────
+  // Average the cost-tier weights across all meals that declared one,
+  // then map back to a coarse tier. Returned as a small object so the
+  // header can render a chip with the right label and tier count.
+  let weeklyCostTier = null;
+  if (costTierCount > 0) {
+    const avg = costTierSum / costTierCount;
+    let tierName, tierGlyph;
+    if (avg < 1.6)      { tierName = 'cheap';   tierGlyph = '$';   }
+    else if (avg < 2.4) { tierName = 'mid';     tierGlyph = '$$';  }
+    else                { tierName = 'premium'; tierGlyph = '$$$'; }
+    weeklyCostTier = { tier: tierName, glyph: tierGlyph, mealsCounted: costTierCount };
+  }
+  categorized._weeklyCostTier = weeklyCostTier;
 
   return categorized;
 }
@@ -28866,10 +29442,14 @@ function setShoppingSettings(patch) {
 function renderShopping() {
   const con = document.getElementById('shopping-content');
   con.innerHTML = '';
+  // Card entry stagger — aisle/cuisine cards cascade in on render.
+  con.classList.add('stagger-entry');
 
   // Build shopping list dynamically from all meals
   const categorized = buildShoppingList();
   const byAisle = categorized._byAisle || {};
+  const byCuisine = categorized._byCuisine || {};
+  const weeklyCostTier = categorized._weeklyCostTier || null;
   const shoppingLog = getShoppingLog(weekOffset);
   const pantryFlags = getPantryFlags(weekOffset);
   const settings = getShoppingSettings();
@@ -28880,7 +29460,7 @@ function renderShopping() {
   let checkedItems = 0;
   let pantryCount = 0;
   Object.values(categorized).forEach(items => {
-    if (!Array.isArray(items)) return;  // skip _byAisle bag
+    if (!Array.isArray(items)) return;  // skip _byAisle / _byCuisine / _weeklyCostTier bags
     items.forEach(item => {
       if (pantryFlags[item.key]) { pantryCount++; return; }
       totalItems++;
@@ -28888,20 +29468,92 @@ function renderShopping() {
     });
   });
 
-  // Header row — title + units toggle + print button
-  const headerRow = div({display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', gap:'8px', flexWrap:'wrap'});
-  headerRow.appendChild(el('div',{style:{fontSize:'8px',letterSpacing:'0.22em',color:'#8a8a8a',textTransform:'uppercase'}},'Weekly Shopping List'));
+  // ── EMPTY STATE (Upgrade.C) ─────────────────────────────────────────
+  // No items at all means no plan / no meals — render a friendly empty
+  // state instead of a bunch of empty headers, with a CTA back to plan
+  // the week from the Nutrition tab.
+  if (totalItems === 0 && pantryCount === 0) {
+    const empty = div({
+      background: 'var(--bg-elevated)',
+      border: '1px solid var(--border-subtle)',
+      borderRadius: 'var(--radius-card)',
+      padding: '40px 24px',
+      textAlign: 'center',
+      marginTop: '16px'
+    });
+    empty.appendChild(el('div', {style:{fontSize:'48px',marginBottom:'10px',opacity:'0.6'}}, '\ud83d\uded2'));
+    empty.appendChild(el('div', {
+      style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'22px',color:'var(--text-primary)',letterSpacing:'0.05em',marginBottom:'8px'}
+    }, 'Shopping list is empty'));
+    empty.appendChild(el('div', {
+      style:{fontSize:'12px',color:'var(--text-secondary)',lineHeight:'1.6',marginBottom:'18px'}
+    }, 'Plan some meals in the Nutrition tab and your shopping list will populate automatically.'));
+    empty.appendChild(el('button', {
+      class:'btn',
+      style:{
+        background:'var(--accent-primary)',color:'#000',
+        border:'none', padding:'10px 18px', borderRadius:'7px',
+        fontFamily:"'DM Mono',monospace",fontSize:'10px',
+        letterSpacing:'0.18em',textTransform:'uppercase',
+        cursor:'pointer',fontWeight:'700',
+        boxShadow:'var(--accent-primary-shadow)'
+      },
+      onclick: () => { activeTab = 'fuel'; render(); }
+    }, '\u2192 Plan the Week'));
+    con.appendChild(empty);
+    return;
+  }
+
+  // ── SUMMARY HEADER (Upgrade.C) ──────────────────────────────────────
+  // Compact card showing: title, total item count, cost tier (if any
+  // recipes declared one), units toggle, print. Uses --bg-elevated for
+  // the raised feel.
+  const summary = div({
+    background: 'var(--bg-elevated)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: 'var(--radius-card)',
+    padding: '12px 14px',
+    marginBottom: '10px'
+  });
+  summary.className = 'no-print';
+
+  const summaryTopRow = div({display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap'});
+  const summaryLeft = div({display:'flex',alignItems:'center',gap:'10px',flexWrap:'wrap'});
+  summaryLeft.appendChild(el('div',{
+    style:{fontSize:'8px',letterSpacing:'0.22em',color:'var(--text-tertiary)',textTransform:'uppercase'}
+  }, 'Shopping List'));
+  // Item count chip
+  summaryLeft.appendChild(el('span', {
+    style:{
+      fontFamily:"'DM Mono',monospace",fontSize:'9px',fontWeight:'700',
+      color:'var(--text-primary)',background:'var(--bg-inset)',
+      border:'1px solid var(--border-subtle)',
+      padding:'3px 7px',borderRadius:'var(--radius-chip)',
+      letterSpacing:'0.05em'
+    }
+  }, totalItems + ' item' + (totalItems === 1 ? '' : 's')));
+  // Cost tier chip — only when at least one recipe declared a tier
+  if (weeklyCostTier) {
+    summaryLeft.appendChild(el('span', {
+      class:'cuisine-pill',
+      title: 'Estimated based on ' + weeklyCostTier.mealsCounted + ' recipe' + (weeklyCostTier.mealsCounted === 1 ? '' : 's') + ' with cost data',
+      style:{fontSize:'8px',letterSpacing:'0.18em',textTransform:'uppercase'}
+    }, weeklyCostTier.glyph + ' ' + weeklyCostTier.tier));
+  }
+  summary.appendChild(summaryTopRow);
+  summaryTopRow.appendChild(summaryLeft);
+
+  // Units toggle + print button — moved into the summary header
   const headerRight = div({display:'flex',gap:'6px',alignItems:'center'});
   headerRight.appendChild(el('span', {
     class: 'units-toggle',
-    style: {background: useMetric ? '#333' : '#111', color: useMetric ? '#ebebeb' : '#666'},
+    style: {background: useMetric ? 'var(--border-default)' : 'var(--bg-card)', color: useMetric ? 'var(--text-primary)' : 'var(--text-tertiary)'},
     onclick: () => {useMetric = !useMetric; renderShopping();}
   }, useMetric ? 'Metric' : 'Imperial'));
-  // Print button — triggers @media print. Clean black-on-white view via CSS.
   headerRight.appendChild(el('button',{
     class:'btn no-print',
     style:{
-      background:'#0e0e0e', border:'1px solid #2a2a2a', color:'#aaa',
+      background:'var(--bg-card)', border:'1px solid var(--border-default)', color:'var(--text-tertiary)',
       padding:'4px 8px', borderRadius:'4px',
       fontFamily:"'DM Mono',monospace", fontSize:'9px',
       letterSpacing:'0.12em', textTransform:'uppercase', fontWeight:'700',
@@ -28909,16 +29561,50 @@ function renderShopping() {
     },
     onclick: () => window.print()
   }, '⎙ Print'));
-  headerRow.appendChild(headerRight);
-  con.appendChild(headerRow);
+  summaryTopRow.appendChild(headerRight);
+  con.appendChild(summary);
+
+  // ── VIEW MODE TOGGLE (Upgrade.C) ────────────────────────────────────
+  // Segmented control: By Aisle (default) | By Cuisine. Stored in
+  // module-level shoppingViewMode. Re-renders on toggle.
+  const viewToggleWrap = div({
+    display:'flex',gap:'0',marginBottom:'10px',
+    background:'var(--bg-card)',
+    border:'1px solid var(--border-subtle)',
+    borderRadius:'var(--radius-chip)',
+    padding:'3px',
+    width:'100%'
+  });
+  viewToggleWrap.className = 'no-print';
+  const mkToggleBtn = (mode, label) => {
+    const isActive = shoppingViewMode === mode;
+    return el('button', {
+      class:'btn',
+      style:{
+        flex:'1',
+        background: isActive ? 'var(--bg-elevated)' : 'transparent',
+        color: isActive ? 'var(--text-primary)' : 'var(--text-tertiary)',
+        border: isActive ? '1px solid var(--border-default)' : '1px solid transparent',
+        padding:'7px 10px',borderRadius:'3px',
+        fontFamily:"'DM Mono',monospace",fontSize:'9px',
+        letterSpacing:'0.15em',textTransform:'uppercase',
+        cursor:'pointer',fontWeight:'700',
+        transition:'background 0.18s ease, color 0.18s ease'
+      },
+      onclick: () => { shoppingViewMode = mode; renderShopping(); }
+    }, label);
+  };
+  viewToggleWrap.appendChild(mkToggleBtn('aisle',   'By Aisle'));
+  viewToggleWrap.appendChild(mkToggleBtn('cuisine', 'By Cuisine'));
+  con.appendChild(viewToggleWrap);
 
   // Plan-state badge — shows whether shopping list reflects locked plan or live draft
   const plan = getWeekPlan();
   const drift = plan ? hasUnlockedChanges() : false;
   const badge = div({
-    background:'#0e0e0e',
-    border:'1px solid ' + (plan ? (drift ? '#ff9f3b66' : '#06d6a066') : '#3b9eff44'),
-    borderRadius:'10px',
+    background:'var(--bg-card)',
+    border:'1px solid ' + (plan ? (drift ? '#ff9f3b66' : '#06d6a066') : 'var(--accent-info-border)'),
+    borderRadius:'var(--radius-card)',
     padding:'10px 14px',
     marginBottom:'12px',
     display:'flex', alignItems:'center', gap:'10px'
@@ -28926,32 +29612,32 @@ function renderShopping() {
   badge.className = 'no-print';
   if (plan) {
     if (drift) {
-      badge.appendChild(el('div',{style:{fontSize:'18px',flexShrink:'0'}},'⚠'));
+      badge.appendChild(el('div',{style:{fontSize:'18px',flexShrink:'0'}},'\u26a0'));
       const txt = div({flex:'1'});
       txt.appendChild(el('div',{style:{fontSize:'9px',color:'#ff9f3b',letterSpacing:'0.22em',textTransform:'uppercase',fontWeight:'700',marginBottom:'2px'}},'Out Of Sync'));
-      txt.appendChild(el('div',{style:{fontSize:'10px',color:'#aaa',lineHeight:'1.4'}},'Showing the locked plan. You\'ve swapped meals since locking — re-lock from Nutrition tab to refresh.'));
+      txt.appendChild(el('div',{style:{fontSize:'10px',color:'var(--text-secondary)',lineHeight:'1.4'}},'Showing the locked plan. You\'ve swapped meals since locking — re-lock from Nutrition tab to refresh.'));
       badge.appendChild(txt);
     } else {
-      badge.appendChild(el('div',{style:{fontSize:'18px',flexShrink:'0'}},'🔒'));
+      badge.appendChild(el('div',{style:{fontSize:'18px',flexShrink:'0'}},'\ud83d\udd12'));
       const txt = div({flex:'1'});
       txt.appendChild(el('div',{style:{fontSize:'9px',color:'#06d6a0',letterSpacing:'0.22em',textTransform:'uppercase',fontWeight:'700',marginBottom:'2px'}},'From Locked Plan'));
       const lockedDate = new Date(plan.lockedAt);
-      txt.appendChild(el('div',{style:{fontSize:'10px',color:'#aaa',lineHeight:'1.4'}},'Locked ' + lockedDate.toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short'}) + '. In sync with meal prep.'));
+      txt.appendChild(el('div',{style:{fontSize:'10px',color:'var(--text-secondary)',lineHeight:'1.4'}},'Locked ' + lockedDate.toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short'}) + '. In sync with meal prep.'));
       badge.appendChild(txt);
     }
   } else {
-    badge.appendChild(el('div',{style:{fontSize:'18px',flexShrink:'0'}},'🔓'));
+    badge.appendChild(el('div',{style:{fontSize:'18px',flexShrink:'0'}},'\ud83d\udd13'));
     const txt = div({flex:'1'});
-    txt.appendChild(el('div',{style:{fontSize:'9px',color:'#3b9eff',letterSpacing:'0.22em',textTransform:'uppercase',fontWeight:'700',marginBottom:'2px'}},'Draft List'));
-    txt.appendChild(el('div',{style:{fontSize:'10px',color:'#aaa',lineHeight:'1.4'}},'Recomputed live from your current meals. Lock the week from Nutrition for a stable list.'));
+    txt.appendChild(el('div',{style:{fontSize:'9px',color:'var(--accent-info)',letterSpacing:'0.22em',textTransform:'uppercase',fontWeight:'700',marginBottom:'2px'}},'Draft List'));
+    txt.appendChild(el('div',{style:{fontSize:'10px',color:'var(--text-secondary)',lineHeight:'1.4'}},'Recomputed live from your current meals. Lock the week from Nutrition for a stable list.'));
     badge.appendChild(txt);
   }
   // Quick-jump to Nutrition tab to manage the lock state
   const goBtn = el('button',{
     class:'btn',
     style:{
-      background:'transparent',color:'#8a8a8a',
-      border:'1px solid #2a2a2a',
+      background:'transparent',color:'var(--text-tertiary)',
+      border:'1px solid var(--border-default)',
       padding:'7px 11px',borderRadius:'7px',
       fontFamily:"'DM Mono',monospace",fontSize:'9px',
       letterSpacing:'0.15em',textTransform:'uppercase',
@@ -28968,9 +29654,9 @@ function renderShopping() {
 
   // Progress card — also shows pantry count when non-zero
   const progressCard = div({
-    background: '#0e0e0e',
-    border: '1px solid #1a1a1a',
-    borderRadius: '10px',
+    background: 'var(--bg-card)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: 'var(--radius-card)',
     padding: '14px 16px',
     marginBottom: '14px',
     display: 'flex',
@@ -28979,19 +29665,19 @@ function renderShopping() {
   });
   progressCard.className = 'no-print';
   const progLeft = div({});
-  progLeft.appendChild(el('div', {style: {fontSize: '8px', letterSpacing: '0.15em', color: '#333', textTransform: 'uppercase', marginBottom: '4px'}}, 'Shopping Progress'));
-  progLeft.appendChild(bebas(20, checkedItems === totalItems && totalItems > 0 ? '#6aff3b' : '#3bffe8', checkedItems + '/' + totalItems));
+  progLeft.appendChild(el('div', {style: {fontSize: '8px', letterSpacing: '0.15em', color: 'var(--text-disabled)', textTransform: 'uppercase', marginBottom: '4px'}}, 'Shopping Progress'));
+  progLeft.appendChild(bebas(20, checkedItems === totalItems && totalItems > 0 ? 'var(--status-success)' : '#3bffe8', checkedItems + '/' + totalItems));
   if (pantryCount > 0) {
-    progLeft.appendChild(el('div', {style:{fontSize:'9px',color:'#888',marginTop:'2px',letterSpacing:'0.05em'}}, '+ ' + pantryCount + ' at home'));
+    progLeft.appendChild(el('div', {style:{fontSize:'9px',color:'var(--text-muted)',marginTop:'2px',letterSpacing:'0.05em'}}, '+ ' + pantryCount + ' at home'));
   }
   progressCard.appendChild(progLeft);
 
   const clearBtn = el('button', {
     class: 'btn',
     style: {
-      background: 'none', border: '1px solid #1e1e1e',
+      background: 'none', border: '1px solid var(--border-subtle)',
       borderRadius: '6px', padding: '6px 12px',
-      fontSize: '9px', color: '#666', letterSpacing: '0.1em', cursor:'pointer'
+      fontSize: '9px', color: 'var(--text-tertiary)', letterSpacing: '0.1em', cursor:'pointer'
     },
     onclick: () => {
       if (confirm('Clear all checkmarks?')) {
@@ -29005,14 +29691,14 @@ function renderShopping() {
 
   // Settings card — pack-size rounding toggle (off by default)
   const settingsCard = div({
-    background:'#0a0a0a', border:'1px solid #1a1a1a',
-    borderRadius:'10px', padding:'10px 14px', marginBottom:'12px',
+    background:'var(--bg-inset)', border:'1px solid var(--border-subtle)',
+    borderRadius:'var(--radius-card)', padding:'10px 14px', marginBottom:'12px',
     display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px'
   });
   settingsCard.className = 'no-print';
   const sLeft = div({flex:'1', minWidth:'0'});
-  sLeft.appendChild(el('div',{style:{fontSize:'9px',color:'#bbb',marginBottom:'2px',letterSpacing:'0.05em'}},'⊕ Pack size rounding'));
-  sLeft.appendChild(el('div',{style:{fontSize:'9px',color:'#666',lineHeight:'1.45'}},
+  sLeft.appendChild(el('div',{style:{fontSize:'9px',color:'var(--text-secondary)',marginBottom:'2px',letterSpacing:'0.05em'}},'\u2295 Pack size rounding'));
+  sLeft.appendChild(el('div',{style:{fontSize:'9px',color:'var(--text-tertiary)',lineHeight:'1.45'}},
     settings.packSizeRounding
       ? 'Suggesting realistic pack sizes — leftover noted for next week\'s prep.'
       : 'Off — showing exact weekly totals. Tap to enable suggestions.'));
@@ -29020,9 +29706,9 @@ function renderShopping() {
   const toggleBtn = el('button',{
     class:'btn',
     style:{
-      background: settings.packSizeRounding ? '#06d6a022' : '#1a1a1a',
-      color: settings.packSizeRounding ? '#06d6a0' : '#aaa',
-      border: '1px solid ' + (settings.packSizeRounding ? '#06d6a055' : '#2a2a2a'),
+      background: settings.packSizeRounding ? '#06d6a022' : 'var(--border-subtle)',
+      color: settings.packSizeRounding ? '#06d6a0' : 'var(--text-secondary)',
+      border: '1px solid ' + (settings.packSizeRounding ? '#06d6a055' : 'var(--border-default)'),
       padding: '6px 10px', borderRadius: '5px',
       fontFamily: "'DM Mono',monospace", fontSize: '9px',
       letterSpacing: '0.15em', textTransform: 'uppercase',
@@ -29036,48 +29722,49 @@ function renderShopping() {
   settingsCard.appendChild(toggleBtn);
   con.appendChild(settingsCard);
 
-  // Render each aisle in shop-route order
-  SHOPPING_AISLES.forEach(aisle => {
-    const items = byAisle[aisle];
-    if (!items || items.length === 0) return;
+  // ── GROUP RENDERER (Upgrade.C) ──────────────────────────────────────
+  // Renders a single group card (an aisle OR a cuisine). Shared logic for
+  // both view modes. Items are mutated by reference (cuisine view re-uses
+  // the same item objects as aisle view), so changes via tap/check are
+  // mirrored automatically across both views.
+  const renderGroup = (groupLabel, groupItems, groupColor, groupSubLabel) => {
+    if (!groupItems || groupItems.length === 0) return null;
 
-    const aisleColor = AISLE_COLORS[aisle] || '#888';
-    // Count: items in aisle, excluding pantry/at-home (which don't need buying)
-    const buyable = items.filter(item => !pantryFlags[item.key]);
-    const aisleChecked = buyable.filter(item => !!shoppingLog[item.key]).length;
-    const aisleAtHome = items.length - buyable.length;
+    const buyable = groupItems.filter(item => !pantryFlags[item.key]);
+    const groupChecked = buyable.filter(item => !!shoppingLog[item.key]).length;
+    const groupAtHome = groupItems.length - buyable.length;
 
-    const aisleCard = div({
-      background: '#0e0e0e',
-      border: '1px solid #1a1a1a',
-      borderRadius: '10px',
+    const groupCard = div({
+      background: 'var(--bg-card)',
+      border: '1px solid var(--border-subtle)',
+      borderRadius: 'var(--radius-card)',
       marginBottom: '12px',
       overflow: 'hidden'
     });
-    aisleCard.className = 'print-aisle';
+    groupCard.className = 'print-aisle';
 
-    // Aisle header
-    const aisleHeader = div({
+    // Group header
+    const groupHeader = div({
       padding: '12px 16px',
-      borderBottom: '1px solid #161616',
-      background: '#090909'
+      borderBottom: '1px solid var(--border-subtle)',
+      background: 'var(--bg-inset)'
     });
-    aisleHeader.className = 'print-aisle-header';
+    groupHeader.className = 'print-aisle-header';
     const topRow = div({display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px'});
     topRow.appendChild(el('div', {
-      style: {fontSize: '8px', letterSpacing: '0.22em', color: aisleColor, textTransform: 'uppercase', fontWeight:'700'}
-    }, aisle));
+      style: {fontSize: '8px', letterSpacing: '0.22em', color: groupColor, textTransform: 'uppercase', fontWeight:'700'}
+    }, groupLabel));
     topRow.appendChild(el('div', {
-      style: {fontSize: '9px', color: aisleChecked === buyable.length && buyable.length > 0 ? '#6aff3b' : '#666', letterSpacing: '0.1em'}
-    }, aisleChecked + '/' + buyable.length));
-    aisleHeader.appendChild(topRow);
-    let subtitle = items.length + ' item' + (items.length === 1 ? '' : 's');
-    if (aisleAtHome > 0) subtitle += ' · ' + aisleAtHome + ' at home';
-    aisleHeader.appendChild(el('div', {style:{fontSize:'14px',color:'#ccc',fontFamily:"'Bebas Neue',sans-serif",letterSpacing:'0.04em'}}, subtitle));
+      style: {fontSize: '9px', color: groupChecked === buyable.length && buyable.length > 0 ? 'var(--status-success)' : 'var(--text-tertiary)', letterSpacing: '0.1em'}
+    }, groupChecked + '/' + buyable.length));
+    groupHeader.appendChild(topRow);
+    let subtitle = (groupSubLabel != null ? groupSubLabel : (groupItems.length + ' item' + (groupItems.length === 1 ? '' : 's')));
+    if (groupAtHome > 0) subtitle += ' \u00b7 ' + groupAtHome + ' at home';
+    groupHeader.appendChild(el('div', {style:{fontSize:'14px',color:'var(--text-secondary)',fontFamily:"'Bebas Neue',sans-serif",letterSpacing:'0.04em'}}, subtitle));
 
     // Items list
     const itemsList = div({padding: '6px 16px'});
-    items.forEach((item, index) => {
+    groupItems.forEach((item, index) => {
       const isChecked = !!shoppingLog[item.key];
       const isPantry = !!pantryFlags[item.key];
       const qty = formatShoppingQty(item);
@@ -29085,27 +29772,28 @@ function renderShopping() {
       const itemRow = div({
         display: 'flex', alignItems: 'center',
         padding: '10px 0',
-        borderBottom: index < items.length - 1 ? '1px solid #111' : 'none',
+        borderBottom: index < groupItems.length - 1 ? '1px solid var(--border-subtle)' : 'none',
         opacity: (isChecked || isPantry) ? '0.55' : '1',
         transition: 'opacity 0.2s',
         cursor: 'pointer'
       });
       itemRow.className = 'print-item';
 
-      // Checkbox
+      // Checkbox — uses --accent-primary tones when checked for consistency
+      // with the rest of the dark visual system (replaces the green #6aff3b)
       const checkbox = el('div', {
         class: 'print-checkbox',
         style: {
           width: '20px', height: '20px', borderRadius: '5px',
-          border: '2px solid ' + (isChecked ? '#6aff3b' : (isPantry ? '#666' : '#333')),
-          background: isChecked ? '#6aff3b' : 'transparent',
+          border: '2px solid ' + (isChecked ? 'var(--accent-primary)' : (isPantry ? 'var(--text-tertiary)' : 'var(--border-default)')),
+          background: isChecked ? 'var(--accent-primary)' : 'transparent',
           marginRight: '12px', flexShrink: '0',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           transition: 'all 0.2s'
         }
       });
       if (isChecked) {
-        checkbox.appendChild(el('div', {style:{fontSize:'13px',color:'#000',fontWeight:'bold'}}, '✓'));
+        checkbox.appendChild(el('div', {style:{fontSize:'13px',color:'#000',fontWeight:'bold'}}, '\u2713'));
       }
       itemRow.appendChild(checkbox);
 
@@ -29114,7 +29802,7 @@ function renderShopping() {
 
       const nameRow = div({display:'flex',alignItems:'baseline',gap:'8px'});
       nameRow.appendChild(el('div', {
-        style: {fontSize:'13px',color:(isChecked || isPantry) ? '#666' : '#ddd',
+        style: {fontSize:'13px',color:(isChecked || isPantry) ? 'var(--text-tertiary)' : 'var(--text-secondary)',
                 textDecoration: isChecked ? 'line-through' : 'none',
                 textTransform: 'capitalize', flex:'1', minWidth:'0',
                 overflow:'hidden', textOverflow:'ellipsis'}
@@ -29122,14 +29810,15 @@ function renderShopping() {
       // "@home" tag indicator (when flagged)
       if (isPantry) {
         nameRow.appendChild(el('span',{
-          class: 'print-have-home',
-          style:{fontSize:'7px',color:'#9ad6ff',background:'#0a1620',border:'1px solid #3b9eff44',padding:'2px 5px',borderRadius:'3px',letterSpacing:'0.1em',textTransform:'uppercase',fontWeight:'700',flexShrink:'0'}
+          class: 'cuisine-pill print-have-home',
+          style:{fontSize:'7px'}
         },'@ Home'));
       }
       textWrap.appendChild(nameRow);
 
+      // Quantity uses --text-primary for visibility (key info)
       textWrap.appendChild(el('div', {
-        style: {fontSize:'11px',color:(isChecked || isPantry) ? '#444' : aisleColor,
+        style: {fontSize:'11px',color:(isChecked || isPantry) ? 'var(--text-footnote)' : 'var(--text-primary)',
                 fontFamily:"'Bebas Neue', sans-serif", letterSpacing:'0.04em', marginTop:'2px'}
       }, qty));
 
@@ -29139,12 +29828,12 @@ function renderShopping() {
         const pk = suggestPackSize(item.name, item.metricAmount, item.metricUnit);
         if (pk && !pk.isExact) {
           const packDisp = pk.packCount > 1
-            ? pk.packCount + ' × ' + pk.packSize + item.metricUnit + (pk.extraPack ? ' + ' + pk.extraPack + item.metricUnit : '')
+            ? pk.packCount + ' \u00d7 ' + pk.packSize + item.metricUnit + (pk.extraPack ? ' + ' + pk.extraPack + item.metricUnit : '')
             : pk.packSize + item.metricUnit + ' pack';
           textWrap.appendChild(el('div', {
             class: 'no-print',
-            style:{fontSize:'9px',color:'#fbbf24',marginTop:'4px',lineHeight:'1.4',fontFamily:"'DM Mono',monospace",letterSpacing:'0.02em'}
-          }, '⊕ Buy ' + packDisp + ' · ' + pk.leftover + item.metricUnit + ' extra'));
+            style:{fontSize:'9px',color:'var(--status-warning)',marginTop:'4px',lineHeight:'1.4',fontFamily:"'DM Mono',monospace",letterSpacing:'0.02em'}
+          }, '\u2295 Buy ' + packDisp + ' \u00b7 ' + pk.leftover + item.metricUnit + ' extra'));
         }
       }
 
@@ -29161,8 +29850,8 @@ function renderShopping() {
         const subBtn = el('button',{
           class:'btn',
           style:{
-            background:'transparent', color:'#9ad6ff',
-            border:'1px solid #3b9eff44', borderRadius:'4px',
+            background:'transparent', color:'var(--accent-info)',
+            border:'1px solid var(--accent-info-border)', borderRadius:'4px',
             padding:'4px 6px', fontSize:'10px', cursor:'pointer',
             fontFamily:"'DM Mono',monospace", lineHeight:'1'
           },
@@ -29171,7 +29860,7 @@ function renderShopping() {
             e.stopPropagation();
             openSubstitutionsModal(item, subs);
           }
-        }, '⇄');
+        }, '\u21c4');
         actions.appendChild(subBtn);
       }
 
@@ -29179,9 +29868,9 @@ function renderShopping() {
       const homeBtn = el('button',{
         class:'btn',
         style:{
-          background: isPantry ? '#9ad6ff22' : 'transparent',
-          color: isPantry ? '#9ad6ff' : '#666',
-          border: '1px solid ' + (isPantry ? '#9ad6ff55' : '#2a2a2a'),
+          background: isPantry ? 'var(--accent-info-bg)' : 'transparent',
+          color: isPantry ? 'var(--accent-info)' : 'var(--text-tertiary)',
+          border: '1px solid ' + (isPantry ? 'var(--accent-info-border)' : 'var(--border-default)'),
           borderRadius: '4px', padding: '4px 6px',
           fontSize: '10px', cursor: 'pointer',
           fontFamily: "'DM Mono',monospace", lineHeight:'1'
@@ -29211,18 +29900,45 @@ function renderShopping() {
       itemsList.appendChild(itemRow);
     });
 
-    aisleCard.appendChild(aisleHeader);
-    aisleCard.appendChild(itemsList);
-    con.appendChild(aisleCard);
-  });
+    groupCard.appendChild(groupHeader);
+    groupCard.appendChild(itemsList);
+    return groupCard;
+  };
+
+  // ── RENDER GROUPS PER ACTIVE VIEW MODE (Upgrade.C) ──────────────────
+  if (shoppingViewMode === 'cuisine') {
+    // Cuisine view: render each cuisine that has items, in CUISINES order
+    // for predictable display. Fall back to alphabetical for unknown.
+    const cuisineOrder = (typeof CUISINES !== 'undefined') ? CUISINES.map(c => c.id) : [];
+    const present = Object.keys(byCuisine);
+    // Preserve canonical order from CUISINES, then any extras alphabetically
+    const ordered = cuisineOrder.filter(c => present.includes(c))
+      .concat(present.filter(c => !cuisineOrder.includes(c)).sort());
+    ordered.forEach(cuisineId => {
+      const cuisineMeta = (typeof CUISINES !== 'undefined') ? CUISINES.find(c => c.id === cuisineId) : null;
+      const label = cuisineMeta
+        ? (cuisineMeta.emoji + ' ' + cuisineMeta.label.split(' /')[0].split(' &')[0].replace('Healthy','').trim())
+        : cuisineId;
+      // Cuisine accent — use the info-cyan from the cuisine pill system
+      const groupCard = renderGroup(label, byCuisine[cuisineId], '#9ad6ff');
+      if (groupCard) con.appendChild(groupCard);
+    });
+  } else {
+    // Default By Aisle view — iterate SHOPPING_AISLES in shop-route order
+    SHOPPING_AISLES.forEach(aisle => {
+      const aisleColor = AISLE_COLORS[aisle] || 'var(--text-muted)';
+      const groupCard = renderGroup(aisle, byAisle[aisle], aisleColor);
+      if (groupCard) con.appendChild(groupCard);
+    });
+  }
 
   // Footer note
   con.appendChild(div({
-    background: '#0a0a0a', border: '1px solid #1a1a1a',
+    background: 'var(--bg-inset)', border: '1px solid var(--border-subtle)',
     borderRadius: '8px', padding: '12px 14px',
-    marginTop: '8px', fontSize: '10px', color: '#555',
+    marginTop: '8px', fontSize: '10px', color: 'var(--text-footnote)',
     fontStyle: 'italic', lineHeight: '1.6'
-  }, '💡 Tap to check off. Use ⇄ to see substitutes. Use @ to mark items already at home.'));
+  }, '\ud83d\udca1 Tap to check off. Use \u21c4 to see substitutes. Use @ to mark items already at home.'));
 }
 
 // ─── SHOPPING — SUBSTITUTIONS MODAL ──────────────────────────────────────
@@ -30398,7 +31114,7 @@ function renderCloudSyncSection() {
 
   // Header / status card
   const status = div({
-    background:'#0e0e0e',
+    background:'var(--bg-card)',
     border:'1px solid ' + (s.enabled ? '#06d6a055' : '#1e1e1e'),
     borderRadius:'10px', padding:'14px 16px', marginBottom:'10px'
   });
@@ -30412,7 +31128,7 @@ function renderCloudSyncSection() {
     const lastSyncTxt = s.lastSyncAt
       ? 'Last synced ' + formatRelativeTime(s.lastSyncAt)
       : 'Not synced yet';
-    status.appendChild(el('div', {style:{fontSize:'10px',color:'#888',lineHeight:'1.5'}}, lastSyncTxt));
+    status.appendChild(el('div', {style:{fontSize:'10px',color:'var(--text-muted)',lineHeight:'1.5'}}, lastSyncTxt));
     const dirtyCount = s.dirtyKeys.length;
     if (dirtyCount > 0) {
       status.appendChild(el('div', {
@@ -30420,7 +31136,7 @@ function renderCloudSyncSection() {
       }, '◐ ' + dirtyCount + ' change' + (dirtyCount===1?'':'s') + ' pending push'));
     }
   } else {
-    status.appendChild(el('div', {style:{fontSize:'10px',color:'#888',lineHeight:'1.55'}},
+    status.appendChild(el('div', {style:{fontSize:'10px',color:'var(--text-muted)',lineHeight:'1.55'}},
       'Off by default. Your data is on this device only. Turn on to sync across your devices via your Google account.'));
   }
   wrap.appendChild(status);
@@ -30458,8 +31174,8 @@ function renderCloudSyncSection() {
     const disableBtn = el('button',{
       class:'btn',
       style:{
-        width:'100%', background:'transparent', color:'#888',
-        border:'1px solid #2a2a2a', padding:'12px',
+        width:'100%', background:'transparent', color:'var(--text-muted)',
+        border:'1px solid var(--border-default)', padding:'12px',
         borderRadius:'10px', marginBottom:'8px',
         fontFamily:"'DM Mono',monospace", fontSize:'10px',
         letterSpacing:'0.18em', textTransform:'uppercase',
@@ -30496,11 +31212,11 @@ function renderCloudSyncSection() {
 
   // Privacy note
   const privacy = div({
-    background:'#0a0a0a', border:'1px solid #1a1a1a',
+    background:'var(--bg-inset)', border:'1px solid var(--border-subtle)',
     borderRadius:'10px', padding:'12px 14px', marginBottom:'10px'
   });
-  privacy.appendChild(el('div', {style:{fontSize:'8px',color:'#888',letterSpacing:'0.22em',textTransform:'uppercase',fontWeight:'700',marginBottom:'6px'}}, '◐ Privacy'));
-  privacy.appendChild(el('div', {style:{fontSize:'10px',color:'#aaa',lineHeight:'1.55'}},
+  privacy.appendChild(el('div', {style:{fontSize:'8px',color:'var(--text-muted)',letterSpacing:'0.22em',textTransform:'uppercase',fontWeight:'700',marginBottom:'6px'}}, '◐ Privacy'));
+  privacy.appendChild(el('div', {style:{fontSize:'10px',color:'var(--text-secondary)',lineHeight:'1.55'}},
     'Data is stored in your own Google Drive in a hidden "App Data" folder — invisible to your regular Drive files. To revoke access at any time, go to your Google Account → Security → Third-party apps → remove FLOW Tracker.'));
   wrap.appendChild(privacy);
 
