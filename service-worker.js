@@ -1,12 +1,25 @@
 // FLOW Tracker — Service Worker
 // ──────────────────────────────────────────────────────────────────────────
-// Bump CACHE_VERSION on every deploy. The "install" handler will create a
-// fresh cache under the new name; the "activate" handler then deletes the
-// old caches so the new shell takes over. The waiting/skipWaiting pattern
-// lets the client show "Update available" before reloading.
+// VERSION SYNC: APP_VERSION in index.html MUST match CACHE_VERSION below.
+// When you deploy a new version of the app:
+//   1. Bump APP_VERSION in index.html (near the top of the <script> block)
+//   2. Bump CACHE_VERSION here to match
+//   3. git commit; git push
+// 
+// Why both files: the browser only detects a "new" service worker when the
+// service worker's BYTES change. If you only bump APP_VERSION in the HTML,
+// the SW file is byte-identical to before, so the browser won't trigger a
+// new install. Bumping CACHE_VERSION here changes the SW bytes too, which
+// triggers the install/activate cycle and the user gets the update banner.
+//
+// Why network-first for HTML below: belt and braces. Even if you forget to
+// bump CACHE_VERSION, network-first for HTML means a refresh always pulls
+// the latest index.html when online. Offline users still get the cached
+// shell.
 // ──────────────────────────────────────────────────────────────────────────
 
-const CACHE_VERSION = 'v1';
+const APP_VERSION = '2026.05.14.1';  // KEEP IN SYNC with index.html's APP_VERSION
+const CACHE_VERSION = APP_VERSION;
 const CACHE_NAME = `flow-tracker-${CACHE_VERSION}`;
 
 // Files that make up the app shell — everything needed to render an empty
@@ -61,49 +74,62 @@ self.addEventListener('message', event => {
 });
 
 // ─── FETCH ──────────────────────────────────────────────────────────────
-// Routing:
-//   • Same-origin GET → cache-first, fall back to network, populate cache.
-//     On total failure (offline + not cached), serve index.html for HTML
-//     navigations so the SPA boots and renders its offline UI.
-//   • Google Fonts → stale-while-revalidate (font CSS + woff2 files).
-//   • Everything else (other origins) → network only, no caching.
+// Routing strategy:
+//   - Same-origin HTML navigations (index.html, '/') -> NETWORK-FIRST.
+//     Always try the network first so updates roll out immediately on next
+//     page load. Falls back to cached shell when offline.
+//   - Same-origin other GETs (icons, manifest) -> cache-first, populate on
+//     miss. These rarely change so cache-first is faster.
+//   - Google Fonts -> stale-while-revalidate.
+//   - Everything else (cross-origin) -> network only, untouched.
 //
-// Non-GET requests are passed through untouched (the SW only caches GETs).
+// Non-GET requests are passed through untouched.
 self.addEventListener('fetch', event => {
   const req = event.request;
   if (req.method !== 'GET') return;
 
   const url = new URL(req.url);
 
-  // Same-origin: app shell — cache-first
+  // ── SAME-ORIGIN ──────────────────────────────────────────────────────
   if (url.origin === self.location.origin) {
-    event.respondWith(
-      caches.match(req).then(cached => {
-        if (cached) return cached;
-        return fetch(req).then(res => {
-          // Only cache successful, basic-type responses (not opaque cross-origin)
+    const acceptHeader = req.headers.get('accept') || '';
+    const isHtmlNav = req.mode === 'navigate' || acceptHeader.includes('text/html');
+
+    if (isHtmlNav) {
+      // Network-first for HTML: the user's "refresh to see new version"
+      // expectation works correctly. Fall back to cache if offline.
+      event.respondWith(
+        fetch(req).then(res => {
           if (res && res.ok && res.type === 'basic') {
             const clone = res.clone();
             caches.open(CACHE_NAME).then(c => c.put(req, clone));
           }
           return res;
         }).catch(() => {
-          // Offline + not cached: for HTML navigations, fall back to the shell
-          if (req.mode === 'navigate' || (req.headers.get('accept') || '').includes('text/html')) {
-            return caches.match('./index.html');
+          // Offline: try matching the original URL, then the shell index
+          return caches.match(req).then(c => c || caches.match('./index.html'));
+        })
+      );
+      return;
+    }
+
+    // Non-HTML same-origin (icons, manifest, etc.): cache-first
+    event.respondWith(
+      caches.match(req).then(cached => {
+        if (cached) return cached;
+        return fetch(req).then(res => {
+          if (res && res.ok && res.type === 'basic') {
+            const clone = res.clone();
+            caches.open(CACHE_NAME).then(c => c.put(req, clone));
           }
-          // For other resource types, fail gracefully (browser shows the
-          // generic offline error for that single asset, doesn't crash the
-          // page).
-          return new Response('Offline', { status: 503, statusText: 'Offline' });
-        });
+          return res;
+        }).catch(() => new Response('Offline', { status: 503, statusText: 'Offline' }));
       })
     );
     return;
   }
 
-  // Google Fonts: stale-while-revalidate so the app loads instantly with
-  // cached fonts but fresh versions update in the background.
+  // ── GOOGLE FONTS: stale-while-revalidate ─────────────────────────────
   if (url.host === 'fonts.googleapis.com' || url.host === 'fonts.gstatic.com') {
     event.respondWith(
       caches.open(CACHE_NAME).then(cache =>
@@ -111,7 +137,7 @@ self.addEventListener('fetch', event => {
           const fetchPromise = fetch(req).then(res => {
             if (res && res.ok) cache.put(req, res.clone());
             return res;
-          }).catch(() => cached); // offline + not cached → cached (may be undefined)
+          }).catch(() => cached);
           return cached || fetchPromise;
         })
       )
@@ -119,5 +145,5 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Other cross-origin (analytics, future APIs): network only, untouched.
+  // ── OTHER CROSS-ORIGIN: network only, untouched ──────────────────────
 });

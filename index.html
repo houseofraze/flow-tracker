@@ -148,48 +148,15 @@
   }
 
   /* ─── MOTION KEYFRAMES (Upgrade.F) ────────────────────────────────────
-     Subtle fade + upward slide for tab content + cards. Always pair with
-     a `prefers-reduced-motion: reduce` override (defined further down)
-     so users who opted out get the final state with no motion. */
-  @keyframes tabContentEnter {
-    from { opacity: 0; transform: translateY(8px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-  @keyframes cardEnter {
-    from { opacity: 0; transform: translateY(6px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
+     Subtle bounce on freshly-checked checkbox. Tab-content + card-entry
+     animations removed post-Upgrade.F because they were re-firing on
+     every interaction (not just navigation), producing a black flash on
+     dark theme. Tab switches now snap instantly. */
   @keyframes checkAnim {
     0%   { transform: scale(0.6); opacity: 0; }
     60%  { transform: scale(1.18); opacity: 1; }
     100% { transform: scale(1); opacity: 1; }
   }
-
-  /* Tab content fade-in. Applied by renderActiveTab() on the visible tab
-     wrapper. The animation runs every time the active tab changes. */
-  .tab-content-active {
-    animation: tabContentEnter var(--motion-base) var(--motion-ease-out) both;
-  }
-
-  /* Card entry — applied to a parent container. Children matching .card
-     or .dark-card get a staggered fade-in. Stagger cascades for the
-     first ~8 cards via nth-child; beyond that they fade in together.
-     This avoids needing inline --i values on every card. */
-  .stagger-entry > .card,
-  .stagger-entry > .dark-card {
-    animation: cardEnter var(--motion-base) var(--motion-ease-out) both;
-  }
-  .stagger-entry > :nth-child(1) { animation-delay: 0ms; }
-  .stagger-entry > :nth-child(2) { animation-delay: 35ms; }
-  .stagger-entry > :nth-child(3) { animation-delay: 70ms; }
-  .stagger-entry > :nth-child(4) { animation-delay: 105ms; }
-  .stagger-entry > :nth-child(5) { animation-delay: 140ms; }
-  .stagger-entry > :nth-child(6) { animation-delay: 175ms; }
-  .stagger-entry > :nth-child(7) { animation-delay: 210ms; }
-  .stagger-entry > :nth-child(8) { animation-delay: 245ms; }
-  /* Beyond the 8th child, share the last delay — no further visible
-     stagger but they still fade in cleanly. */
-  .stagger-entry > :nth-child(n+9) { animation-delay: 245ms; }
 
   /* Button press — subtle scale on :active. Use on any tap target that
      should feel "responsive" to touch. Already applied to .dark-card via
@@ -244,13 +211,9 @@
 
   /* ── ACCESSIBILITY: respect prefers-reduced-motion ──────────────────
      Users who opt out of motion via system settings see no animations
-     or transitions. We do NOT remove the final state — opacity:1 and
-     transform:none are the resting positions, so reduced-motion users
-     still see fully-rendered cards immediately. */
+     or transitions. Affects the checkbox bounce and the .dark-card tap
+     scale — those become instant. */
   @media (prefers-reduced-motion: reduce) {
-    .tab-content-active,
-    .stagger-entry > .card,
-    .stagger-entry > .dark-card,
     .check-anim {
       animation: none !important;
     }
@@ -556,6 +519,9 @@
   <!-- CATCH-UP BANNER -->
   <div id="catchup-banner" style="display:none;margin-top:8px"></div>
 
+  <!-- BACKUP REMINDER BANNER (shows when last export > 7 days ago) -->
+  <div id="backup-reminder-banner" style="display:none;margin:8px 18px 0"></div>
+
   <!-- SLEEP-PRIORITY BANNER (workout days only, after several bad nights) -->
   <div id="sleep-priority-banner" style="display:none;margin-top:8px"></div>
 
@@ -620,6 +586,16 @@
 
 <script>
 // ─── GLOBALS ──────────────────────────────────────────────────────────────────
+
+// App version — bumped on every deploy so the service worker can detect
+// updates and the About screen shows what's installed. Format: YYYY.MM.DD.N
+// where N is an incrementing patch within a single day. The service worker
+// (service-worker.js) MUST mirror this value as CACHE_VERSION so cache
+// eviction works correctly. Deploy workflow:
+//   1. Bump APP_VERSION here
+//   2. Bump CACHE_VERSION in service-worker.js to match
+//   3. mv fraser-final-complete.html index.html; git commit; git push
+const APP_VERSION = '2026.05.14.1';
 
 let activeTab = 'overview';
 let activeDay = 0; // will be set to today on init
@@ -10083,10 +10059,79 @@ function applyTabHeaderConfig() {
   if (activeTab === 'train') renderSleepPriorityBanner();
 }
 
+function renderBackupReminderBanner() {
+  const wrap = document.getElementById('backup-reminder-banner');
+  if (!wrap) return;
+  if (!shouldShowBackupBanner()) {
+    wrap.style.display = 'none';
+    wrap.innerHTML = '';
+    return;
+  }
+  wrap.innerHTML = '';
+  wrap.style.display = 'block';
+
+  const days = daysSinceLastExport();
+  const daysTxt = (days === Infinity) ? 'never' : days + ' day' + (days === 1 ? '' : 's') + ' ago';
+
+  // Banner card — orange accent border, --bg-elevated to match the empty-state
+  // and insight-card visual language from prior Upgrade sessions
+  const card = div({
+    background: 'var(--bg-elevated)',
+    border: '1px solid var(--accent-primary-border)',
+    borderRadius: 'var(--radius-card)',
+    padding: '10px 12px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px'
+  });
+
+  // Icon + body — tappable area opens Settings → Cloud Sync
+  const tapZone = div({flex: '1', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer'});
+  tapZone.appendChild(el('div', {
+    style:{fontSize:'18px',flexShrink:'0'}
+  }, '\u2913'));
+  const txtCol = div({flex: '1', minWidth: '0'});
+  txtCol.appendChild(el('div', {
+    style:{fontSize:'9px',color:'var(--accent-primary)',letterSpacing:'0.22em',textTransform:'uppercase',fontWeight:'700',marginBottom:'2px'}
+  }, 'Backup Reminder'));
+  txtCol.appendChild(el('div', {
+    style:{fontSize:'11px',color:'var(--text-secondary)',lineHeight:'1.45'}
+  }, 'Last backup: ' + daysTxt + '. Tap to export.'));
+  tapZone.appendChild(txtCol);
+  tapZone.onclick = () => {
+    if (typeof openSettings === 'function') openSettings('sync');
+  };
+  card.appendChild(tapZone);
+
+  // Snooze button — 24h dismissal
+  const snoozeBtn = el('button', {
+    class:'btn',
+    'aria-label':'Snooze backup reminder for 24 hours',
+    style:{
+      background: 'transparent', color: 'var(--text-tertiary)',
+      border: '1px solid var(--border-default)',
+      padding: '6px 8px', borderRadius: '5px',
+      fontSize: '14px', cursor: 'pointer', lineHeight: '1',
+      flexShrink: '0'
+    },
+    onclick: (e) => {
+      e.stopPropagation();
+      snoozeBackupBanner(24 * 60 * 60 * 1000);
+      renderBackupReminderBanner();
+    }
+  }, '\u00d7');
+  card.appendChild(snoozeBtn);
+
+  wrap.appendChild(card);
+}
+
 function render() {
   renderTabs();
   applyTabHeaderConfig();
   renderActiveTab();
+  // Backup reminder banner — checks freshness + snooze state inside, so
+  // calling it on every render is cheap and self-hiding.
+  renderBackupReminderBanner();
 }
 
 // ─── HALO NAV ─────────────────────────────────────────────────────────────
@@ -11608,19 +11653,11 @@ function renderActiveTab() {
   ['overview','train','fuel','water','sleep','shopping','history'].forEach(t => {
     const wrap = document.getElementById('tab-'+t);
     wrap.style.display = t===activeTab?'block':'none';
-    // Strip the entry class from inactive tabs so the next activation gets
-    // a fresh animation. CSS animations don't replay unless the class is
-    // re-added — toggling it on each render achieves that.
-    wrap.classList.remove('tab-content-active');
     if (t === activeTab) {
       // Faint top-edge ambient gradient + very subtle full-tab tint
       wrap.style.background = 'linear-gradient(180deg, ' + tabAccent + '0c 0%, transparent 180px), var(--bg-base)';
       wrap.style.minHeight = '60vh';
       wrap.style.transition = 'background 0.3s';
-      // Force a reflow so the class re-application triggers the keyframe
-      // animation rather than being deduplicated. Tiny cost, big UX win.
-      void wrap.offsetWidth;
-      wrap.classList.add('tab-content-active');
     }
   });
   if(activeTab==='overview')  renderOverview();
@@ -13375,11 +13412,6 @@ function renderWorkout() {
   const day = PROGRAM[activeDay];
   const list = document.getElementById('exercise-list');
   list.innerHTML = '';
-  // Card entry stagger — exercise cards cascade in on render. Honored by
-  // the .stagger-entry CSS rule via animation-delay per :nth-child. The
-  // class is set fresh each render so the animation replays on every
-  // day/week switch, but not on per-set logging (no re-render then).
-  list.classList.add('stagger-entry');
   const wLog = getWorkoutLog(day.day);
   const swaps = getSwapsForDay(currentSwapWeekId(), day.day);
 
@@ -22573,14 +22605,19 @@ function openMealAlternativesModal(originalMeal, mealIndex) {
     }
   });
 
-  // Close button — page-style (top right, no absolute weirdness)
+  // Close button — sits below the Dynamic Island on iPhone 16 (uses
+  // env(safe-area-inset-top) so it's never obscured by the notch/island)
   const closeBtn = el('button', {
+    'aria-label': 'Close meal alternatives',
     style:{
-      position:'absolute', top:'14px', right:'14px',
+      position:'absolute',
+      top:'calc(env(safe-area-inset-top, 0px) + 14px)',
+      right:'14px',
       background:'transparent', border:'1px solid #2a2a2a', color:'#9a9a9a',
-      width:'34px', height:'34px', fontSize:'20px',
+      width:'44px', height:'44px', fontSize:'22px',
       cursor:'pointer', lineHeight:'1', padding:'0',
-      zIndex:'5', borderRadius:'50%'
+      zIndex:'5', borderRadius:'50%',
+      display:'flex', alignItems:'center', justifyContent:'center'
     },
     onclick:(e)=>{ e.stopPropagation(); overlay.remove(); }
   }, '×');
@@ -23710,7 +23747,7 @@ function showCuisinePreferencesModal(onClose) {
   const modal = el('div', {
     style:{
       background: 'var(--bg-elevated)',
-      padding:'24px 16px 100px',
+      padding:'calc(env(safe-area-inset-top, 0px) + 24px) 16px calc(env(safe-area-inset-bottom, 0px) + 100px)',
       width:'100%',
       maxWidth:'520px',
       margin:'0 auto',
@@ -24272,7 +24309,7 @@ function renderAboutSection() {
     padding:'14px 16px', marginBottom:'10px'
   });
   ver.appendChild(el('div', {style:{fontSize:'8px',color:'#3bdfff',letterSpacing:'0.25em',textTransform:'uppercase',fontWeight:'700',marginBottom:'4px'}}, '◆ FLOW Tracker'));
-  ver.appendChild(el('div', {style:{fontSize:'13px',color:'var(--text-primary)',fontFamily:"'Bebas Neue',sans-serif",letterSpacing:'0.04em',marginBottom:'4px'}}, 'Version 1.0'));
+  ver.appendChild(el('div', {style:{fontSize:'13px',color:'var(--text-primary)',fontFamily:"'Bebas Neue',sans-serif",letterSpacing:'0.04em',marginBottom:'4px'}}, 'Version ' + (typeof APP_VERSION !== 'undefined' ? APP_VERSION : '1.0')));
   ver.appendChild(el('div', {style:{fontSize:'10px',color:'var(--text-tertiary)',lineHeight:'1.5'}},
     'Personal training, nutrition, and progression tracker. Works offline once installed.'));
   wrap.appendChild(ver);
@@ -26548,10 +26585,6 @@ function renderNutrition() {
   const nLog = getNutriLog(day.day);
   const list = document.getElementById('meal-list');
   list.innerHTML = '';
-  // Card entry stagger — meal cards cascade in on render. CSS honours
-  // the class via animation-delay per :nth-child. Re-applied on each
-  // call so the animation replays on day switches + macro changes.
-  list.classList.add('stagger-entry');
 
   // Units toggle
   const unitsToggle = el('div', {style: {display: 'flex', justifyContent: 'flex-end', marginBottom: '10px'}});
@@ -28114,8 +28147,6 @@ function setSystemAlarm(timeStr, label) {
 function renderSleep() {
   const root = document.getElementById('sleep-content');
   root.innerHTML = '';
-  // Card entry stagger — sleep cards cascade in on render.
-  root.classList.add('stagger-entry');
   const accent = '#9b72cf'; // sleep purple — tab brand colour, kept as-is
   const settings = getSleepSettings();
 
@@ -29442,8 +29473,6 @@ function setShoppingSettings(patch) {
 function renderShopping() {
   const con = document.getElementById('shopping-content');
   con.innerHTML = '';
-  // Card entry stagger — aisle/cuisine cards cascade in on render.
-  con.classList.add('stagger-entry');
 
   // Build shopping list dynamically from all meals
   const categorized = buildShoppingList();
@@ -30592,6 +30621,206 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// ─── BACKUP & RESTORE ──────────────────────────────────────────────────────
+// Local-first data safety net. Independent of cloud sync — works offline,
+// requires no auth, no third-party service. The "if all else fails" backup.
+// 
+// Why separate from cloud sync:
+//   - Cloud sync is optional and requires Google OAuth setup
+//   - Backup must work for users who never enable sync (Fraser's primary mode)
+//   - JSON export can be saved to Files / AirDropped / emailed — user's choice
+//   - Import lets you recover after device loss or app uninstall
+//
+// Export captures EVERYTHING prefixed `fraser_` — more inclusive than
+// SYNC_KEY_PREFIXES because backup is a "last resort recovery" and missing
+// data is worse than including a few caches. Sleep logs (which aren't in the
+// sync allowlist) are included here so you can recover them too.
+
+const BACKUP_FILENAME_PREFIX = 'flow-tracker-backup-';
+const BACKUP_LAST_EXPORTED_KEY = 'fraser_last_exported_at_v1';
+const BACKUP_BANNER_SNOOZED_UNTIL_KEY = 'fraser_backup_banner_snoozed_until_v1';
+const BACKUP_REMINDER_DAYS = 7;  // banner appears if last backup > 7 days
+
+// Build the JSON payload that represents the entire app state.
+// Bundle every fraser_* localStorage key plus metadata for restoration.
+function exportAllData() {
+  const data = {};
+  let workoutCount = 0;
+  let sleepCount = 0;
+  let mealCount = 0;
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key || !key.startsWith('fraser_')) continue;
+    try {
+      const value = localStorage.getItem(key);
+      data[key] = value;
+      // Lightweight counts for the import confirmation dialog
+      if (key.startsWith('fraser_workout_')) workoutCount++;
+      else if (key.startsWith('fraser_sleep_') && key !== 'fraser_sleep_settings') sleepCount++;
+      else if (key.startsWith('fraser_mealswap_')) mealCount++;
+    } catch (e) {
+      // Skip unreadable keys (extremely rare; safari private mode edge case)
+    }
+  }
+  return {
+    schema: 'flow-tracker-backup-v1',
+    appVersion: (typeof APP_VERSION !== 'undefined') ? APP_VERSION : 'unknown',
+    exportedAt: new Date().toISOString(),
+    counts: {
+      workouts: workoutCount,
+      sleepNights: sleepCount,
+      mealSwaps: mealCount,
+      totalKeys: Object.keys(data).length
+    },
+    data: data
+  };
+}
+
+// Validate the imported JSON before doing anything destructive. Returns
+// { valid: bool, error: string|null, counts: { ... } } so the caller can
+// surface useful errors before the user commits.
+function validateBackupJson(parsed) {
+  if (!parsed || typeof parsed !== 'object') {
+    return { valid: false, error: 'Not a valid JSON object', counts: null };
+  }
+  if (parsed.schema !== 'flow-tracker-backup-v1') {
+    return { valid: false, error: 'Unknown backup format (' + (parsed.schema || 'no schema') + ')', counts: null };
+  }
+  if (!parsed.data || typeof parsed.data !== 'object') {
+    return { valid: false, error: 'Backup is missing the data field', counts: null };
+  }
+  // Sanity check: at least the goal profile should be there
+  const keys = Object.keys(parsed.data);
+  if (keys.length === 0) {
+    return { valid: false, error: 'Backup contains no data', counts: null };
+  }
+  // Recompute counts from data (don't trust the file's counts field — it
+  // might be stale or tampered with)
+  const counts = { workouts: 0, sleepNights: 0, mealSwaps: 0, totalKeys: keys.length };
+  keys.forEach(k => {
+    if (k.startsWith('fraser_workout_')) counts.workouts++;
+    else if (k.startsWith('fraser_sleep_') && k !== 'fraser_sleep_settings') counts.sleepNights++;
+    else if (k.startsWith('fraser_mealswap_')) counts.mealSwaps++;
+  });
+  return { valid: true, error: null, counts: counts };
+}
+
+// Replace-mode import: wipe all fraser_* keys, then restore from backup.
+// Cleaner mental model than merge — user always knows the final state.
+function importAllData(parsed) {
+  // 1. Validate first
+  const v = validateBackupJson(parsed);
+  if (!v.valid) throw new Error(v.error);
+  // 2. Wipe all existing fraser_* keys
+  const keysToRemove = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith('fraser_')) keysToRemove.push(k);
+  }
+  keysToRemove.forEach(k => localStorage.removeItem(k));
+  // 3. Restore from backup
+  Object.keys(parsed.data).forEach(k => {
+    try { localStorage.setItem(k, parsed.data[k]); } catch (e) {}
+  });
+  // 4. Mark a fresh "last exported" since we now have data matching this
+  // backup — banner shouldn't immediately re-nag the user.
+  setLastExportedAt(Date.now());
+}
+
+// Trigger the native share sheet (iOS) or download dialog (Android/desktop)
+// with the JSON payload. Falls back to clipboard if neither is available.
+function triggerBackupDownload(payload) {
+  const json = JSON.stringify(payload, null, 2);
+  const yyyy = new Date().toISOString().slice(0, 10);
+  const filename = BACKUP_FILENAME_PREFIX + yyyy + '.json';
+  // Try Web Share API with files (iOS 15+, Android Chrome)
+  if (navigator.share && navigator.canShare) {
+    try {
+      const file = new File([json], filename, { type: 'application/json' });
+      if (navigator.canShare({ files: [file] })) {
+        navigator.share({
+          files: [file],
+          title: 'FLOW Tracker backup',
+          text: 'Your FLOW Tracker data, exported ' + yyyy
+        }).then(() => {
+          setLastExportedAt(Date.now());
+        }).catch(err => {
+          // User cancelled the share sheet — not an error worth surfacing
+          if (err && err.name === 'AbortError') return;
+          // Real failure — fall back to download
+          downloadAsFile(json, filename);
+          setLastExportedAt(Date.now());
+        });
+        return;
+      }
+    } catch (e) {
+      // canShare check failed; fall through to download
+    }
+  }
+  // Fallback: traditional download via anchor link
+  downloadAsFile(json, filename);
+  setLastExportedAt(Date.now());
+}
+
+function downloadAsFile(content, filename) {
+  const blob = new Blob([content], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 100);
+}
+
+function getLastExportedAt() {
+  try {
+    const v = localStorage.getItem(BACKUP_LAST_EXPORTED_KEY);
+    return v ? parseInt(v, 10) : null;
+  } catch (e) { return null; }
+}
+
+function setLastExportedAt(ts) {
+  try { localStorage.setItem(BACKUP_LAST_EXPORTED_KEY, String(ts)); } catch (e) {}
+}
+
+function daysSinceLastExport() {
+  const last = getLastExportedAt();
+  if (!last) return Infinity;  // never exported = "infinite" days ago
+  return Math.floor((Date.now() - last) / (1000 * 60 * 60 * 24));
+}
+
+function getBackupBannerSnoozedUntil() {
+  try {
+    const v = localStorage.getItem(BACKUP_BANNER_SNOOZED_UNTIL_KEY);
+    return v ? parseInt(v, 10) : 0;
+  } catch (e) { return 0; }
+}
+
+function snoozeBackupBanner(durationMs) {
+  try {
+    localStorage.setItem(BACKUP_BANNER_SNOOZED_UNTIL_KEY, String(Date.now() + durationMs));
+  } catch (e) {}
+}
+
+// Should the reminder banner show right now? Three conditions must be true:
+//   1. User has data (no point reminding empty-state users)
+//   2. Last export was more than BACKUP_REMINDER_DAYS ago (or never)
+//   3. Banner isn't currently snoozed
+function shouldShowBackupBanner() {
+  // Has data check — at minimum a goal profile exists
+  try {
+    if (!localStorage.getItem('fraser_goal_profile_v1')) return false;
+  } catch (e) { return false; }
+  // Snoozed check
+  if (Date.now() < getBackupBannerSnoozedUntil()) return false;
+  // Stale backup check
+  return daysSinceLastExport() >= BACKUP_REMINDER_DAYS;
+}
+
 // ─── CLOUD SYNC ────────────────────────────────────────────────────────────
 // Optional Google Drive sync. Keeps your data on YOUR Google account in the
 // app's private folder (invisible to your normal Drive contents). Default
@@ -31210,6 +31439,80 @@ function renderCloudSyncSection() {
     wrap.appendChild(setupBtn);
   }
 
+  // ── LOCAL BACKUP: Export + Import (works regardless of cloud sync state)
+  // Independent of Google Drive. JSON file you can save anywhere — Files
+  // app, AirDrop, email, Drive manually. The "if everything breaks" net.
+  const backupCard = div({
+    background: 'var(--bg-card)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: 'var(--radius-card)',
+    padding: '14px 16px',
+    marginBottom: '10px'
+  });
+  backupCard.appendChild(el('div', {
+    style:{fontSize:'8px',color:'var(--accent-primary)',letterSpacing:'0.25em',textTransform:'uppercase',fontWeight:'700',marginBottom:'4px'}
+  }, '\u2913 Local Backup'));
+  backupCard.appendChild(el('div', {
+    style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'18px',color:'var(--text-primary)',letterSpacing:'0.04em',marginBottom:'6px'}
+  }, 'Export & Restore'));
+  // Last-exported status line
+  const lastTs = getLastExportedAt();
+  const lastTxt = lastTs
+    ? 'Last backup: ' + formatRelativeTime(lastTs)
+    : 'Never backed up. Tap Export to save your first.';
+  const lastLine = el('div', {
+    style:{fontSize:'10px',color: lastTs ? 'var(--text-muted)' : 'var(--accent-primary)',lineHeight:'1.5',marginBottom:'10px'}
+  }, lastTxt);
+  backupCard.appendChild(lastLine);
+
+  // Export button
+  const exportBtn = el('button', {
+    class:'btn',
+    style:{
+      width:'100%', background:'var(--accent-primary)', color:'#000', border:'none',
+      padding:'12px', borderRadius:'8px', marginBottom:'8px',
+      fontFamily:"'DM Mono',monospace", fontSize:'11px',
+      letterSpacing:'0.18em', textTransform:'uppercase',
+      cursor:'pointer', fontWeight:'700',
+      boxShadow:'var(--accent-primary-shadow)'
+    },
+    onclick: () => {
+      try {
+        const payload = exportAllData();
+        triggerBackupDownload(payload);
+        // Re-render to refresh the "Last backup" line on success
+        setTimeout(() => {
+          try { renderSettingsModal('sync'); } catch(e) {}
+        }, 800);
+      } catch (err) {
+        alert('Export failed: ' + (err.message || 'unknown error'));
+      }
+    }
+  }, '\u2913 Export All Data');
+  backupCard.appendChild(exportBtn);
+
+  // Import button — file picker triggers a confirmation modal
+  const importBtn = el('button', {
+    class:'btn',
+    style:{
+      width:'100%', background:'transparent', color:'var(--text-secondary)',
+      border:'1px solid var(--border-default)',
+      padding:'12px', borderRadius:'8px', marginBottom:'8px',
+      fontFamily:"'DM Mono',monospace", fontSize:'11px',
+      letterSpacing:'0.18em', textTransform:'uppercase',
+      cursor:'pointer', fontWeight:'700'
+    },
+    onclick: () => openImportPicker()
+  }, '\u2912 Import From Backup');
+  backupCard.appendChild(importBtn);
+
+  // Inline note explaining what it does
+  backupCard.appendChild(el('div', {
+    style:{fontSize:'9px',color:'var(--text-tertiary)',marginTop:'6px',lineHeight:'1.55'}
+  }, 'Export creates a JSON file with every workout, meal swap, sleep log, body metric, and setting. Save it to Files, email it to yourself, or AirDrop to another device. Import replaces all current data with the file\u2019s contents.'));
+
+  wrap.appendChild(backupCard);
+
   // Privacy note
   const privacy = div({
     background:'var(--bg-inset)', border:'1px solid var(--border-subtle)',
@@ -31221,6 +31524,150 @@ function renderCloudSyncSection() {
   wrap.appendChild(privacy);
 
   return wrap;
+}
+
+// Open native file picker, parse JSON, show confirmation, replace data on
+// confirm. The picker is hidden — we trigger it via an in-memory input.
+function openImportPicker() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'application/json,.json';
+  input.style.display = 'none';
+  input.onchange = (ev) => {
+    const file = ev.target.files && ev.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      let parsed;
+      try {
+        parsed = JSON.parse(reader.result);
+      } catch (e) {
+        alert('Couldn\u2019t read that file as JSON. Pick a valid FLOW Tracker backup.');
+        return;
+      }
+      const validation = validateBackupJson(parsed);
+      if (!validation.valid) {
+        alert('That backup looks invalid: ' + validation.error);
+        return;
+      }
+      // Show confirmation modal with the counts from validation
+      showImportConfirmation(parsed, validation.counts, file.name);
+    };
+    reader.onerror = () => {
+      alert('Couldn\u2019t read the file. Try again or pick a different backup.');
+    };
+    reader.readAsText(file);
+  };
+  document.body.appendChild(input);
+  input.click();
+  // Clean up after the picker closes
+  setTimeout(() => {
+    if (input.parentNode) input.parentNode.removeChild(input);
+  }, 60000);
+}
+
+function showImportConfirmation(parsed, counts, filename) {
+  const overlay = el('div', {
+    style: {
+      position: 'fixed', top: '0', left: '0', right: '0', bottom: '0',
+      background: 'rgba(0,0,0,0.85)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      zIndex: '10010', padding: '16px', overflow: 'auto'
+    }
+  });
+  const modal = el('div', {
+    style:{
+      background:'var(--bg-elevated)', border:'1px solid var(--border-default)',
+      borderRadius:'14px', padding:'18px', maxWidth:'440px', width:'100%',
+      boxShadow:'0 12px 40px rgba(0,0,0,0.85)'
+    }
+  });
+  modal.appendChild(el('div', {
+    style:{fontSize:'8px',color:'var(--accent-primary)',letterSpacing:'0.25em',textTransform:'uppercase',fontWeight:'700',marginBottom:'4px'}
+  }, '\u26a0 Confirm Import'));
+  modal.appendChild(el('div', {
+    style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'22px',color:'var(--text-primary)',letterSpacing:'0.04em',marginBottom:'12px'}
+  }, 'Replace All Data?'));
+
+  modal.appendChild(el('div', {
+    style:{fontSize:'11px',color:'var(--text-secondary)',lineHeight:'1.6',marginBottom:'12px'}
+  }, 'This will overwrite ALL current data with the contents of:'));
+
+  modal.appendChild(el('div', {
+    style:{
+      fontSize:'10px',color:'var(--text-primary)',
+      fontFamily:"'DM Mono',monospace",
+      background:'var(--bg-inset)',border:'1px solid var(--border-subtle)',
+      borderRadius:'6px',padding:'8px 10px',marginBottom:'12px',
+      wordBreak:'break-all'
+    }
+  }, filename));
+
+  // Counts grid
+  const grid = div({display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'6px',marginBottom:'14px'});
+  const mkCell = (lbl, val) => {
+    const c = div({background:'var(--bg-inset)',borderRadius:'6px',padding:'10px 8px',textAlign:'center',border:'1px solid var(--border-subtle)'});
+    c.appendChild(bebas(20, 'var(--text-primary)', String(val)));
+    c.appendChild(el('div',{style:{fontSize:'7px',color:'var(--text-tertiary)',letterSpacing:'0.18em',textTransform:'uppercase',marginTop:'2px'}}, lbl));
+    return c;
+  };
+  grid.appendChild(mkCell('Workouts',  counts.workouts));
+  grid.appendChild(mkCell('Sleep nights', counts.sleepNights));
+  grid.appendChild(mkCell('Meal swaps', counts.mealSwaps));
+  modal.appendChild(grid);
+
+  if (parsed.exportedAt) {
+    modal.appendChild(el('div', {
+      style:{fontSize:'10px',color:'var(--text-muted)',lineHeight:'1.5',marginBottom:'14px',fontStyle:'italic'}
+    }, 'Backup taken on ' + new Date(parsed.exportedAt).toLocaleString()));
+  }
+
+  modal.appendChild(el('div', {
+    style:{fontSize:'10px',color:'var(--status-warning)',lineHeight:'1.55',marginBottom:'14px',padding:'8px 10px',background:'rgba(251,191,36,0.08)',border:'1px solid rgba(251,191,36,0.30)',borderRadius:'6px'}
+  }, 'Your current data will be permanently replaced. There is no undo. Export your current state first if you\u2019re not sure.'));
+
+  const btnRow = div({display:'flex',gap:'8px'});
+  const cancelBtn = el('button', {
+    class:'btn',
+    style:{
+      flex:'1',background:'transparent',color:'var(--text-secondary)',
+      border:'1px solid var(--border-default)',
+      padding:'12px',borderRadius:'8px',
+      fontFamily:"'DM Mono',monospace",fontSize:'11px',
+      letterSpacing:'0.18em',textTransform:'uppercase',
+      cursor:'pointer',fontWeight:'700'
+    },
+    onclick: () => overlay.remove()
+  }, 'Cancel');
+  const confirmBtn = el('button', {
+    class:'btn',
+    style:{
+      flex:'1',background:'var(--accent-primary)',color:'#000',border:'none',
+      padding:'12px',borderRadius:'8px',
+      fontFamily:"'DM Mono',monospace",fontSize:'11px',
+      letterSpacing:'0.18em',textTransform:'uppercase',
+      cursor:'pointer',fontWeight:'700',
+      boxShadow:'var(--accent-primary-shadow)'
+    },
+    onclick: () => {
+      try {
+        importAllData(parsed);
+        overlay.remove();
+        // Force a full app re-render so the new state takes effect
+        try { closeSettings(); } catch(e) {}
+        try { render(); } catch(e) {}
+        showToast('\u2713 Imported ' + counts.totalKeys + ' keys from ' + filename);
+      } catch (err) {
+        alert('Import failed: ' + (err.message || 'unknown error'));
+      }
+    }
+  }, '\u2713 Replace');
+  btnRow.appendChild(cancelBtn);
+  btnRow.appendChild(confirmBtn);
+  modal.appendChild(btnRow);
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
 }
 
 function openSyncSetupModal() {
