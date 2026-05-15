@@ -58,6 +58,97 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Bebas+Neue&family=Anton&display=swap" rel="stylesheet">
 <style>
   *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+
+  /* ─── PHASE D2 — APP STARTUP SPLASH ───────────────────────────────────
+     Branded splash visible on cold load. Rendered as static HTML so it
+     appears at the very first paint, before any JavaScript runs. JS later
+     calls hideSplashScreen() to fade it out once the app is ready, with a
+     hard 3.5s timeout cap so a slow init never traps the user behind it.
+
+     Z-index 99999 sits above everything including modals (10500) and the
+     halo nav (4500), so it overlays cleanly during the boot window. */
+  #app-splash {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #080808;  /* var(--bg-base) — literal in case CSS variables haven't parsed yet */
+    color: #ebebeb;
+    pointer-events: auto;
+    /* Fade-out transition. opacity:0 with the .app-splash-fading class. */
+    transition: opacity 0.4s cubic-bezier(0.32, 0.72, 0, 1);
+    /* Initial fade-in keyframe — starts invisible, lands at full opacity */
+    animation: appSplashFadeIn 0.35s ease-out both;
+  }
+  #app-splash.app-splash-fading { opacity: 0; pointer-events: none; }
+  @keyframes appSplashFadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  /* Wordmark — Bebas Neue with a system fallback in case the webfont
+     hasn't loaded yet. Letter-spacing matches the rest of the app. */
+  #app-splash .splash-wordmark {
+    font-family: 'Bebas Neue', 'Helvetica Neue', sans-serif;
+    font-size: 72px;
+    letter-spacing: 0.08em;
+    color: #ebebeb;
+    line-height: 1;
+    margin-bottom: 8px;
+    text-align: center;
+  }
+  #app-splash .splash-tagline {
+    font-family: 'DM Mono', ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: 0.32em;
+    color: #6a6a6a;
+    text-transform: uppercase;
+    margin-bottom: 30px;
+    text-align: center;
+  }
+
+  /* Pulse ring — orange accent. Two concentric circles, the outer one
+     animates a slow expand+fade to suggest motion without being noisy. */
+  #app-splash .splash-pulse {
+    position: relative;
+    width: 56px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #app-splash .splash-pulse-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #ff6b3b;  /* var(--accent-primary) */
+    box-shadow: 0 0 0 4px rgba(255,107,59,0.15);
+  }
+  #app-splash .splash-pulse-ring {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 2px solid #ff6b3b;
+    opacity: 0;
+    animation: appSplashPulse 1.4s ease-out infinite;
+  }
+  @keyframes appSplashPulse {
+    0%   { transform: scale(0.5); opacity: 0.8; }
+    100% { transform: scale(1.4); opacity: 0; }
+  }
+
+  /* Respect prefers-reduced-motion — kill the pulse animation but keep
+     the static logo visible. Avoids triggering vestibular discomfort for
+     users who have opted out of motion. */
+  @media (prefers-reduced-motion: reduce) {
+    #app-splash .splash-pulse-ring { animation: none !important; }
+    #app-splash { animation: none !important; }
+  }
+  /* ──────────────────────────────────────────────────────────────────── */
+
   /* ─── HALO NAV DIMENSIONS ──────────────────────────────────────────────
      Single source of truth for halo nav height + content breathing room.
      Tune --halo-breathing here to give content more or less space below
@@ -334,6 +425,17 @@
      siblings appended to document.body. */
   :root { --app-text-scale: 1.0; }
   body { zoom: var(--app-text-scale); }
+  /* ─── TEXT SCALE OVERFLOW SAFETY ──────────────────────────────────────
+     At larger text scales (1.15x, 1.3x) long unbroken strings (recipe
+     names, ingredient lines, step instructions, callout bodies) can push
+     past their container's right edge and visually overlap neighboring
+     content. This rule lets the layout engine break those long strings
+     mid-word as a last resort, which is safer than overflow. Scoped to
+     content elements only — buttons/labels remain crisp. */
+  p, li, .chef-step-body, [data-text-scale-safe] {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
   ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:#222;border-radius:2px}
   .bebas{font-family:'Bebas Neue',sans-serif}
   input[type=number]{-moz-appearance:textfield}
@@ -490,6 +592,17 @@
 </style>
 </head>
 <body>
+<!-- PHASE D2 — APP STARTUP SPLASH (rendered immediately on first paint). -->
+<!-- Hidden by JS once render() completes; auto-hidden after 3.5s as a hard cap. -->
+<div id="app-splash" role="status" aria-label="FLOW Tracker loading">
+  <div class="splash-wordmark">FLOW</div>
+  <div class="splash-tagline">Train + Fuel</div>
+  <div class="splash-pulse">
+    <div class="splash-pulse-ring"></div>
+    <div class="splash-pulse-dot"></div>
+  </div>
+</div>
+
 <div id="app">
 
   <!-- HEADER -->
@@ -595,7 +708,7 @@
 //   1. Bump APP_VERSION here
 //   2. Bump CACHE_VERSION in service-worker.js to match
 //   3. mv fraser-final-complete.html index.html; git commit; git push
-const APP_VERSION = '2026.05.14.1';
+const APP_VERSION = '2026.05.14.14';
 
 let activeTab = 'overview';
 let activeDay = 0; // will be set to today on init
@@ -617,8 +730,19 @@ let nutritionTargetMode = 'today';
 // to avoid overwhelming the top of the tab; user opens to inspect).
 let nutritionDistOpen = false;
 let metricsModalOpen = false;
-let openOverviewSections = {measurements: false, photos: false, strength: false, bia: false};
+let openOverviewSections = {measurements: false, photos: false, strength: false, bia: false, trends: true, figure: true};
 let sleepMode = 'plan'; // 'plan' or 'log'
+// Phase C2 — Sleep clock visualization. Tracks which night the user has
+// tapped in the week strip; null = default to latest. Reset on tab unmount
+// would be nice but not strictly necessary — the latest night is always
+// what the user expects to see by default.
+let sleepClockSelectedDate = null;
+// Phase F — Body figure: tracks which anchor is currently revealed (showing
+// dashed leader line + highlight circle). null = nothing selected, clean
+// resting state. Transient — module-level only, NOT persisted. Reset to
+// null whenever the user navigates away from the Stats/Overview tab (see
+// hook inside renderActiveTab).
+let _figureSelectedAnchor = null;
 
 // ─── WEEKDAY MAPPING ──────────────────────────────────────────────────────────
 // Maps JS day-of-week (0=Sun, 1=Mon, ..., 6=Sat) to PROGRAM index (0-6).
@@ -3875,6 +3999,42 @@ function matchProgramToDb(programEx) {
   return null;
 }
 
+// Detect an exercise's body angle/position from its name. Used as the primary
+// tiebreaker when sorting swap candidates so flat variants stay near flat
+// sources and decline/incline don't surface above same-angle alternatives.
+// Returns one of: 'incline', 'decline', 'seated', 'standing', 'bent-over',
+// 'lying', 'overhead', 'kneeling', or 'flat' (default when no qualifier appears).
+function detectExerciseAngle(name) {
+  if (!name) return 'flat';
+  const n = name.toLowerCase();
+  if (n.includes('incline')) return 'incline';
+  if (n.includes('decline')) return 'decline';
+  if (n.includes('bent over') || n.includes('bent-over')) return 'bent-over';
+  if (n.includes('seated')) return 'seated';
+  if (n.includes('standing')) return 'standing';
+  if (n.includes('overhead')) return 'overhead';
+  if (n.includes('kneeling')) return 'kneeling';
+  if (n.includes('lying') || n.includes('supine') || n.includes('prone')) return 'lying';
+  return 'flat';
+}
+
+// Finer-grained equipment family used as a tiebreaker AFTER angle. The tier
+// grouping above lumps barbell+dumbbell+kettlebell together as 'free-weight',
+// which is correct for tier-1 inclusion but too coarse for ordering inside
+// the tier. Used so e.g. flat-barbell-source prefers flat-barbell-candidate
+// over flat-dumbbell-candidate as a same-angle tiebreaker.
+function detectEquipmentFamily(eq) {
+  if (!eq) return 'unknown';
+  if (eq === 'barbell' || eq === 'e-z curl bar') return 'barbell';
+  if (eq === 'dumbbell') return 'dumbbell';
+  if (eq === 'kettlebells') return 'kettlebell';
+  if (eq === 'cable') return 'cable';
+  if (eq === 'machine') return 'machine';
+  if (eq === 'body only') return 'bodyweight';
+  if (eq === 'bands') return 'bands';
+  return eq;
+}
+
 // Find alternatives for a given PROGRAM exercise. Returns tiers of matches.
 function findAlternatives(programEx, options = {}) {
   const limit = options.limit || 8;
@@ -3951,14 +4111,34 @@ function findAlternatives(programEx, options = {}) {
     }
   }
 
-  // Sort each tier: prefer matching mechanic (compound vs isolation), then matching force
+  // Source-exercise context for the sort. Use the program name (user-facing)
+  // for angle detection so "Bench Press" → 'flat' even if matchProgramToDb
+  // happened to resolve to e.g. "Wide-Grip Barbell Bench Press".
+  const sourceName = programEx.name || (dbMatch && dbMatch.name) || '';
+  const sourceAngle = detectExerciseAngle(sourceName);
+  const sourceEquipFamily = detectEquipmentFamily(equipment);
+
+  // Sort each tier by similarity to the source. Priority order (most → least):
+  //   1. Angle match (flat-vs-flat, decline-vs-decline, etc) — fixes the
+  //      "Decline DB ranked above Flat DB" bug for flat-barbell sources.
+  //   2. Mechanic match (compound vs isolation).
+  //   3. Force match (push vs pull).
+  //   4. Equipment family match (barbell/dumbbell/cable/machine) — finer than
+  //      the tier's free-weight grouping; ties to source-family on equal angle.
+  //   5. Alphabetical (deterministic final tiebreak).
   const sortByRelevance = (a, b) => {
+    const aAngleMatch = detectExerciseAngle(a.name) === sourceAngle ? 0 : 1;
+    const bAngleMatch = detectExerciseAngle(b.name) === sourceAngle ? 0 : 1;
+    if (aAngleMatch !== bAngleMatch) return aAngleMatch - bAngleMatch;
     const aMechMatch = a.mechanic === mechanic ? 0 : 1;
     const bMechMatch = b.mechanic === mechanic ? 0 : 1;
     if (aMechMatch !== bMechMatch) return aMechMatch - bMechMatch;
     const aForceMatch = a.force === force ? 0 : 1;
     const bForceMatch = b.force === force ? 0 : 1;
     if (aForceMatch !== bForceMatch) return aForceMatch - bForceMatch;
+    const aFamMatch = detectEquipmentFamily(a.equipment) === sourceEquipFamily ? 0 : 1;
+    const bFamMatch = detectEquipmentFamily(b.equipment) === sourceEquipFamily ? 0 : 1;
+    if (aFamMatch !== bFamMatch) return aFamMatch - bFamMatch;
     return a.name.localeCompare(b.name);
   };
   tiers.t1.sort(sortByRelevance);
@@ -7919,7 +8099,7 @@ function wmRenderCountdown(ex) {
     id: 'wm-countdown-num',
     style: {
       fontFamily: "'Anton', 'Bebas Neue', sans-serif",
-      fontSize: '180px', color: '#000',
+      fontSize: '240px', color: '#000',
       letterSpacing: '-0.02em', lineHeight: '1',
       WebkitTextStroke: '1px #000'
     }
@@ -7965,7 +8145,7 @@ function wmRenderRolling(ex) {
     id: 'wm-rolling-time',
     style: {
       fontFamily: "'Anton', 'Bebas Neue', sans-serif",
-      fontSize: '120px', color: '#000',
+      fontSize: '200px', color: '#000',
       letterSpacing: '-0.02em', lineHeight: '1',
       WebkitTextStroke: '1px #000'
     }
@@ -8011,7 +8191,7 @@ function wmRenderDuration(ex) {
     id: 'wm-dur-time',
     style: {
       fontFamily: "'Anton', 'Bebas Neue', sans-serif",
-      fontSize: '160px', color: '#000',
+      fontSize: '240px', color: '#000',
       letterSpacing: '-0.02em', lineHeight: '1',
       WebkitTextStroke: '1px #000'
     }
@@ -8066,20 +8246,59 @@ function wmRenderDuration(ex) {
 function wmRenderRest(ex) {
   const isHold = !!parseDurationFromReps(ex.reps);
   const isLastSet = wmState.setIndex >= ex.sets - 1;
+  const totalRestSec = Math.max(1, getDefaultRestSec(ex));
   const wrap = wmFullCanvas(WM_PALETTE.rest);
   wrap.appendChild(wmTopLabel('Rest', '#000'));
+
+  // ── STOPWATCH RING ─────────────────────────────────────────────────────
+  // Black ring on mint-teal canvas, fills CLOCKWISE as time elapses (starts
+  // empty, full at remain=0). 12-o'clock start achieved by rotating the SVG
+  // -90deg. Two circles: a faint track + the progress arc on top using
+  // stroke-dasharray / stroke-dashoffset to draw the elapsed portion.
+  const RING_SIZE = 320;
+  const RING_STROKE = 8;
+  const RING_R = (RING_SIZE - RING_STROKE) / 2;
+  const RING_CIRCUM = 2 * Math.PI * RING_R;
+  const ringWrap = el('div', {
+    id: 'wm-rest-ring-wrap',
+    style: {
+      position: 'relative',
+      width: RING_SIZE + 'px',
+      height: RING_SIZE + 'px',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      marginBottom: '14px',
+      maxWidth: '88vw',
+      flexShrink: '0'
+    }
+  });
+  const ringSvg = el('div', {
+    style: {
+      position: 'absolute', top: '0', left: '0',
+      width: '100%', height: '100%',
+      pointerEvents: 'none'
+    }
+  });
+  // Initial state: dashOffset = circumference (ring empty)
+  ringSvg.innerHTML =
+    '<svg width="100%" height="100%" viewBox="0 0 ' + RING_SIZE + ' ' + RING_SIZE + '" style="transform:rotate(-90deg)">' +
+      '<circle cx="' + (RING_SIZE/2) + '" cy="' + (RING_SIZE/2) + '" r="' + RING_R + '" fill="none" stroke="rgba(0,0,0,0.12)" stroke-width="' + RING_STROKE + '"/>' +
+      '<circle id="wm-rest-ring-progress" cx="' + (RING_SIZE/2) + '" cy="' + (RING_SIZE/2) + '" r="' + RING_R + '" fill="none" stroke="#000" stroke-width="' + RING_STROKE + '" stroke-linecap="round" stroke-dasharray="' + RING_CIRCUM + '" stroke-dashoffset="' + RING_CIRCUM + '" style="transition:stroke-dashoffset 0.2s linear, stroke 0.4s ease"/>' +
+    '</svg>';
+  ringWrap.appendChild(ringSvg);
 
   const timeEl = el('div', {
     id: 'wm-rest-time',
     style: {
       fontFamily: "'Anton', 'Bebas Neue', sans-serif",
-      fontSize: '90px', color: '#000',
+      fontSize: '180px', color: '#000',
       letterSpacing: '-0.02em', lineHeight: '1',
       WebkitTextStroke: '1px #000',
-      marginBottom: '14px'
+      transition: 'color 0.4s ease',
+      position: 'relative', zIndex: '1'
     }
   }, '0:00');
-  wrap.appendChild(timeEl);
+  ringWrap.appendChild(timeEl);
+  wrap.appendChild(ringWrap);
 
   // Input panel — only for rolling weight exercises (hold exercises auto-committed already)
   if (!isHold) {
@@ -8230,7 +8449,9 @@ function wmRenderRest(ex) {
     wrap.appendChild(inputCard);
   }
 
-  // Primary action button — adapts based on rest timer state
+  // Primary action button — large prominent READY-style button when rest ends.
+  // Starts in a compact "Start Next Set →" state during rest; transforms into
+  // the big orange READY button when rest hits 0 (and we're not auto-advancing).
   const actionBtn = el('button', {
     id: 'wm-rest-action-btn',
     class: 'btn',
@@ -8240,6 +8461,7 @@ function wmRenderRest(ex) {
       fontFamily:"'DM Mono',monospace", fontSize:'12px',
       letterSpacing:'0.2em', textTransform:'uppercase',
       cursor:'pointer', fontWeight:'700',
+      minHeight: '56px',
       transition:'all 0.3s ease'
     },
     onclick: (e) => {
@@ -8250,35 +8472,117 @@ function wmRenderRest(ex) {
   }, isLastSet ? 'Finish Exercise →' : 'Start Next Set →');
   wrap.appendChild(actionBtn);
 
-  // Tick — does NOT auto-advance. When timer hits 0, pulses the action button
-  // and shows "ready when you are" state.
+  // Tick — handles ring fill, battle-royale fade (last 5s), auto-advance
+  // when rest hits 0 (unless user enabled "Prompt before next set"), and
+  // the READY button transformation when auto-advance is suppressed.
+  const FADE_START_SEC = 5;
+  const fromRGB = [0x00, 0xd4, 0xaa];  // mint teal canvas
+  const toRGB   = [0x00, 0x00, 0x00];  // pure black at remain=0
+  let _autoAdvanceFired = false;
+  let _readyTransformed = false;
+
   const update = () => {
     if (!wmState || wmState.phase !== 'rest') return;
     if (wmState.pausedAt) return;
     const remainMs = wmState.restEndTime - Date.now();
     const remain = Math.max(0, Math.ceil(remainMs / 1000));
+    const remainPrecise = Math.max(0, remainMs / 1000);
+
+    // ── Stopwatch ring progress (fills clockwise as time elapses) ──
+    const ringProgress = document.getElementById('wm-rest-ring-progress');
+    if (ringProgress) {
+      const fractionElapsed = Math.max(0, Math.min(1, 1 - (remainPrecise / totalRestSec)));
+      const dashOffset = RING_CIRCUM * (1 - fractionElapsed);
+      ringProgress.setAttribute('stroke-dashoffset', dashOffset);
+    }
+
+    // ── Battle-royale fade (last 5s): canvas teal → black, text black → orange ──
+    if (remainPrecise <= FADE_START_SEC) {
+      const fadeProgress = Math.max(0, Math.min(1, 1 - (remainPrecise / FADE_START_SEC)));
+      const r = Math.round(fromRGB[0] + (toRGB[0] - fromRGB[0]) * fadeProgress);
+      const g = Math.round(fromRGB[1] + (toRGB[1] - fromRGB[1]) * fadeProgress);
+      const b = Math.round(fromRGB[2] + (toRGB[2] - fromRGB[2]) * fadeProgress);
+      wrap.style.background = 'rgb(' + r + ',' + g + ',' + b + ')';
+      // Text flips at midpoint: black for first half of fade, orange/white for second half
+      if (timeEl) {
+        if (fadeProgress < 0.5) {
+          timeEl.style.color = '#000';
+        } else {
+          // Past midpoint — flip to a bright readable colour against fading background
+          timeEl.style.color = '#ff6b3b';
+          timeEl.style.WebkitTextStroke = '1px #ff6b3b';
+        }
+      }
+      // Ring stroke also flips to orange at midpoint so it stays visible on dark canvas
+      if (ringProgress && fadeProgress >= 0.5) {
+        ringProgress.setAttribute('stroke', '#ff6b3b');
+      }
+    } else {
+      // Outside the fade window — keep canvas at the rest palette
+      wrap.style.background = WM_PALETTE.rest;
+    }
+
+    // ── Timer text ──
     if (timeEl) {
       if (remainMs > 0) {
         timeEl.textContent = formatTimerDisplay(remain);
       } else {
         timeEl.textContent = 'READY';
-        timeEl.style.fontSize = '64px';
+        // Shrink the text so the word READY fits inside the ring
+        timeEl.style.fontSize = '110px';
       }
     }
+
+    // Beep at 3,2,1
     if (remain > 0 && remain <= 3 && !wmState['_restBeeped' + remain]) {
       wmState['_restBeeped' + remain] = true;
       playCountdownBlip();
     }
+
+    // ── Rest ended ──
     if (remainMs <= 0 && !wmState._restEndTone) {
       wmState._restEndTone = true;
       playStartTone();
-      // Pulse the action button to draw attention
-      const btn = document.getElementById('wm-rest-action-btn');
-      if (btn) {
-        btn.style.transform = 'scale(1.05)';
-        btn.style.boxShadow = '0 0 0 4px rgba(0,0,0,0.15)';
-        const labelText = isLastSet ? 'Finish Exercise →' : 'Start Next Set →';
-        btn.textContent = labelText;
+    }
+
+    if (remainMs <= 0) {
+      // Decide: auto-advance or wait for user to tap READY?
+      // Auto-advance fires when:
+      //   1. "Prompt before next set" toggle is OFF (default), AND
+      //   2. Either this is a HOLD exercise (no reps to log), or
+      //      the user has already entered a rep count (pendingReps is truthy
+      //      and non-empty, parseable as > 0).
+      // Otherwise the user must tap the READY button to advance.
+      const promptNext = (typeof getWmPromptNextSet === 'function') ? getWmPromptNextSet() : false;
+      const repsLogged = isHold || (wmState.pendingReps != null && wmState.pendingReps !== '' && parseInt(wmState.pendingReps, 10) > 0);
+
+      if (!promptNext && repsLogged && !_autoAdvanceFired) {
+        _autoAdvanceFired = true;
+        // Brief beat so the user sees "READY" flash before the next phase
+        setTimeout(() => {
+          if (wmState && wmState.phase === 'rest') {
+            wmCommitRestPhase(ex, isHold);
+            wmAdvance();
+          }
+        }, 350);
+      } else if (!_readyTransformed) {
+        _readyTransformed = true;
+        // Transform action button into big READY treatment
+        const btn = document.getElementById('wm-rest-action-btn');
+        if (btn) {
+          btn.style.background = '#ff6b3b';
+          btn.style.color = '#fff';
+          btn.style.padding = '22px 36px';
+          btn.style.fontSize = '18px';
+          btn.style.fontFamily = "'Bebas Neue', sans-serif";
+          btn.style.letterSpacing = '0.18em';
+          btn.style.minHeight = '64px';
+          btn.style.width = '100%';
+          btn.style.maxWidth = '420px';
+          btn.style.boxShadow = '0 8px 24px rgba(255,107,59,0.4), 0 0 0 4px rgba(255,107,59,0.15)';
+          btn.style.transform = 'scale(1.02)';
+          btn.textContent = isLastSet ? 'FINISH EXERCISE →' : 'READY';
+        }
       }
     }
   };
@@ -9418,8 +9722,14 @@ function renderChefStep(step, si, meal, hasChefData) {
   // STEP NUMBER + LABEL + STOPWATCH HEADER ROW
   // Timer (when present) sits to the right as a compact stopwatch — same height
   // as the step number badge, so the header reads as: [#] STEP N ........ [⏱]
+  //
+  // Bug fix (Phase A): added flexWrap so at max text scale (1.3x) the stopwatch
+  // wraps below the step number/label instead of squeezing into a narrow
+  // column. Without this the 68px stopwatch + 44px number circle + label would
+  // overflow a ~300px content area at zoom 1.3x, overlapping the label text.
   const stepHeader = div({
     display:'flex',alignItems:'flex-start',gap:'14px',
+    flexWrap:'wrap',
     marginBottom:'14px'
   });
 
@@ -9762,18 +10072,36 @@ function renderChefStickyTimers(meal, steps) {
     return m ? parseInt(m[1], 10) : null;
   };
 
-  // Helper to scroll to a step
+  // Helper to scroll to a step.
+  //
+  // Bug fix (Phase A): replaced the hardcoded `-180` offset with a dynamic
+  // measurement of the sticky top bar + timer panel. At max text scale (1.3x)
+  // the sticky stack is ~234px tall, so a hardcoded 180px offset left the
+  // sticky panel covering the step content the user was scrolled to. Now we
+  // measure the actual rendered top edges of the chef-step content area.
   const scrollToStep = (idx) => {
     const node = document.getElementById('chef-step-' + idx);
-    if (node) {
-      // Account for the sticky top bar + timer panel offset
-      const rect = node.getBoundingClientRect();
-      const overlay = document.getElementById('chef-overlay');
-      if (overlay) {
-        const offset = overlay.scrollTop + rect.top - 180;
-        overlay.scrollTo({top: offset, behavior:'smooth'});
+    if (!node) return;
+    const overlay = document.getElementById('chef-overlay');
+    if (!overlay) return;
+    // Sum heights of every sticky panel currently inside the overlay above
+    // the step area. They share the same scroll container and stack from
+    // top:0 downward, so the total sticky height is the bottom edge of the
+    // last sticky element above this step.
+    let stickyOffset = 0;
+    const stickies = overlay.querySelectorAll('[style*="position: sticky"], [style*="position:sticky"]');
+    stickies.forEach(s => {
+      const r = s.getBoundingClientRect();
+      // Only count sticky elements currently pinned at the top
+      if (r.top < node.getBoundingClientRect().top) {
+        stickyOffset = Math.max(stickyOffset, r.bottom);
       }
-    }
+    });
+    const rect = node.getBoundingClientRect();
+    const overlayRect = overlay.getBoundingClientRect();
+    // Position the step's top just below the sticky stack with a small breathing gap
+    const offset = overlay.scrollTop + rect.top - overlayRect.top - (stickyOffset - overlayRect.top) - 8;
+    overlay.scrollTo({top: Math.max(0, offset), behavior:'smooth'});
   };
 
   // Expired first (more urgent)
@@ -10755,226 +11083,269 @@ function attachHaloGestureHandlers() {
     return Math.max(0, Math.min(HALO_TABS.length - 1, idx));
   };
 
-  const onStart = (clientX, clientY) => {
-    if (haloAutoCollapseTimer) { clearTimeout(haloAutoCollapseTimer); haloAutoCollapseTimer = null; }
-    // Save the tab we're leaving + its scroll position. Restored on settle if
-    // the user lands on a different tab. This is the entry point for scroll
-    // memory through halo gestures (taps, swipes, scrubs) — setTab handles
-    // direct button jumps elsewhere.
-    _haloGestureStartTab = activeTab;
-    _haloGestureStartScrollY = window.scrollY || document.documentElement.scrollTop || 0;
-    haloDragActive = true;
-    haloDragLockedAxis = null;       // reset axis lock at start of every gesture
-    haloDragStartX = clientX;
-    haloDragStartY = clientY;
-    haloDragStartScrollPos = haloScrollPos;
-    haloDragLastX = clientX;
-    haloDragLastTime = performance.now();
-    haloDragMoved = 0;
+  // ─── UNIFIED POINTER-EVENT GESTURE SYSTEM ─────────────────────────────────
+  // Replaces the previous touch+mouse+click trio with a single pointer-event
+  // pipeline. Rationale:
+  //   1. Touch + mouse + click were three overlapping handlers competing for
+  //      the same state. iOS would fire synthetic mouse events after touch,
+  //      and the click handler would race the touchend handler — sometimes
+  //      double-firing, sometimes contradicting each other.
+  //   2. The previous tap-to-navigate used a velocity-based momentum jump
+  //      (haloVelocity = distance * 6 + anim loop) which overshoots the
+  //      target by ~50%, ending up on the wrong tab.
+  //   3. On laptop, the click event would arrive without the touchstart that
+  //      sets up gesture state, so it fired into an incomplete state machine.
+  //
+  // New design: pointer events unify touch + mouse + pen under one API.
+  //   • Tap (< 8px movement AND < 400ms duration) → instant snap. No velocity,
+  //     no anim loop. The CSS transition on each .halo-tab button handles the
+  //     visual ease (220ms cubic-bezier already configured in renderHaloNav).
+  //   • Swipe (≥ 8px horizontal-locked movement) → existing momentum system,
+  //     which works correctly on the phone.
+  //   • Long-press (held > 400ms with < 8px movement) → preview mode, same as
+  //     before.
+  //
+  // All gesture state lives in a single `gesture` object scoped to this
+  // closure, replacing the scattered globals. The public globals
+  // (haloDragActive, _haloGestureStartTab, _haloGestureStartScrollY) are
+  // still maintained so external code that reads them keeps working.
+
+  const TAP_MOVE_THRESHOLD = 8;   // px — under this is a tap, not a swipe
+  const TAP_TIME_THRESHOLD = 400; // ms — over this is a long-press/hold
+
+  let gesture = null;
+
+  // Snap directly to a target tab. No velocity, no anim loop. CSS handles ease.
+  const snapToTab = (targetIdx, startTab, startScrollY) => {
     haloVelocity = 0;
     haloAnimating = false;
-    // Track whether this gesture started in collapsed mode — used in onEnd to
-    // decide whether a "tap" (no significant movement) should expand the bar
-    // or whether the horizontal swipe already opened it.
-    haloDragStartedCollapsed = (haloMode === 'collapsed');
-
-    // Long-press preview after 400ms of no significant movement
-    haloLongPressTimer = setTimeout(() => {
-      if (haloDragMoved < 8 && haloDragLockedAxis === null) {
-        // If collapsed, a long-press also expands the bar so the preview is visible
-        if (haloMode === 'collapsed') setHaloMode('expanded');
-        haloLongPressActive = true;
-        haloPreviewIdx = tabIdxAtClientX(clientX);
-        haloDragLockedAxis = 'horizontal';  // preview implicitly engages halo
-        renderHaloNav();
-        try { if (navigator.vibrate) navigator.vibrate(8); } catch(e) {}
-      }
-    }, 400);
-  };
-
-  const onMove = (clientX, clientY) => {
-    if (!haloDragActive) return;
-    const now = performance.now();
-    const totalDx = clientX - haloDragStartX;
-    const totalDy = clientY - haloDragStartY;
-    const absDx = Math.abs(totalDx);
-    const absDy = Math.abs(totalDy);
-
-    // ── DIRECTION LOCK ──
-    // If we haven't locked to an axis yet, watch the first 12px of movement
-    // and decide which way the user is gesturing.
-    if (haloDragLockedAxis === null) {
-      const totalDist = Math.max(absDx, absDy);
-      if (totalDist >= HALO_DIR_LOCK_THRESHOLD) {
-        if (absDx > absDy * HALO_HORIZONTAL_DOMINANCE) {
-          // Horizontal dominant — engage the halo
-          haloDragLockedAxis = 'horizontal';
-          // If the gesture started while collapsed, expand the bar mid-gesture
-          // so the swipe scrolls the now-visible halo. Drag continues from the
-          // user's actual finger position — no second tap needed.
-          if (haloDragStartedCollapsed && haloMode === 'collapsed') {
-            setHaloMode('expanded');
-          }
-        } else {
-          // Vertical dominant (or ambiguous) — release this gesture so the page can scroll
-          haloDragLockedAxis = 'vertical';
-          haloDragActive = false;
-          cancelLongPress();
-          // No render needed — bar stays where it was
-          return;
-        }
-      } else {
-        // Below threshold — wait for more movement before deciding
-        return;
-      }
-    }
-
-    // If locked to vertical, ignore (page handles it)
-    if (haloDragLockedAxis === 'vertical') return;
-
-    // ── HORIZONTAL DRAG (locked) ──
-    const dx = clientX - haloDragLastX;
-    const dt = (now - haloDragLastTime) / 1000;
-    haloDragMoved += Math.abs(dx);
-
-    // Cancel long-press if user has moved noticeably
-    if (haloDragMoved > 8) {
-      if (haloLongPressTimer) {
-        clearTimeout(haloLongPressTimer);
-        haloLongPressTimer = null;
-      }
-    }
-
-    // Long-press active: track which tab is under the finger
-    if (haloLongPressActive) {
-      haloPreviewIdx = tabIdxAtClientX(clientX);
-      renderHaloNav();
-      haloDragLastX = clientX;
-      haloDragLastTime = now;
-      return;
-    }
-
-    // 1:1 finger tracking, scrolled in tab units (relative to start position)
-    haloScrollPos = haloDragStartScrollPos - (totalDx / haloSpacing);
-
-    if (dt > 0.002) {
-      const instVel = -(dx / haloSpacing) / dt;
-      haloVelocity = haloVelocity * 0.5 + instVel * 0.5;
-    }
-
-    haloDragLastX = clientX;
-    haloDragLastTime = now;
-    // Live commit: as the user's drag moves the bar's center past tab
-    // boundaries, swap the visible page content so the screen tracks the bar.
-    maybeCommitHaloActiveTab();
-    renderHaloNav();
-  };
-
-  const onEnd = () => {
-    if (!haloDragActive && haloDragLockedAxis !== 'horizontal') {
-      // Either never started, or released to vertical scroll
-      cancelLongPress();
-      return;
-    }
-    haloDragActive = false;
-
-    // Long-press tap (held still and released)
-    if (haloLongPressActive && haloPreviewIdx !== null && haloDragMoved < 8) {
-      const targetIdx = haloPreviewIdx;
-      cancelLongPress();
-      haloVelocity = 0;
-      haloScrollPos = targetIdx;
-      const newTab = HALO_TABS[targetIdx].id;
-      // Scroll memory same pattern as the animation settle path
-      if (_haloGestureStartTab && _haloGestureStartTab !== newTab) {
-        tabScrollY[_haloGestureStartTab] = _haloGestureStartScrollY;
+    haloScrollPos = Math.max(0, Math.min(HALO_TABS.length - 1, targetIdx));
+    const newTab = HALO_TABS[Math.round(haloScrollPos)].id;
+    if (newTab !== activeTab) {
+      if (startTab && startTab !== newTab) {
+        tabScrollY[startTab] = startScrollY || 0;
       }
       activeTab = newTab;
       renderActiveSectionLabel();
       applyTabAccents();
       renderActiveTab();
-      renderHaloNav();
-      if (_haloGestureStartTab && _haloGestureStartTab !== activeTab) {
-        const restoreY = tabScrollY[activeTab] || 0;
-        requestAnimationFrame(() => window.scrollTo({ top: restoreY, behavior: 'auto' }));
+      // Restore the incoming tab's last-known scroll position
+      const restoreY = tabScrollY[newTab] || 0;
+      requestAnimationFrame(() => window.scrollTo({ top: restoreY, behavior: 'auto' }));
+    }
+    renderHaloNav();
+    if (haloMode === 'expanded') scheduleHaloAutoCollapse();
+  };
+
+  track.addEventListener('pointerdown', (e) => {
+    if (!e.isPrimary) return;  // ignore secondary fingers / right mouse
+    // Capture so we get pointer events even if the pointer leaves the track
+    try { track.setPointerCapture(e.pointerId); } catch(_) {}
+
+    if (haloAutoCollapseTimer) { clearTimeout(haloAutoCollapseTimer); haloAutoCollapseTimer = null; }
+
+    gesture = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      startTime: performance.now(),
+      lastX: e.clientX,
+      lastTime: performance.now(),
+      moved: 0,
+      lockedAxis: null,
+      startedCollapsed: (haloMode === 'collapsed'),
+      startTab: activeTab,
+      startScrollY: window.scrollY || document.documentElement.scrollTop || 0,
+      startScrollPos: haloScrollPos
+    };
+
+    // Expose to the public globals so renderHaloNav et al. behave consistently
+    _haloGestureStartTab = activeTab;
+    _haloGestureStartScrollY = gesture.startScrollY;
+    haloDragActive = true;
+    haloDragLockedAxis = null;
+    haloDragMoved = 0;
+    haloDragStartedCollapsed = gesture.startedCollapsed;
+    haloVelocity = 0;
+    haloAnimating = false;
+
+    // Long-press preview after 400ms of no significant movement
+    haloLongPressTimer = setTimeout(() => {
+      if (!gesture) return;
+      if (gesture.moved < TAP_MOVE_THRESHOLD && gesture.lockedAxis === null) {
+        if (haloMode === 'collapsed') setHaloMode('expanded');
+        haloLongPressActive = true;
+        haloPreviewIdx = tabIdxAtClientX(gesture.startX);
+        gesture.lockedAxis = 'horizontal';
+        haloDragLockedAxis = 'horizontal';
+        renderHaloNav();
+        try { if (navigator.vibrate) navigator.vibrate(8); } catch(e) {}
       }
+    }, TAP_TIME_THRESHOLD);
+  });
+
+  track.addEventListener('pointermove', (e) => {
+    if (!gesture || e.pointerId !== gesture.pointerId) return;
+
+    const now = performance.now();
+    const totalDx = e.clientX - gesture.startX;
+    const totalDy = e.clientY - gesture.startY;
+    const absDx = Math.abs(totalDx);
+    const absDy = Math.abs(totalDy);
+
+    // Direction lock — wait for HALO_DIR_LOCK_THRESHOLD (12px) before deciding
+    if (gesture.lockedAxis === null) {
+      const totalDist = Math.max(absDx, absDy);
+      if (totalDist < HALO_DIR_LOCK_THRESHOLD) {
+        gesture.lastX = e.clientX;
+        gesture.lastTime = now;
+        return;
+      }
+      if (absDx > absDy * HALO_HORIZONTAL_DOMINANCE) {
+        gesture.lockedAxis = 'horizontal';
+        haloDragLockedAxis = 'horizontal';
+        if (gesture.startedCollapsed && haloMode === 'collapsed') {
+          setHaloMode('expanded');
+        }
+      } else {
+        gesture.lockedAxis = 'vertical';
+        haloDragLockedAxis = 'vertical';
+        haloDragActive = false;
+        cancelLongPress();
+        // Release pointer capture so the browser can scroll the page natively
+        try { track.releasePointerCapture(gesture.pointerId); } catch(_) {}
+        gesture = null;
+        return;
+      }
+    }
+
+    if (gesture.lockedAxis === 'vertical') return;
+
+    // Horizontal drag — track movement + velocity
+    const frameDx = e.clientX - gesture.lastX;
+    const dt = (now - gesture.lastTime) / 1000;
+    gesture.moved += Math.abs(frameDx);
+    haloDragMoved = gesture.moved;
+
+    if (gesture.moved > TAP_MOVE_THRESHOLD && haloLongPressTimer) {
+      clearTimeout(haloLongPressTimer);
+      haloLongPressTimer = null;
+    }
+
+    if (haloLongPressActive) {
+      haloPreviewIdx = tabIdxAtClientX(e.clientX);
+      renderHaloNav();
+      gesture.lastX = e.clientX;
+      gesture.lastTime = now;
+      return;
+    }
+
+    // 1:1 finger tracking (relative to drag start)
+    haloScrollPos = gesture.startScrollPos - (totalDx / haloSpacing);
+    if (dt > 0.002) {
+      const instVel = -(frameDx / haloSpacing) / dt;
+      haloVelocity = haloVelocity * 0.5 + instVel * 0.5;
+    }
+
+    gesture.lastX = e.clientX;
+    gesture.lastTime = now;
+    maybeCommitHaloActiveTab();
+    renderHaloNav();
+
+    // Prevent the page from also scrolling while we are actively dragging
+    if (e.cancelable) e.preventDefault();
+  });
+
+  const handlePointerEnd = (e, wasCancelled) => {
+    if (!gesture || e.pointerId !== gesture.pointerId) return;
+    const g = gesture;
+    gesture = null;
+    try { track.releasePointerCapture(e.pointerId); } catch(_) {}
+
+    const duration = performance.now() - g.startTime;
+    haloDragActive = false;
+
+    // Long-press preview was active and finger was still — commit to previewed tab
+    if (haloLongPressActive && haloPreviewIdx !== null && g.moved < TAP_MOVE_THRESHOLD) {
+      const targetIdx = haloPreviewIdx;
+      cancelLongPress();
+      snapToTab(targetIdx, g.startTab, g.startScrollY);
       _haloGestureStartTab = null;
-      if (haloMode === 'expanded') scheduleHaloAutoCollapse();
       haloDragLockedAxis = null;
       haloDragStartedCollapsed = false;
       return;
     }
-
     cancelLongPress();
 
-    // No movement — this was a tap, not a swipe.
-    // If we started in collapsed mode and released without movement, expand.
-    // Otherwise (already expanded), just settle back to nearest tab.
-    if (haloDragMoved < 5) {
-      if (haloDragStartedCollapsed && haloMode === 'collapsed') {
-        setHaloMode('expanded');
-      } else {
-        haloVelocity = 0;
-        startHaloAnimLoop();
-        if (haloMode === 'expanded') scheduleHaloAutoCollapse();
-      }
+    // Cancellation (pointercancel) — just settle, don't switch tabs
+    if (wasCancelled) {
+      haloVelocity = 0;
+      startHaloAnimLoop();
+      _haloGestureStartTab = null;
       haloDragLockedAxis = null;
       haloDragStartedCollapsed = false;
       return;
     }
 
-    // Momentum carry
-    haloVelocity = Math.max(-12, Math.min(12, haloVelocity));
-    startHaloAnimLoop();
-    if (haloMode === 'expanded') scheduleHaloAutoCollapse();
+    // ── TAP detection ────────────────────────────────────────────────────
+    // A tap is: <8px total movement AND <400ms duration AND axis didn't lock
+    // to horizontal (which would mean a swipe started).
+    const isTap = (g.moved < TAP_MOVE_THRESHOLD && duration < TAP_TIME_THRESHOLD && g.lockedAxis !== 'horizontal');
+
+    if (isTap) {
+      // First tap on collapsed bar → just expand, no tab switch
+      if (g.startedCollapsed && haloMode === 'collapsed') {
+        setHaloMode('expanded');
+        _haloGestureStartTab = null;
+        haloDragLockedAxis = null;
+        haloDragStartedCollapsed = false;
+        return;
+      }
+
+      // Expanded bar tap — figure out which tab and snap to it
+      const tappedIdx = tabIdxAtClientX(e.clientX);
+      const currentIdx = Math.round(haloScrollPos);
+      if (tappedIdx !== currentIdx) {
+        snapToTab(tappedIdx, g.startTab, g.startScrollY);
+      } else {
+        // Tap on the active tab — just keep things tidy
+        haloVelocity = 0;
+        haloScrollPos = currentIdx;
+        renderHaloNav();
+        if (haloMode === 'expanded') scheduleHaloAutoCollapse();
+      }
+      _haloGestureStartTab = null;
+      haloDragLockedAxis = null;
+      haloDragStartedCollapsed = false;
+      return;
+    }
+
+    // ── SWIPE end ────────────────────────────────────────────────────────
+    // Horizontal drag with momentum → use existing animation loop to settle
+    if (g.lockedAxis === 'horizontal') {
+      haloVelocity = Math.max(-12, Math.min(12, haloVelocity));
+      startHaloAnimLoop();
+      if (haloMode === 'expanded') scheduleHaloAutoCollapse();
+    } else {
+      // Movement was over threshold but axis never locked (shouldn't normally
+      // happen). Just settle in place.
+      haloVelocity = 0;
+      startHaloAnimLoop();
+    }
+
     haloDragLockedAxis = null;
     haloDragStartedCollapsed = false;
   };
 
-  // Touch (passive — we don't preventDefault, so vertical scrolling stays smooth)
-  track.addEventListener('touchstart', (e) => {
-    if (e.touches.length !== 1) return;
-    onStart(e.touches[0].clientX, e.touches[0].clientY);
-  }, {passive: true});
-  track.addEventListener('touchmove', (e) => {
-    if (e.touches.length !== 1) return;
-    onMove(e.touches[0].clientX, e.touches[0].clientY);
-  }, {passive: true});
-  track.addEventListener('touchend', onEnd, {passive: true});
-  track.addEventListener('touchcancel', () => {
-    cancelLongPress();
-    haloDragActive = false;
-    haloDragLockedAxis = null;
-    startHaloAnimLoop();
-  }, {passive: true});
+  track.addEventListener('pointerup', (e) => handlePointerEnd(e, false));
+  track.addEventListener('pointercancel', (e) => handlePointerEnd(e, true));
 
-  // Mouse (desktop testing) — same direction-lock logic via clientY
-  let mouseDown = false;
-  track.addEventListener('mousedown', (e) => {
-    mouseDown = true;
-    onStart(e.clientX, e.clientY);
-  });
-  window.addEventListener('mousemove', (e) => {
-    if (mouseDown) onMove(e.clientX, e.clientY);
-  });
-  window.addEventListener('mouseup', () => {
-    if (mouseDown) { mouseDown = false; onEnd(); }
-  });
-
-  // Tap-to-navigate (clicks where no significant drag occurred)
-  track.addEventListener('click', (e) => {
-    if (haloDragMoved > 5) return;
-    const btn = e.target.closest('.halo-tab');
-    if (!btn) return;
-    e.stopPropagation();
-    const idx = parseInt(btn.dataset.tabIdx, 10);
-    if (isNaN(idx)) return;
-    haloVelocity = 0;
-    haloTargetPos = idx;
-    const distance = idx - haloScrollPos;
-    haloVelocity = distance * 6;
-    startHaloAnimLoop();
-    if (haloMode === 'expanded') scheduleHaloAutoCollapse();
+  // Defensive: if the pointer leaves the track while NOT captured (shouldn't
+  // happen post-setPointerCapture, but belt-and-braces), treat as cancel.
+  track.addEventListener('pointerleave', (e) => {
+    if (gesture && e.pointerId === gesture.pointerId && !track.hasPointerCapture(e.pointerId)) {
+      handlePointerEnd(e, true);
+    }
   });
 
   // ── PAGE-LEVEL TRIGGERS ──
@@ -11649,6 +12020,12 @@ function renderReorderHint() {
 }
 
 function renderActiveTab() {
+  // Phase F — reset body-figure selected anchor when navigating away from
+  // the Stats/Overview tab. Keeps the resting visual clean every time the
+  // user comes back to Stats, while still letting them explore mid-session.
+  if (activeTab !== 'overview' && _figureSelectedAnchor != null) {
+    _figureSelectedAnchor = null;
+  }
   const tabAccent = getTabAccent(activeTab);
   ['overview','train','fuel','water','sleep','shopping','history'].forEach(t => {
     const wrap = document.getElementById('tab-'+t);
@@ -11719,13 +12096,19 @@ const METRIC_FIELDS = [
   {key:'bmr',            label:'BMR',              unit:'kcal', step:'1',    group:'bia'},
   {key:'metabolicAge',   label:'Metabolic Age',    unit:'yrs',  step:'1',    group:'bia'},
   // Tape measurements
+  {key:'neck',           label:'Neck',             unit:'cm',   step:'0.5',  group:'tape'},
+  {key:'shoulders',      label:'Shoulders',        unit:'cm',   step:'0.5',  group:'tape'},
   {key:'chest',          label:'Chest',            unit:'cm',   step:'0.5',  group:'tape'},
   {key:'waist',          label:'Waist',            unit:'cm',   step:'0.5',  group:'tape'},
   {key:'hips',           label:'Hips',             unit:'cm',   step:'0.5',  group:'tape'},
   {key:'leftArm',        label:'Left Arm',         unit:'cm',   step:'0.5',  group:'tape'},
   {key:'rightArm',       label:'Right Arm',        unit:'cm',   step:'0.5',  group:'tape'},
+  {key:'leftForearm',    label:'L. Forearm',       unit:'cm',   step:'0.5',  group:'tape'},
+  {key:'rightForearm',   label:'R. Forearm',       unit:'cm',   step:'0.5',  group:'tape'},
   {key:'leftThigh',      label:'L. Thigh',         unit:'cm',   step:'0.5',  group:'tape'},
-  {key:'rightThigh',     label:'R. Thigh',         unit:'cm',   step:'0.5',  group:'tape'}
+  {key:'rightThigh',     label:'R. Thigh',         unit:'cm',   step:'0.5',  group:'tape'},
+  {key:'leftCalf',       label:'L. Calf',          unit:'cm',   step:'0.5',  group:'tape'},
+  {key:'rightCalf',      label:'R. Calf',          unit:'cm',   step:'0.5',  group:'tape'}
 ];
 
 function todayKey() {
@@ -12389,6 +12772,1021 @@ function sparkline(values, color, width, height) {
   return svg;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// PHASE C1 — STATS CHARTS
+// ═══════════════════════════════════════════════════════════════════════════
+// Inline SVG visualizations for the Stats tab. No external libraries, no
+// canvas — pure SVG so the charts stay crisp at any zoom and respect the
+// app text-scale token.
+//
+// Public entry: renderTrendsSection() returns a collapsible card with five
+// charts (bodyweight, body fat, lean mass, macro pie, PR bars).
+//
+// Helpers below are scoped to the Stats tab and not reused elsewhere; each
+// is responsible for its own empty-state handling and tap interactions.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Format a YYYY-MM-DD date string as "DD Mon" for compact display.
+function _statsFmtDate(iso) {
+  if (!iso || typeof iso !== 'string') return '';
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const parts = iso.split('-');
+  if (parts.length !== 3) return iso;
+  const m = parseInt(parts[1], 10);
+  const d = parseInt(parts[2], 10);
+  if (isNaN(m) || isNaN(d) || m < 1 || m > 12) return iso;
+  return d + ' ' + months[m - 1];
+}
+
+// Build a smooth SVG path through a list of {x, y} points using
+// Catmull-Rom-to-Bezier interpolation. Tension 0.5 (standard Catmull-Rom)
+// avoids the overshoot you get from naive cubic splines on noisy data like
+// daily bodyweight. Returns an SVG path d-attribute string.
+function _statsSmoothPath(pts) {
+  if (!pts || pts.length === 0) return '';
+  if (pts.length === 1) return 'M ' + pts[0].x + ' ' + pts[0].y;
+  if (pts.length === 2) {
+    return 'M ' + pts[0].x + ' ' + pts[0].y + ' L ' + pts[1].x + ' ' + pts[1].y;
+  }
+  const d = ['M', pts[0].x, pts[0].y];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const prev = pts[Math.max(0, i - 1)];
+    const curr = pts[i];
+    const next = pts[i + 1];
+    const after = pts[Math.min(pts.length - 1, i + 2)];
+    const c1x = curr.x + (next.x - prev.x) / 6;
+    const c1y = curr.y + (next.y - prev.y) / 6;
+    const c2x = next.x - (after.x - curr.x) / 6;
+    const c2y = next.y - (after.y - curr.y) / 6;
+    d.push('C', c1x.toFixed(2), c1y.toFixed(2), c2x.toFixed(2), c2y.toFixed(2), next.x.toFixed(2), next.y.toFixed(2));
+  }
+  return d.join(' ');
+}
+
+// Render an empty-state card with a friendly message — used when there's
+// not enough data for a meaningful chart.
+function _statsEmptyCard(title, accentColor, message) {
+  const card = div({
+    background: 'var(--bg-card)', border: '1px solid var(--border-subtle)',
+    borderRadius: '12px', padding: '16px', marginBottom: '10px'
+  });
+  card.appendChild(el('div', {
+    style: {fontSize:'8px',color:accentColor,letterSpacing:'0.22em',textTransform:'uppercase',marginBottom:'8px',fontWeight:'700'}
+  }, title));
+  card.appendChild(el('div', {
+    style: {fontSize:'11px',color:'var(--text-muted)',padding:'18px 4px',textAlign:'center',fontStyle:'italic',lineHeight:'1.5'}
+  }, message));
+  return card;
+}
+
+// Generic line-chart helper used for bodyweight, body fat, and lean mass.
+// opts: {
+//   title:        section eyebrow (e.g. 'Bodyweight Trend')
+//   accentColor:  stroke + fill gradient
+//   unit:         display unit ('kg', '%')
+//   decimals:     decimal places for tooltip value
+//   days:         lookback window in days (default 90)
+//   mapFn:        (metric) => numeric value or null
+//   emptyMessage: shown when data.length < 2
+// }
+function _statsRenderLineChart(opts) {
+  const allMetrics = (typeof getAllMetrics === 'function') ? getAllMetrics() : [];
+  const cutoffDays = opts.days || 90;
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - cutoffDays);
+  const cutoffStr = cutoffDate.toISOString().substring(0, 10);
+
+  const data = allMetrics
+    .filter(m => m.date >= cutoffStr)
+    .map(m => ({ date: m.date, value: opts.mapFn(m) }))
+    .filter(p => p.value != null && !isNaN(p.value) && isFinite(p.value));
+
+  if (data.length < 2) {
+    return _statsEmptyCard(opts.title, opts.accentColor,
+      data.length === 0
+        ? opts.emptyMessage
+        : 'One data point logged — keep logging to see the trend over time.');
+  }
+
+  // Card shell
+  const card = div({
+    background: 'var(--bg-card)', border: '1px solid var(--border-subtle)',
+    borderRadius: '12px', padding: '14px 14px 12px', marginBottom: '10px'
+  });
+
+  // Header row: title + latest value
+  const hdr = div({display:'flex',justifyContent:'space-between',alignItems:'flex-end',marginBottom:'10px',gap:'10px'});
+  hdr.appendChild(el('div', {
+    style:{fontSize:'8px',color:opts.accentColor,letterSpacing:'0.22em',textTransform:'uppercase',fontWeight:'700'}
+  }, opts.title));
+  const latest = data[data.length - 1];
+  const decimals = (typeof opts.decimals === 'number') ? opts.decimals : 1;
+  hdr.appendChild(el('div', {
+    style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'20px',color:'var(--text-primary)',letterSpacing:'0.04em',lineHeight:'1'}
+  }, latest.value.toFixed(decimals) + ' ' + opts.unit));
+  card.appendChild(hdr);
+
+  // Tooltip area — sits above the chart, updates on tap
+  const tooltipEl = el('div', {
+    style:{fontSize:'10px',color:'var(--text-muted)',fontFamily:"'DM Mono',monospace",marginBottom:'4px',minHeight:'14px',letterSpacing:'0.04em'}
+  }, _statsFmtDate(data[0].date) + ' → ' + _statsFmtDate(latest.date) + '  ·  ' + data.length + ' points');
+  card.appendChild(tooltipEl);
+
+  // Compute y range with 10% padding (or ±0.5 for zero-range)
+  const values = data.map(p => p.value);
+  const minV = Math.min.apply(null, values);
+  const maxV = Math.max.apply(null, values);
+  const rangeV = maxV - minV;
+  const padV = rangeV > 0.01 ? rangeV * 0.15 : 0.5;
+  const yMin = minV - padV;
+  const yMax = maxV + padV;
+  const yRange = yMax - yMin;
+
+  // Temporal x positions
+  const startMs = new Date(data[0].date).getTime();
+  const endMs = new Date(latest.date).getTime();
+  const totalMs = Math.max(1, endMs - startMs);
+
+  const W = 320, H = 140;
+  const PAD_L = 8, PAD_R = 8, PAD_T = 12, PAD_B = 18;
+  const innerW = W - PAD_L - PAD_R;
+  const innerH = H - PAD_T - PAD_B;
+
+  const points = data.map(p => {
+    const t = (new Date(p.date).getTime() - startMs) / totalMs;
+    return {
+      x: PAD_L + t * innerW,
+      y: PAD_T + (1 - (p.value - yMin) / yRange) * innerH
+    };
+  });
+
+  const linePath = _statsSmoothPath(points);
+  // Fill area beneath the line
+  const lastX = points[points.length - 1].x;
+  const firstX = points[0].x;
+  const baseY = PAD_T + innerH;
+  const areaPath = linePath + ' L ' + lastX.toFixed(2) + ' ' + baseY + ' L ' + firstX.toFixed(2) + ' ' + baseY + ' Z';
+
+  // Unique gradient id so multiple charts on one page don't collide
+  const gradId = 'stats-grad-' + Math.random().toString(36).substring(2, 9);
+
+  // Build SVG with: gradient defs, area fill, line stroke, visible dots, large invisible hit targets
+  let svgHtml = '<svg width="100%" viewBox="0 0 ' + W + ' ' + H + '" style="display:block;overflow:visible">';
+  svgHtml += '<defs><linearGradient id="' + gradId + '" x1="0" y1="0" x2="0" y2="1">';
+  svgHtml += '<stop offset="0%" stop-color="' + opts.accentColor + '" stop-opacity="0.3"/>';
+  svgHtml += '<stop offset="100%" stop-color="' + opts.accentColor + '" stop-opacity="0"/>';
+  svgHtml += '</linearGradient></defs>';
+  svgHtml += '<path d="' + areaPath + '" fill="url(#' + gradId + ')" stroke="none"/>';
+  svgHtml += '<path d="' + linePath + '" fill="none" stroke="' + opts.accentColor + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
+  // Visible dots
+  points.forEach((p, i) => {
+    svgHtml += '<circle cx="' + p.x.toFixed(2) + '" cy="' + p.y.toFixed(2) + '" r="2.5" fill="' + opts.accentColor + '" stroke="var(--bg-card)" stroke-width="1"/>';
+  });
+  // Invisible hit targets (larger for touch — 22px radius)
+  points.forEach((p, i) => {
+    svgHtml += '<circle cx="' + p.x.toFixed(2) + '" cy="' + p.y.toFixed(2) + '" r="22" fill="rgba(0,0,0,0)" data-pt-idx="' + i + '" style="cursor:pointer"/>';
+  });
+  // X-axis range labels (first / last date)
+  svgHtml += '<text x="' + (PAD_L) + '" y="' + (H - 4) + '" font-family="DM Mono, monospace" font-size="8" fill="#7a7a7a" letter-spacing="0.1em">' + _statsFmtDate(data[0].date) + '</text>';
+  svgHtml += '<text x="' + (W - PAD_R) + '" y="' + (H - 4) + '" text-anchor="end" font-family="DM Mono, monospace" font-size="8" fill="#7a7a7a" letter-spacing="0.1em">' + _statsFmtDate(latest.date) + '</text>';
+  svgHtml += '</svg>';
+
+  const svgWrap = el('div', { style:{width:'100%'} });
+  svgWrap.innerHTML = svgHtml;
+  card.appendChild(svgWrap);
+
+  // Y-range footnote (min – max)
+  card.appendChild(el('div', {
+    style:{fontSize:'9px',color:'var(--text-footnote)',fontFamily:"'DM Mono',monospace",textAlign:'right',marginTop:'2px',letterSpacing:'0.05em'}
+  }, 'min ' + minV.toFixed(decimals) + ' · max ' + maxV.toFixed(decimals) + ' ' + opts.unit));
+
+  // Hit-target taps update the tooltip
+  svgWrap.querySelectorAll('[data-pt-idx]').forEach(hit => {
+    hit.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const i = parseInt(hit.getAttribute('data-pt-idx'), 10);
+      const p = data[i];
+      if (!p) return;
+      tooltipEl.textContent = _statsFmtDate(p.date) + '  ·  ' + p.value.toFixed(decimals) + ' ' + opts.unit;
+      tooltipEl.style.color = opts.accentColor;
+    });
+  });
+
+  return card;
+}
+
+// Macro pie chart — three slices (protein / carbs / fat) sized by % of
+// total kcal from each macro. Reads goal profile for target macros.
+function _statsRenderMacroPie() {
+  const profile = (typeof getGoalProfile === 'function') ? getGoalProfile() : null;
+  if (!profile || !profile.targetKcal) {
+    return _statsEmptyCard('Macro Mix · Today', '#9ad6ff',
+      'Set up your goal in Settings to see your macro mix.');
+  }
+
+  const proteinG = profile.proteinG || 0;
+  const carbsG = profile.carbsG || 0;
+  const fatG = profile.fatG || 0;
+  const pKcal = proteinG * 4;
+  const cKcal = carbsG * 4;
+  const fKcal = fatG * 9;
+  const totalKcal = pKcal + cKcal + fKcal;
+
+  if (totalKcal <= 0) {
+    return _statsEmptyCard('Macro Mix · Today', '#9ad6ff',
+      'Macro targets not set yet — finish the goal wizard to see the breakdown.');
+  }
+
+  const card = div({
+    background: 'var(--bg-card)', border: '1px solid var(--border-subtle)',
+    borderRadius: '12px', padding: '14px 14px 14px', marginBottom: '10px'
+  });
+
+  card.appendChild(el('div', {
+    style:{fontSize:'8px',color:'#9ad6ff',letterSpacing:'0.22em',textTransform:'uppercase',marginBottom:'10px',fontWeight:'700'}
+  }, 'Macro Mix · Today'));
+
+  // Layout: pie SVG on the left, legend on the right
+  const row = div({display:'flex',alignItems:'center',gap:'14px',flexWrap:'wrap'});
+
+  // Pie SVG (donut shape)
+  const SIZE = 160;
+  const CX = SIZE / 2, CY = SIZE / 2;
+  const R_OUTER = SIZE / 2 - 4;
+  const R_INNER = R_OUTER * 0.58;
+
+  const slices = [
+    { kcal: pKcal, grams: proteinG, color: '#3bdfff', label: 'Protein' },
+    { kcal: cKcal, grams: carbsG,   color: '#6aff3b', label: 'Carbs' },
+    { kcal: fKcal, grams: fatG,     color: '#fbbf24', label: 'Fat' }
+  ];
+
+  // Build slice arc paths. Start at 12 o'clock (angle = -PI/2) and go clockwise.
+  let angleSoFar = -Math.PI / 2;
+  let svgHtml = '<svg width="' + SIZE + '" height="' + SIZE + '" viewBox="0 0 ' + SIZE + ' ' + SIZE + '" style="display:block;flex-shrink:0">';
+  slices.forEach((s, idx) => {
+    const fraction = s.kcal / totalKcal;
+    const sweep = fraction * Math.PI * 2;
+    const startA = angleSoFar;
+    const endA = angleSoFar + sweep;
+    angleSoFar = endA;
+
+    // Donut wedge path: outer arc → inner arc back
+    const x1 = CX + R_OUTER * Math.cos(startA);
+    const y1 = CY + R_OUTER * Math.sin(startA);
+    const x2 = CX + R_OUTER * Math.cos(endA);
+    const y2 = CY + R_OUTER * Math.sin(endA);
+    const x3 = CX + R_INNER * Math.cos(endA);
+    const y3 = CY + R_INNER * Math.sin(endA);
+    const x4 = CX + R_INNER * Math.cos(startA);
+    const y4 = CY + R_INNER * Math.sin(startA);
+    const largeArc = sweep > Math.PI ? 1 : 0;
+
+    const d = 'M ' + x1.toFixed(2) + ' ' + y1.toFixed(2) +
+              ' A ' + R_OUTER + ' ' + R_OUTER + ' 0 ' + largeArc + ' 1 ' + x2.toFixed(2) + ' ' + y2.toFixed(2) +
+              ' L ' + x3.toFixed(2) + ' ' + y3.toFixed(2) +
+              ' A ' + R_INNER + ' ' + R_INNER + ' 0 ' + largeArc + ' 0 ' + x4.toFixed(2) + ' ' + y4.toFixed(2) +
+              ' Z';
+    svgHtml += '<path d="' + d + '" fill="' + s.color + '" data-slice="' + idx + '" style="cursor:pointer"/>';
+  });
+
+  // Center text: target kcal
+  svgHtml += '<text x="' + CX + '" y="' + (CY - 2) + '" text-anchor="middle" font-family="Bebas Neue, sans-serif" font-size="22" fill="#ebebeb" letter-spacing="0.04em">' + profile.targetKcal + '</text>';
+  svgHtml += '<text x="' + CX + '" y="' + (CY + 14) + '" text-anchor="middle" font-family="DM Mono, monospace" font-size="7" fill="#7a7a7a" letter-spacing="0.18em">KCAL TARGET</text>';
+  svgHtml += '</svg>';
+
+  const svgWrap = el('div', {style:{flexShrink:'0'}});
+  svgWrap.innerHTML = svgHtml;
+  row.appendChild(svgWrap);
+
+  // Legend
+  const legend = div({flex:'1',minWidth:'140px',display:'flex',flexDirection:'column',gap:'8px'});
+  slices.forEach((s, idx) => {
+    const pct = Math.round((s.kcal / totalKcal) * 100);
+    const legendRow = el('div', {
+      'data-legend-slice': idx,
+      style:{
+        display:'flex',alignItems:'center',gap:'8px',
+        padding:'6px 4px',borderRadius:'6px',cursor:'pointer',
+        transition:'background 0.15s'
+      }
+    });
+    legendRow.appendChild(el('span', {style:{width:'10px',height:'10px',borderRadius:'2px',background:s.color,flexShrink:'0',display:'inline-block'}}));
+    const legendText = div({flex:'1',minWidth:'0'});
+    legendText.appendChild(el('div', {
+      style:{fontSize:'10px',color:'var(--text-primary)',letterSpacing:'0.1em',textTransform:'uppercase',fontWeight:'700'}
+    }, s.label));
+    legendText.appendChild(el('div', {
+      style:{fontSize:'10px',color:'var(--text-muted)',fontFamily:"'DM Mono',monospace",marginTop:'2px'}
+    }, s.grams + 'g  ·  ' + s.kcal + ' kcal  ·  ' + pct + '%'));
+    legendRow.appendChild(legendText);
+    legend.appendChild(legendRow);
+  });
+  row.appendChild(legend);
+  card.appendChild(row);
+
+  // Tap a slice or its legend row to highlight (subtle background flash)
+  const highlight = (idx) => {
+    svgWrap.querySelectorAll('[data-slice]').forEach(p => {
+      const i = parseInt(p.getAttribute('data-slice'), 10);
+      p.setAttribute('opacity', i === idx ? '1' : '0.4');
+    });
+    legend.querySelectorAll('[data-legend-slice]').forEach(r => {
+      const i = parseInt(r.getAttribute('data-legend-slice'), 10);
+      r.style.background = i === idx ? 'var(--bg-card-nested)' : 'transparent';
+    });
+  };
+  const reset = () => {
+    svgWrap.querySelectorAll('[data-slice]').forEach(p => p.setAttribute('opacity', '1'));
+    legend.querySelectorAll('[data-legend-slice]').forEach(r => r.style.background = 'transparent');
+  };
+  svgWrap.querySelectorAll('[data-slice]').forEach(p => {
+    p.addEventListener('click', (e) => {
+      e.stopPropagation();
+      highlight(parseInt(p.getAttribute('data-slice'), 10));
+      setTimeout(reset, 1200);
+    });
+  });
+  legend.querySelectorAll('[data-legend-slice]').forEach(r => {
+    r.addEventListener('click', (e) => {
+      e.stopPropagation();
+      highlight(parseInt(r.getAttribute('data-legend-slice'), 10));
+      setTimeout(reset, 1200);
+    });
+  });
+
+  return card;
+}
+
+// Weekly strength PR bar chart — best e1RM per week across all exercises.
+// Uses Epley formula (w * (1 + r/30)) for reps < 12. Returns the last 12
+// weeks of data sorted ascending.
+function _statsRenderPRBars() {
+  const weekData = {};  // weekId → { value, exId, weight, reps }
+
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k) continue;
+      const m = k.match(/^fraser_workout_w(\d{4}-W\d{2})_d(\d+)$/);
+      if (!m) continue;
+      const weekId = m[1];
+      try {
+        const log = JSON.parse(localStorage.getItem(k));
+        if (!log) continue;
+        for (const exId in log) {
+          const sets = (log[exId] && log[exId].sets) || [];
+          sets.forEach(s => {
+            if (!s) return;
+            const w = parseFloat(s.weight);
+            const r = parseInt(s.reps, 10);
+            if (isNaN(w) || isNaN(r) || w <= 0 || r <= 0 || r >= 12) return;
+            const e1rm = +(w * (1 + r / 30)).toFixed(2);
+            if (!weekData[weekId] || e1rm > weekData[weekId].value) {
+              weekData[weekId] = { value: e1rm, exId: exId, weight: w, reps: r };
+            }
+          });
+        }
+      } catch(e) {}
+    }
+  } catch(e) {}
+
+  const weeks = Object.keys(weekData).sort();
+  const last12 = weeks.slice(-12);
+
+  if (last12.length === 0) {
+    return _statsEmptyCard('Best Lift · Last 12 Weeks', '#ff6b3b',
+      'Log some weighted sets in Workout Mode to see your strength trend.');
+  }
+
+  const card = div({
+    background: 'var(--bg-card)', border: '1px solid var(--border-subtle)',
+    borderRadius: '12px', padding: '14px 14px 12px', marginBottom: '10px'
+  });
+
+  card.appendChild(el('div', {
+    style:{fontSize:'8px',color:'#ff6b3b',letterSpacing:'0.22em',textTransform:'uppercase',marginBottom:'4px',fontWeight:'700'}
+  }, 'Best Lift · Last 12 Weeks'));
+  card.appendChild(el('div', {
+    style:{fontSize:'10px',color:'var(--text-muted)',marginBottom:'10px',fontFamily:"'DM Mono',monospace"}
+  }, 'estimated 1RM (Epley)'));
+
+  // Tooltip area — updates on bar tap
+  const latestRec = weekData[last12[last12.length - 1]];
+  const tooltipEl = el('div', {
+    style:{fontSize:'10px',color:'var(--text-muted)',fontFamily:"'DM Mono',monospace",marginBottom:'8px',minHeight:'14px',letterSpacing:'0.04em'}
+  }, last12.length + ' weeks · latest: ' + (typeof findExerciseName === 'function' ? findExerciseName(latestRec.exId) : latestRec.exId) + ' ' + latestRec.weight + 'kg × ' + latestRec.reps);
+  card.appendChild(tooltipEl);
+
+  // Bar chart SVG
+  const W = 320, H = 130;
+  const PAD_L = 8, PAD_R = 8, PAD_T = 8, PAD_B = 22;
+  const innerW = W - PAD_L - PAD_R;
+  const innerH = H - PAD_T - PAD_B;
+
+  const values = last12.map(wk => weekData[wk].value);
+  const maxV = Math.max.apply(null, values);
+  const minV = Math.min.apply(null, values);
+  const yMin = Math.max(0, minV * 0.9);   // leave a little floor, but anchor at 0 if data is small
+  const yMax = maxV * 1.05;
+  const yRange = Math.max(1, yMax - yMin);
+
+  const barGap = 4;
+  const barW = Math.max(8, (innerW - barGap * (last12.length - 1)) / last12.length);
+
+  let svgHtml = '<svg width="100%" viewBox="0 0 ' + W + ' ' + H + '" style="display:block;overflow:visible">';
+  last12.forEach((wk, idx) => {
+    const rec = weekData[wk];
+    const x = PAD_L + idx * (barW + barGap);
+    const h = ((rec.value - yMin) / yRange) * innerH;
+    const y = PAD_T + innerH - h;
+    svgHtml += '<rect x="' + x.toFixed(2) + '" y="' + y.toFixed(2) + '" width="' + barW.toFixed(2) + '" height="' + Math.max(2, h).toFixed(2) + '" rx="2" fill="#ff6b3b" data-bar-idx="' + idx + '" style="cursor:pointer"/>';
+  });
+  // Latest-week label
+  const lastWeekId = last12[last12.length - 1];
+  const firstWeekId = last12[0];
+  svgHtml += '<text x="' + PAD_L + '" y="' + (H - 6) + '" font-family="DM Mono, monospace" font-size="8" fill="#7a7a7a" letter-spacing="0.1em">' + firstWeekId + '</text>';
+  svgHtml += '<text x="' + (W - PAD_R) + '" y="' + (H - 6) + '" text-anchor="end" font-family="DM Mono, monospace" font-size="8" fill="#7a7a7a" letter-spacing="0.1em">' + lastWeekId + '</text>';
+  svgHtml += '</svg>';
+
+  const svgWrap = el('div', {style:{width:'100%'}});
+  svgWrap.innerHTML = svgHtml;
+  card.appendChild(svgWrap);
+
+  // Y-range footnote
+  card.appendChild(el('div', {
+    style:{fontSize:'9px',color:'var(--text-footnote)',fontFamily:"'DM Mono',monospace",textAlign:'right',marginTop:'4px',letterSpacing:'0.05em'}
+  }, 'min ' + minV.toFixed(1) + ' · max ' + maxV.toFixed(1) + ' kg e1RM'));
+
+  // Bar taps reveal which lift hit the PR that week
+  svgWrap.querySelectorAll('[data-bar-idx]').forEach(bar => {
+    bar.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = parseInt(bar.getAttribute('data-bar-idx'), 10);
+      const wk = last12[idx];
+      const rec = weekData[wk];
+      const name = (typeof findExerciseName === 'function') ? findExerciseName(rec.exId) : rec.exId;
+      tooltipEl.textContent = wk + '  ·  ' + name + '  ·  ' + rec.weight + 'kg × ' + rec.reps + '  →  e1RM ' + rec.value.toFixed(1) + 'kg';
+      tooltipEl.style.color = '#ff6b3b';
+    });
+  });
+
+  return card;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
+// PHASE F2 — BODY FIGURE V3 (UNIFIED OUTLINE, 13 ANCHORS, ANATOMICAL POSTER)
+// ═══════════════════════════════════════════════════════════════════════════
+// Iteration on Phase F. Two corrections:
+//   (a) Phase F was 8 separate SVG paths sharing fill — visually it read as
+//       a cobbled mannequin. F2 is ONE closed path traced as a continuous
+//       outline around the entire body, so it reads as a single human shape.
+//   (b) Phase F had 7 anchors. F2 has 13 — added neck, shoulders,
+//       leftForearm, rightForearm, leftCalf, rightCalf.
+//
+// Visual reference target: anatomical-poster aesthetic in the spirit of the
+// "Human Mechanics: Unleashing the Potential of a Highly Advanced Species"
+// book cover. Clean continuous line, classical proportions, single unified
+// figure — NOT photo-real, NOT naked. Faint internal landmark lines
+// (sternum, clavicle, iliac, knee crease) whisper anatomy without breaking
+// the unified-body read. Subtle waistband + sleeve hint communicate the
+// figure is "wearing training kit" without committing to drawn clothes.
+//
+// Coords: viewBox 400×460, centerline x=200. Silhouette occupies roughly
+// x=140 to x=260 horizontally and y=20 to y=445 vertically. Labels live
+// in two flanking lanes (left x≈45, right x≈355).
+//
+// State + reset hook + collapse-clears all inherited unchanged from F.
+// Public entry point name (renderBodyFigureSection) preserved.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// 13 anchors total. Right lane: 7 (neck, chest, waist, rightArm,
+// rightForearm, rightThigh, rightCalf). Left lane: 6 (shoulders, leftArm,
+// leftForearm, hips, leftThigh, leftCalf). The neck-and-shoulders split
+// across lanes keeps the visual weight balanced.
+const FIGURE_ANCHORS = [
+  // Head / neck region
+  { fieldKey:'neck',         shortLabel:'Neck',
+    anchor:{x:200, y:80},  label:{x:355, y:55},  labelLane:'right',
+    highlight:{type:'ellipse', cx:200, cy:80, rx:13, ry:6} },
+  { fieldKey:'shoulders',    shortLabel:'Shoulders',
+    anchor:{x:200, y:103}, label:{x:45,  y:70},  labelLane:'left',
+    highlight:{type:'ellipse', cx:200, cy:103, rx:48, ry:8} },
+  // Torso
+  { fieldKey:'chest',        shortLabel:'Chest',
+    anchor:{x:200, y:145}, label:{x:355, y:115}, labelLane:'right',
+    highlight:{type:'ellipse', cx:200, cy:145, rx:32, ry:14} },
+  { fieldKey:'waist',        shortLabel:'Waist',
+    anchor:{x:200, y:215}, label:{x:355, y:175}, labelLane:'right',
+    highlight:{type:'ellipse', cx:200, cy:215, rx:24, ry:10} },
+  { fieldKey:'hips',         shortLabel:'Hips',
+    anchor:{x:200, y:258}, label:{x:45,  y:270}, labelLane:'left',
+    highlight:{type:'ellipse', cx:200, cy:258, rx:32, ry:12} },
+  // Arms
+  { fieldKey:'leftArm',      shortLabel:'L. Arm',
+    anchor:{x:148, y:170}, label:{x:45,  y:140}, labelLane:'left',
+    highlight:{type:'circle',  cx:148, cy:170, r:11} },
+  { fieldKey:'rightArm',     shortLabel:'R. Arm',
+    anchor:{x:252, y:170}, label:{x:355, y:235}, labelLane:'right',
+    highlight:{type:'circle',  cx:252, cy:170, r:11} },
+  { fieldKey:'leftForearm',  shortLabel:'L. Forearm',
+    anchor:{x:152, y:248}, label:{x:45,  y:210}, labelLane:'left',
+    highlight:{type:'circle',  cx:152, cy:248, r:9} },
+  { fieldKey:'rightForearm', shortLabel:'R. Forearm',
+    anchor:{x:248, y:248}, label:{x:355, y:295}, labelLane:'right',
+    highlight:{type:'circle',  cx:248, cy:248, r:9} },
+  // Legs
+  { fieldKey:'leftThigh',    shortLabel:'L. Thigh',
+    anchor:{x:178, y:300}, label:{x:45,  y:335}, labelLane:'left',
+    highlight:{type:'circle',  cx:178, cy:300, r:13} },
+  { fieldKey:'rightThigh',   shortLabel:'R. Thigh',
+    anchor:{x:222, y:300}, label:{x:355, y:355}, labelLane:'right',
+    highlight:{type:'circle',  cx:222, cy:300, r:13} },
+  { fieldKey:'leftCalf',     shortLabel:'L. Calf',
+    anchor:{x:182, y:385}, label:{x:45,  y:400}, labelLane:'left',
+    highlight:{type:'circle',  cx:182, cy:385, r:10} },
+  { fieldKey:'rightCalf',    shortLabel:'R. Calf',
+    anchor:{x:218, y:385}, label:{x:355, y:415}, labelLane:'right',
+    highlight:{type:'circle',  cx:218, cy:385, r:10} }
+];
+
+// THE silhouette. ONE closed path tracing the entire body outline clockwise
+// from the top of the head. Curves use cubic bezier (C) for organic feel;
+// short straight runs use L (lineTo). Hand/foot loops are tight curves.
+// The "armpit indent" creates the negative space between arm and torso
+// without breaking the outline into separate paths.
+//
+// Reading the path: M start, then trace right side of head → right neck →
+// right shoulder → outer right arm down → right hand loop → inner right arm
+// up → armpit indent → right torso down → right hip flare → outer right
+// leg down → right foot loop → inner right leg up → crotch crossing → then
+// mirror back up the left side.
+function _figureRenderSilhouette() {
+  const fill = 'var(--bg-card-nested)';
+  const stroke = 'var(--border-default)';
+  const attrs = 'fill="' + fill + '" stroke="' + stroke + '" stroke-width="1.2"';
+
+  // Single closed outline path
+  const d = [
+    // ─── HEAD (top → right side) ───
+    'M 200 22',
+    'C 214 22 224 32 224 48',
+    'C 224 60 222 68 220 72',
+    // ─── RIGHT NECK ───
+    'C 219 76 217 80 215 84',
+    'L 213 92',
+    // ─── RIGHT SHOULDER + DELTOID ───
+    'C 218 95 230 97 245 104',
+    'C 252 110 256 120 258 128',
+    // ─── OUTER RIGHT ARM (bicep → elbow → forearm → wrist) ───
+    'C 260 145 260 158 258 172',     // outer bicep
+    'C 256 195 256 215 254 230',     // elbow region
+    'C 253 245 252 260 250 275',     // outer forearm
+    'C 248 285 246 295 244 302',     // outer wrist
+    // ─── RIGHT HAND (small loop) ───
+    'C 248 312 250 320 246 322',
+    'C 241 324 235 324 232 322',
+    'C 228 318 230 308 232 302',
+    // ─── INNER RIGHT ARM (wrist → forearm → elbow → bicep, going UP) ───
+    'C 234 290 236 275 238 260',
+    'C 240 245 241 230 240 215',
+    'C 240 195 239 175 238 158',
+    'C 237 145 233 135 226 130',
+    // ─── ARMPIT INDENT (inward to torso) ───
+    'C 222 132 220 132 218 130',
+    // ─── RIGHT TORSO (chest → side → waist) ───
+    'C 219 145 221 162 222 180',     // chest+pec side
+    'C 222 195 222 205 220 215',     // narrowing into waist
+    'C 220 222 224 230 230 240',     // waist out toward hip
+    // ─── RIGHT HIP FLARE ───
+    'C 234 247 238 254 240 262',
+    // ─── OUTER RIGHT THIGH ───
+    'C 241 285 239 310 234 335',
+    'C 232 345 230 350 228 352',     // knee outer
+    // ─── OUTER RIGHT CALF ───
+    'C 230 370 228 390 226 410',
+    'C 224 420 222 424 219 425',
+    // ─── RIGHT FOOT (heel → toe) ───
+    'C 219 432 220 440 224 443',
+    'L 234 443',
+    'L 234 432',
+    'C 232 428 230 426 228 425',
+    'C 217 425 215 425 213 425',
+    // ─── INNER RIGHT ANKLE → INNER CALF (going UP) ───
+    'C 212 420 211 405 211 390',
+    'C 211 370 210 350 209 335',
+    // ─── INNER RIGHT THIGH ───
+    'C 208 310 207 285 207 268',
+    'C 207 268 205 268 204 268',
+    // ─── CROTCH CROSSING (right to left) ───
+    'L 196 268',
+    // ─── INNER LEFT THIGH (going DOWN) ───
+    'C 195 268 193 268 193 268',
+    'C 193 285 192 310 191 335',
+    // ─── INNER LEFT CALF ───
+    'C 190 350 189 370 189 390',
+    'C 189 405 188 420 187 425',
+    'C 185 425 183 425 172 425',
+    'C 170 426 168 428 166 432',
+    // ─── LEFT FOOT (toe → heel) ───
+    'L 166 443',
+    'L 176 443',
+    'C 180 440 181 432 181 425',
+    'C 178 424 176 420 174 410',
+    // ─── OUTER LEFT CALF (going UP) ───
+    'C 172 390 170 370 172 352',
+    'C 170 350 168 345 166 335',
+    // ─── OUTER LEFT THIGH ───
+    'C 161 310 159 285 160 262',
+    // ─── LEFT HIP FLARE ───
+    'C 162 254 166 247 170 240',
+    // ─── LEFT TORSO (waist → side → chest) ───
+    'C 176 230 180 222 180 215',
+    'C 178 205 178 195 178 180',
+    'C 179 162 181 145 182 130',
+    // ─── LEFT ARMPIT INDENT (inward) ───
+    'C 180 132 178 132 174 130',
+    // ─── INNER LEFT ARM (bicep → elbow → forearm → wrist, going DOWN) ───
+    'C 167 135 163 145 162 158',
+    'C 161 175 160 195 160 215',
+    'C 159 230 160 245 162 260',
+    'C 164 275 166 290 168 302',
+    // ─── LEFT HAND ───
+    'C 170 308 172 318 168 322',
+    'C 165 324 159 324 154 322',
+    'C 150 320 152 312 152 302',
+    // ─── OUTER LEFT ARM (wrist → forearm → elbow → bicep, going UP) ───
+    'C 154 295 152 285 150 275',
+    'C 148 260 147 245 146 230',
+    'C 144 215 144 195 142 172',
+    'C 140 158 140 145 142 128',
+    // ─── LEFT SHOULDER ───
+    'C 144 120 148 110 155 104',
+    'C 170 97 182 95 187 92',
+    'L 185 84',
+    'C 183 80 181 76 180 72',
+    // ─── LEFT SIDE OF HEAD (going UP to top) ───
+    'C 178 68 176 60 176 48',
+    'C 176 32 186 22 200 22',
+    'Z'
+  ].join(' ');
+
+  let svg = '<path d="' + d + '" ' + attrs + '/>';
+
+  // ─── ANATOMICAL LANDMARK HINTS ───
+  // Subtle internal lines that whisper anatomy without breaking the unified
+  // body silhouette. All at ~0.4 opacity using border-subtle so they read
+  // as "depth" rather than as separate body parts.
+  const landAttrs = 'fill="none" stroke="var(--border-subtle)" stroke-width="0.6" opacity="0.45"';
+
+  // Sternum centerline (chest splits)
+  svg += '<line x1="200" y1="115" x2="200" y2="195" ' + landAttrs + '/>';
+  // Clavicle hints (right + left, asymmetric arcs from neck base outward)
+  svg += '<path d="M 195 100 Q 210 96 222 102" ' + landAttrs + '/>';
+  svg += '<path d="M 205 100 Q 190 96 178 102" ' + landAttrs + '/>';
+  // Pectoral hint (very subtle horizontal divide around chest)
+  svg += '<path d="M 184 165 Q 200 168 216 165" ' + landAttrs + '/>';
+  // Iliac crest / waistband suggestion (faint horizontal curve at hip)
+  svg += '<path d="M 168 260 Q 200 263 232 260" ' + landAttrs + '/>';
+  // Knee crease hints (faint horizontal per leg)
+  svg += '<line x1="166" y1="350" x2="186" y2="350" ' + landAttrs + '/>';
+  svg += '<line x1="214" y1="350" x2="234" y2="350" ' + landAttrs + '/>';
+  // Short-sleeve hint at upper arm (curves on each side suggest fitted top)
+  svg += '<path d="M 145 152 Q 158 156 163 152" ' + landAttrs + '/>';
+  svg += '<path d="M 255 152 Q 242 156 237 152" ' + landAttrs + '/>';
+
+  return svg;
+}
+
+// Anchor dot — subtle in resting state, glows + grows when selected.
+function _figureRenderAnchorDot(anchor, hasValue, isSelected) {
+  const cx = anchor.anchor.x, cy = anchor.anchor.y;
+  const r = isSelected ? 5 : 3.5;
+  const fill = hasValue ? '#9ad6ff' : 'transparent';
+  const stroke = hasValue ? '#9ad6ff' : 'var(--text-tertiary)';
+  const dash = hasValue ? '0' : '2,2';
+  const opacity = isSelected ? '1' : (hasValue ? '0.75' : '0.55');
+  const glow = isSelected ? ' filter="url(#figure-glow)"' : '';
+  let svg = '<g class="figure-anchor-dot" data-figure-anchor-key="' + anchor.fieldKey + '" style="cursor:pointer">';
+  svg += '<circle cx="' + cx + '" cy="' + cy + '" r="14" fill="rgba(0,0,0,0)"/>';
+  svg += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" ' +
+         'fill="' + fill + '" stroke="' + stroke + '" stroke-width="1.4" ' +
+         'stroke-dasharray="' + dash + '" opacity="' + opacity + '"' + glow + '/>';
+  svg += '</g>';
+  return svg;
+}
+
+// Label card — slightly smaller than F to accommodate 13 cards in two lanes.
+function _figureRenderLabelCard(anchor, value, unit, isSelected, anySelected) {
+  const hasValue = (value != null && value !== '' && !isNaN(parseFloat(value)));
+  const x = anchor.label.x, y = anchor.label.y;
+  const w = 62, h = 38;
+  const left = x - w/2, top = y - h/2;
+  const cardOpacity = isSelected ? '1' : (anySelected ? '0.45' : '1');
+  const borderColor = isSelected ? '#9ad6ff' : (hasValue ? 'var(--border-default)' : 'var(--border-subtle)');
+  const borderDash = hasValue ? '0' : '3,2';
+  const bgColor = isSelected ? 'var(--bg-card-highlight)' : 'var(--bg-card)';
+  const glow = isSelected ? ' filter="url(#figure-glow)"' : '';
+  const valueText = hasValue ? parseFloat(value).toFixed(1) : '—';
+  const unitStr = (unit || 'cm').toUpperCase();
+  const valueColor = hasValue ? 'var(--text-primary)' : 'var(--text-tertiary)';
+  const labelColor = isSelected ? '#9ad6ff' : 'var(--text-tertiary)';
+
+  let svg = '<g class="figure-label-card" data-figure-anchor-key="' + anchor.fieldKey + '" ' +
+            'style="cursor:pointer; transition: opacity 200ms ease-out;" ' +
+            'opacity="' + cardOpacity + '">';
+  svg += '<rect x="' + left + '" y="' + top + '" width="' + w + '" height="' + h + '" ' +
+         'rx="6" ry="6" fill="' + bgColor + '" stroke="' + borderColor + '" ' +
+         'stroke-width="' + (isSelected ? '1.5' : '1') + '" ' +
+         'stroke-dasharray="' + borderDash + '"' + glow + '/>';
+  svg += '<text x="' + x + '" y="' + (top + 10) + '" text-anchor="middle" ' +
+         'font-family="Bebas Neue, sans-serif" font-size="8.5" ' +
+         'fill="' + labelColor + '" letter-spacing="0.12em">' +
+         anchor.shortLabel.toUpperCase() + '</text>';
+  svg += '<text x="' + x + '" y="' + (top + 24) + '" text-anchor="middle" ' +
+         'font-family="DM Mono, monospace" font-size="12" font-weight="700" ' +
+         'fill="' + valueColor + '" letter-spacing="0.02em">' + valueText + '</text>';
+  svg += '<text x="' + x + '" y="' + (top + 33) + '" text-anchor="middle" ' +
+         'font-family="DM Mono, monospace" font-size="6" ' +
+         'fill="var(--text-muted)" letter-spacing="0.2em">' + unitStr + '</text>';
+
+  if (isSelected) {
+    const editX = (anchor.labelLane === 'right') ? (left + w - 9) : (left + 9);
+    const editY = top + h - 8;
+    svg += '<g class="figure-label-edit" data-figure-edit-key="' + anchor.fieldKey + '" ' +
+           'style="cursor:pointer">';
+    svg += '<circle cx="' + editX + '" cy="' + editY + '" r="7" fill="#9ad6ff" opacity="0.92"/>';
+    svg += '<text x="' + editX + '" y="' + (editY + 2.5) + '" text-anchor="middle" ' +
+           'font-family="sans-serif" font-size="7" fill="var(--bg-elevated)" ' +
+           'font-weight="700">✎</text>';
+    svg += '</g>';
+  }
+  svg += '</g>';
+  return svg;
+}
+
+// Leader line from label-card inner edge to anchor dot.
+function _figureRenderLeaderLine(anchor) {
+  const ax = anchor.anchor.x, ay = anchor.anchor.y;
+  const cardX = anchor.label.x, cardY = anchor.label.y;
+  const w = 62;
+  const startX = (anchor.labelLane === 'right') ? (cardX - w/2) : (cardX + w/2);
+  const startY = cardY;
+  return '<line class="figure-leader" ' +
+         'x1="' + startX + '" y1="' + startY + '" ' +
+         'x2="' + ax + '" y2="' + ay + '" ' +
+         'stroke="#9ad6ff" stroke-width="1.2" stroke-dasharray="3,3" ' +
+         'fill="none" filter="url(#figure-glow)"/>';
+}
+
+// Dashed highlight ring around the body part being measured.
+function _figureRenderHighlight(anchor) {
+  const h = anchor.highlight;
+  if (h.type === 'circle') {
+    return '<circle class="figure-highlight" cx="' + h.cx + '" cy="' + h.cy + '" r="' + h.r + '" ' +
+           'fill="none" stroke="#9ad6ff" stroke-width="1.5" stroke-dasharray="4,3" ' +
+           'filter="url(#figure-glow)"/>';
+  }
+  return '<ellipse class="figure-highlight" cx="' + h.cx + '" cy="' + h.cy + '" rx="' + h.rx + '" ry="' + h.ry + '" ' +
+         'fill="none" stroke="#9ad6ff" stroke-width="1.5" stroke-dasharray="4,3" ' +
+         'filter="url(#figure-glow)"/>';
+}
+
+// Top-level entry: collapsible Body Figure card with the unified silhouette
+// and 13 spatial labels.
+function renderBodyFigureSection() {
+  const card = div({
+    background:'var(--bg-card)', border:'1px solid var(--border-subtle)',
+    borderRadius:'12px', marginBottom:'12px', overflow:'hidden'
+  });
+
+  const hdr = el('button', {
+    class:'btn',
+    style:{
+      width:'100%', background:'transparent', border:'none',
+      padding:'14px', display:'flex', justifyContent:'space-between',
+      alignItems:'center', cursor:'pointer'
+    },
+    onclick: () => {
+      openOverviewSections.figure = !openOverviewSections.figure;
+      if (!openOverviewSections.figure) _figureSelectedAnchor = null;
+      renderOverview();
+    }
+  });
+  const hdrLeft = div({});
+  hdrLeft.appendChild(el('div', {
+    style:{fontSize:'8px',color:'#9ad6ff',letterSpacing:'0.22em',textTransform:'uppercase',fontWeight:'700'}
+  }, 'Body Figure'));
+  hdrLeft.appendChild(el('div', {
+    style:{fontSize:'9px',color:'var(--text-tertiary)',marginTop:'3px',fontFamily:"'DM Mono',monospace"}
+  }, '13 tape measurements · tap any label to reveal'));
+  hdr.appendChild(hdrLeft);
+  hdr.appendChild(el('span', {
+    style:{color:'var(--text-tertiary)',fontSize:'10px'}
+  }, openOverviewSections.figure ? '▲' : '▼'));
+  card.appendChild(hdr);
+
+  if (!openOverviewSections.figure) return card;
+
+  const body = div({padding:'4px 4px 16px'});
+
+  // Resolve latest value per field
+  const latestValues = {};
+  FIGURE_ANCHORS.forEach(a => {
+    const v = (typeof getLatestMetricValue === 'function') ? getLatestMetricValue(a.fieldKey) : null;
+    if (v != null) latestValues[a.fieldKey] = v;
+  });
+  const anyLogged = Object.keys(latestValues).length > 0;
+
+  // Build SVG. ViewBox is wider/taller than F to accommodate 13 labels.
+  const VIEW_W = 400, VIEW_H = 460;
+  let svgHtml = '<svg width="100%" viewBox="0 0 ' + VIEW_W + ' ' + VIEW_H + '" ' +
+                'style="display:block; max-width:460px; margin:0 auto" ' +
+                'preserveAspectRatio="xMidYMid meet" ' +
+                'role="img" aria-label="Body figure with 13 tape measurement anchors">';
+
+  // Glow filter (used by selected dot + leader + highlight + selected card)
+  svgHtml += '<defs>';
+  svgHtml += '<filter id="figure-glow" x="-50%" y="-50%" width="200%" height="200%">';
+  svgHtml += '<feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur"/>';
+  svgHtml += '<feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>';
+  svgHtml += '</filter>';
+  svgHtml += '</defs>';
+
+  // Unified silhouette (single closed path)
+  svgHtml += _figureRenderSilhouette();
+
+  // Highlight + leader (only if an anchor is selected)
+  const selectedKey = _figureSelectedAnchor;
+  let selectedAnchor = null;
+  if (selectedKey) {
+    selectedAnchor = FIGURE_ANCHORS.find(a => a.fieldKey === selectedKey) || null;
+  }
+  if (selectedAnchor) {
+    svgHtml += _figureRenderHighlight(selectedAnchor);
+    svgHtml += _figureRenderLeaderLine(selectedAnchor);
+  }
+
+  // Anchor dots
+  FIGURE_ANCHORS.forEach(a => {
+    const hasValue = latestValues[a.fieldKey] != null;
+    const isSelected = (a.fieldKey === selectedKey);
+    svgHtml += _figureRenderAnchorDot(a, hasValue, isSelected);
+  });
+
+  // Label cards (drawn last so they sit on top)
+  const anySelected = (selectedKey != null);
+  FIGURE_ANCHORS.forEach(a => {
+    const v = latestValues[a.fieldKey];
+    const isSelected = (a.fieldKey === selectedKey);
+    svgHtml += _figureRenderLabelCard(a, v, 'cm', isSelected, anySelected);
+  });
+
+  svgHtml += '</svg>';
+
+  const svgWrap = el('div', {style:{width:'100%'}});
+  svgWrap.innerHTML = svgHtml;
+  body.appendChild(svgWrap);
+
+  // Tap wiring
+  function setSelected(key) {
+    if (_figureSelectedAnchor === key) _figureSelectedAnchor = null;
+    else _figureSelectedAnchor = key;
+    renderOverview();
+  }
+  function openEditor(key) {
+    const field = METRIC_FIELDS.find(f => f.key === key);
+    if (!field) return;
+    const cur = latestValues[key] != null ? latestValues[key] : null;
+    if (typeof openTapeEditor === 'function') openTapeEditor(field, cur);
+  }
+
+  svgWrap.querySelectorAll('.figure-anchor-dot').forEach(g => {
+    g.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setSelected(g.getAttribute('data-figure-anchor-key'));
+    });
+  });
+  svgWrap.querySelectorAll('.figure-label-card').forEach(g => {
+    g.addEventListener('click', (e) => {
+      const editParent = e.target.closest && e.target.closest('.figure-label-edit');
+      if (editParent) {
+        e.stopPropagation();
+        openEditor(editParent.getAttribute('data-figure-edit-key'));
+        return;
+      }
+      e.stopPropagation();
+      setSelected(g.getAttribute('data-figure-anchor-key'));
+    });
+  });
+
+  // Footer hint
+  let footerText;
+  if (!anyLogged) {
+    footerText = 'Tap any label to reveal where it measures. Tap the ✎ to log.';
+  } else if (selectedKey) {
+    const cm = FIGURE_ANCHORS.find(a => a.fieldKey === selectedKey);
+    footerText = '✎ Tap to edit ' + (cm ? cm.shortLabel : selectedKey) + '.';
+  } else {
+    footerText = Object.keys(latestValues).length + ' of ' + FIGURE_ANCHORS.length + ' measurements logged · tap any label to reveal';
+  }
+  body.appendChild(el('div', {
+    style:{
+      fontSize:'10px', color: selectedKey ? '#9ad6ff' : 'var(--text-muted)',
+      textAlign:'center', padding:'10px 4px 0',
+      letterSpacing:'0.06em', fontFamily:"'DM Mono',monospace",
+      fontStyle: selectedKey ? 'normal' : 'italic',
+      lineHeight:'1.55', transition:'color 200ms ease-out'
+    }
+  }, footerText));
+
+  card.appendChild(body);
+  return card;
+}
+
+
+// Top-level Stats Trends section — collapsible card containing all five
+// charts. Default OPEN since this is a headline part of the Stats tab.
+function renderTrendsSection() {
+  const card = div({
+    background:'var(--bg-card)', border:'1px solid var(--border-subtle)',
+    borderRadius:'12px', marginBottom:'12px', overflow:'hidden'
+  });
+
+  // Collapsible header
+  const hdr = el('button', {
+    class:'btn',
+    style:{
+      width:'100%',background:'transparent',border:'none',
+      padding:'14px',display:'flex',justifyContent:'space-between',
+      alignItems:'center',cursor:'pointer'
+    },
+    onclick: () => { openOverviewSections.trends = !openOverviewSections.trends; renderOverview(); }
+  });
+  const hdrLeft = div({});
+  hdrLeft.appendChild(el('div',{
+    style:{fontSize:'8px',color:'#6a6a6a',letterSpacing:'0.22em',textTransform:'uppercase',fontWeight:'700'}
+  },'Trends'));
+  hdrLeft.appendChild(el('div',{
+    style:{fontSize:'9px',color:'#7a7a7a',marginTop:'3px',fontFamily:"'DM Mono',monospace"}
+  },'Body · Macros · Strength'));
+  hdr.appendChild(hdrLeft);
+  hdr.appendChild(el('span',{style:{color:'#6a6a6a',fontSize:'10px'}}, openOverviewSections.trends ? '▲' : '▼'));
+  card.appendChild(hdr);
+
+  if (!openOverviewSections.trends) return card;
+
+  const body = div({padding:'0 12px 12px'});
+
+  // Bodyweight (mint teal)
+  body.appendChild(_statsRenderLineChart({
+    title: 'Bodyweight Trend',
+    accentColor: '#06d6a0',
+    unit: 'kg',
+    decimals: 2,
+    days: 90,
+    mapFn: (m) => (m.weight != null && !isNaN(parseFloat(m.weight))) ? parseFloat(m.weight) : null,
+    emptyMessage: 'Add measurements in Body Metrics to see your trend.'
+  }));
+
+  // Body fat (orange)
+  body.appendChild(_statsRenderLineChart({
+    title: 'Body Fat Trend',
+    accentColor: '#ff6b3b',
+    unit: '%',
+    decimals: 1,
+    days: 90,
+    mapFn: (m) => (m.bodyFat != null && !isNaN(parseFloat(m.bodyFat))) ? parseFloat(m.bodyFat) : null,
+    emptyMessage: 'Log body fat readings to see your trend.'
+  }));
+
+  // Lean mass (cyan) — derived: weight × (1 - bf%/100)
+  body.appendChild(_statsRenderLineChart({
+    title: 'Lean Mass Trend',
+    accentColor: '#3bdfff',
+    unit: 'kg',
+    decimals: 2,
+    days: 90,
+    mapFn: (m) => {
+      const w = parseFloat(m.weight);
+      const bf = parseFloat(m.bodyFat);
+      if (isNaN(w) || isNaN(bf) || w <= 0) return null;
+      return w * (1 - bf / 100);
+    },
+    emptyMessage: 'Lean mass needs both weight and body fat — log both to see your trend.'
+  }));
+
+  // Macro pie
+  body.appendChild(_statsRenderMacroPie());
+
+  // Weekly PR bars
+  body.appendChild(_statsRenderPRBars());
+
+  card.appendChild(body);
+  return card;
+}
+
 function renderOverview() {
   seedBaselineIfEmpty();
   const root = document.getElementById('overview-content');
@@ -12528,6 +13926,15 @@ function renderOverview() {
     hero.appendChild(el('div',{style:{fontSize:'8px',color:'#333',marginTop:'8px',textAlign:'center',letterSpacing:'0.08em'}},'Last logged: ' + latest.date));
   }
   root.appendChild(hero);
+
+  // ── 1a. BODY FIGURE (Phase D1) — tappable measurement anchors on silhouette ──
+  // Sits between the hero and the trends section. Default-open collapsible.
+  root.appendChild(renderBodyFigureSection());
+
+  // ── 1b. TRENDS (Phase C1) — bodyweight / body fat / lean mass / macros / PRs ──
+  // Collapsible card containing five SVG charts. Open by default since the
+  // visualizations are the headline of the Stats tab.
+  root.appendChild(renderTrendsSection());
 
   // ── 2. TRAINING CONSISTENCY ──
   const tc = calcTrainingConsistency();
@@ -14964,6 +16371,205 @@ const CUISINES = [
   { id: 'mexican',       label: 'Mexican / Latin',  emoji: '🌮', description: 'Beans, rice, lean proteins, fresh salsas' },
   { id: 'western',       label: 'Western',          emoji: '🍽️', description: 'American and European comfort food, lightened' }
 ];
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PHASE D3 — CUISINE META + TILE HELPERS
+// ═══════════════════════════════════════════════════════════════════════════
+// Single source of truth for cuisine display metadata. Merges CUISINES (id /
+// label / emoji / long description) with CUISINE_THEMES (accent colour) and
+// adds a SHORT punchy tagline for tile UI. Both the cuisine preferences
+// picker and the swap-modal carousel read from here, so visual identity stays
+// consistent across the app.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Short taglines used in tile UI — punchy 3-6 word phrases, no em dashes.
+// Distinct from the longer `description` field on each CUISINES entry, which
+// is reserved for places we want a full sentence.
+const CUISINE_TAGLINES = {
+  general:       'Broad, balanced, no regional bias',
+  british:       'Modernised classics, lean roasts',
+  indian:        'Curries, dals, tandoor',
+  chinese:       'Stir-fries, steamed, lighter oil',
+  east_asian:    'Japanese, Korean, Thai, Vietnamese',
+  mediterranean: 'Olive oil, fish, herbs, vegetables',
+  mexican:       'Beans, rice, fresh salsas',
+  western:       'Comfort food, lightened up'
+};
+
+// Resolve full display metadata for a cuisine id. Falls back to 'general' when
+// the id is unknown so callers never have to null-check.
+function getCuisineMeta(id) {
+  const cuisine = (CUISINES.find(c => c.id === id)) || CUISINES.find(c => c.id === 'general');
+  const theme = CUISINE_THEMES[cuisine.id] || CUISINE_THEMES.general;
+  const tagline = CUISINE_TAGLINES[cuisine.id] || CUISINE_TAGLINES.general;
+  // Short label trims away "/ X" and "& Y" suffixes from the picker label,
+  // and removes the leading "Healthy" prefix for the General cuisine. This
+  // matches the existing helper logic that's been copy-pasted across 4 sites.
+  const shortLabel = cuisine.label.split(' /')[0].split(' &')[0].replace('Healthy','').trim();
+  return {
+    id: cuisine.id,
+    label: cuisine.label,
+    shortLabel: shortLabel,
+    emoji: cuisine.emoji,
+    description: cuisine.description,
+    tagline: tagline,
+    accent: theme.hex,
+    accentLight: theme.light
+  };
+}
+
+// Reusable cuisine tile element. Two sizes:
+//   'large' (~120x108px, picker grid): emoji + name + tagline visible.
+//   'small' (~76x82px, carousel pill): emoji + name + optional badge count.
+// Both share the accent stripe + selected-state treatment, so the visual
+// language is consistent across the app.
+//
+// opts:
+//   selected     (bool)    — orange accent border + subtle glow
+//   onClick      (fn)      — tap handler. e is stopPropagation'd before invoking
+//   badgeCount   (number)  — small number shown beneath label (carousel only)
+//   disabled     (bool)    — dims tile + sets cursor to not-allowed
+//   showTagline  (bool)    — overrides default (true for large, false for small)
+function renderCuisineTile(cuisineId, opts) {
+  opts = opts || {};
+  const meta = getCuisineMeta(cuisineId);
+  const size = opts.size || 'large';
+  const selected = !!opts.selected;
+  const disabled = !!opts.disabled;
+  const showTagline = (opts.showTagline != null) ? opts.showTagline : (size === 'large');
+
+  // Size-specific dimensions
+  const isLarge = (size === 'large');
+  const tileWidth = isLarge ? null : '76px';   // large grows to fill grid cell
+  const tileMinHeight = isLarge ? '108px' : '82px';
+  const padding = isLarge ? '12px 10px 10px' : '8px 4px 6px';
+  const emojiSize = isLarge ? '34px' : (selected ? '28px' : '24px');
+  const labelSize = isLarge ? '14px' : '11px';
+  const stripeHeight = selected ? '3px' : '2px';
+
+  const tile = el('button', {
+    // data-cuisine-id is the canonical attribute used by the older test suite
+    // and by some downstream querySelectors (e.g. swap-modal carousel). Kept
+    // identical to the pre-Phase-D3 pill so nothing else has to change.
+    'data-cuisine-id': cuisineId,
+    'data-cuisine-tile': cuisineId,
+    // data-selected (no namespace) is the legacy attribute the pre-D3 carousel
+    // pill used. Preserved as an alias so the older meal_database test suite
+    // continues to query selected state correctly without modification.
+    'data-selected': selected ? '1' : '0',
+    'data-cuisine-selected': selected ? '1' : '0',
+    'data-cuisine-size': size,
+    style: {
+      flexShrink: '0',
+      width: tileWidth || '100%',
+      minHeight: tileMinHeight,
+      background: selected ? 'var(--bg-card-highlight)' : 'var(--bg-inset)',
+      // Phase D3 spec: selected = orange accent border + subtle glow
+      border: selected ? '2px solid var(--accent-primary)' : '1px solid var(--border-default)',
+      borderRadius: '10px',
+      padding: padding,
+      cursor: disabled ? 'not-allowed' : 'pointer',
+      opacity: disabled ? '0.4' : '1',
+      display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'flex-start',
+      gap: '6px',
+      transition: 'background 160ms ease-out, border-color 160ms ease-out, box-shadow 160ms ease-out, transform 160ms ease-out',
+      position: 'relative', overflow: 'hidden',
+      transform: selected ? 'translateY(-1px)' : 'translateY(0)',
+      // Subtle orange glow on selected — pairs with the border for a clear
+      // "this one is chosen" affordance without screaming
+      boxShadow: selected ? '0 4px 14px rgba(255,107,59,0.22), 0 0 0 4px rgba(255,107,59,0.08)' : 'none'
+    }
+  });
+
+  // Cuisine accent stripe at top — identity colour from CUISINE_THEMES.
+  // Stays visible regardless of selection, just thickens slightly when chosen.
+  tile.appendChild(el('div', {
+    style: {
+      position: 'absolute', top: '0', left: '0', right: '0',
+      height: stripeHeight,
+      background: meta.accent
+    }
+  }));
+
+  // Emoji — sized up on selected for a touch of motion feedback
+  tile.appendChild(el('span', {
+    style: {
+      fontSize: emojiSize, lineHeight: '1', marginTop: '6px',
+      transition: 'font-size 160ms ease-out'
+    }
+  }, meta.emoji));
+
+  // Label
+  tile.appendChild(el('span', {
+    style: {
+      fontFamily: "'Bebas Neue', sans-serif",
+      fontSize: labelSize,
+      color: selected ? 'var(--text-primary)' : 'var(--text-secondary)',
+      letterSpacing: '0.06em',
+      textAlign: 'center', lineHeight: '1.15',
+      textTransform: 'uppercase',
+      whiteSpace: isLarge ? 'normal' : 'nowrap',
+      overflow: 'hidden', textOverflow: 'ellipsis',
+      maxWidth: isLarge ? '100%' : '68px'
+    }
+  }, meta.shortLabel));
+
+  // Tagline (large tiles only) — small italic copy below the label
+  if (showTagline) {
+    tile.appendChild(el('span', {
+      style: {
+        fontSize: '9.5px',
+        color: 'var(--text-muted)',
+        lineHeight: '1.35',
+        textAlign: 'center',
+        fontStyle: 'italic',
+        padding: '0 2px',
+        marginTop: '-2px',
+        // Cap to 2 lines so a long tagline never blows up the tile height
+        display: '-webkit-box',
+        WebkitLineClamp: '2',
+        WebkitBoxOrient: 'vertical',
+        overflow: 'hidden'
+      }
+    }, meta.tagline));
+  }
+
+  // Optional badge count (small tile carousels often show a count of recipes)
+  if (opts.badgeCount != null && opts.badgeCount > 0) {
+    tile.appendChild(el('span', {
+      style: {
+        fontSize: '9px', fontWeight: '700',
+        color: selected ? 'var(--accent-primary)' : 'var(--text-tertiary)',
+        fontFamily: "'DM Mono', monospace"
+      }
+    }, String(opts.badgeCount)));
+  }
+
+  // Selected-state checkmark badge in top-right (large tiles, to mirror the
+  // existing picker UX where it lived). Skipped on small tiles to keep them
+  // dense.
+  if (isLarge && selected) {
+    tile.appendChild(el('span', {
+      style: {
+        position: 'absolute', top: '7px', right: '7px',
+        width: '20px', height: '20px', borderRadius: '50%',
+        background: 'var(--accent-primary)', color: 'var(--bg-elevated)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: '12px', fontWeight: '700'
+      }
+    }, '✓'));
+  }
+
+  if (!disabled && typeof opts.onClick === 'function') {
+    tile.onclick = (e) => {
+      e.stopPropagation();
+      opts.onClick(e, cuisineId);
+    };
+  }
+
+  return tile;
+}
 
 // ─── MEAL SLOTS ───────────────────────────────────────────────────────────
 // Macro/kcal ranges for each slot, derived from MEAL_SLOT_TARGETS above.
@@ -21411,16 +23017,46 @@ function filterRecipesByMacroTarget(slot, targetKcal, tolerance) {
 // END MEAL DATABASE INFRASTRUCTURE (Session 7.A)
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Design-time baseline kcal that MEAL_SLOT_TARGETS were calibrated to. The
+// slot targets sum to 3240 across all 7 slots, but only a subset fire on any
+// given day. Typical training-day kcal envelope is the `mod` daytype = 2660,
+// which is what Fraser was at when the slot targets were authored.
+// Used to scale slot targets proportionally for any other user (e.g. Lucinda).
+const MEAL_SLOT_DESIGN_BASELINE_KCAL = 2660;
+
 function getMealSlotTarget(slot) {
   if (!slot) return null;
-  if (MEAL_SLOT_TARGETS[slot]) return MEAL_SLOT_TARGETS[slot];
-  // Loose match — case-insensitive substring lookup
-  const s = slot.toLowerCase();
-  for (const k of Object.keys(MEAL_SLOT_TARGETS)) {
-    if (s.indexOf(k.toLowerCase()) >= 0) return MEAL_SLOT_TARGETS[k];
+  // Find the raw slot target (Fraser's design baseline values)
+  let raw = null;
+  if (MEAL_SLOT_TARGETS[slot]) {
+    raw = MEAL_SLOT_TARGETS[slot];
+  } else {
+    // Loose match — case-insensitive substring lookup
+    const s = slot.toLowerCase();
+    for (const k of Object.keys(MEAL_SLOT_TARGETS)) {
+      if (s.indexOf(k.toLowerCase()) >= 0) { raw = MEAL_SLOT_TARGETS[k]; break; }
+    }
+    if (!raw && s.indexOf('dinner') >= 0) raw = MEAL_SLOT_TARGETS['Dinner'];
   }
-  if (s.indexOf('dinner') >= 0) return MEAL_SLOT_TARGETS['Dinner'];
-  return null;
+  if (!raw) return null;
+
+  // Bug fix (Phase A): scale slot target to the active user's daily kcal.
+  // Without this, Lucinda's "Best fit for Lunch" sorts by Fraser's 575kcal
+  // lunch target instead of her ~410kcal target, surfacing oversized meals.
+  let userKcal = null;
+  try {
+    const profile = (typeof getGoalProfile === 'function') ? getGoalProfile() : null;
+    if (profile && profile.targetKcal) userKcal = profile.targetKcal;
+  } catch(e) { /* fall through */ }
+  if (!userKcal || userKcal === MEAL_SLOT_DESIGN_BASELINE_KCAL) return raw;
+
+  const ratio = userKcal / MEAL_SLOT_DESIGN_BASELINE_KCAL;
+  return {
+    kcal:    Math.round((raw.kcal    || 0) * ratio),
+    protein: Math.round((raw.protein || 0) * ratio),
+    carbs:   Math.round((raw.carbs   || 0) * ratio),
+    fat:     Math.round((raw.fat     || 0) * ratio)
+  };
 }
 
 // Color band for a single-macro delta % — green/amber/red consistent across
@@ -22110,6 +23746,35 @@ function _getAllSwapCandidates(originalMeal) {
     const recipes = getRecipesForSlot(originalMeal.slot);
     recipes.forEach(r => out.push(_normalizeDbRecipe(r)));
   } catch(e) {}
+
+  // Bug fix (Phase A): scale candidates to match the active user's slot
+  // target. The originalMeal passed in has ALREADY been scaled via
+  // getDisplayMeal/scaleMealForTarget, so its kcal is the user's slot target.
+  // Without this, candidates render at Fraser's design baseline (~575 kcal
+  // lunch) even for users with smaller targets (~410 kcal for Lucinda),
+  // surfacing recipes that look 200kcal too big and breaking proximity sort.
+  const origKcal = originalMeal && (originalMeal.kcal || originalMeal.calories);
+  if (origKcal && typeof scaleMealForTarget === 'function') {
+    return out.map(c => {
+      if (!c || !c.kcal) return c;
+      // Skip if already within 3% of target (avoids needless macro shuffling)
+      const ratio = origKcal / c.kcal;
+      if (Math.abs(ratio - 1) < 0.03) return c;
+      // scaleMealForTarget returns a new object with kcal/protein/carbs/fat
+      // adjusted; preserve non-macro fields (_source, _ref, name, icon, etc.)
+      const scaled = scaleMealForTarget(c, origKcal, c.kcal);
+      // Merge: keep candidate's identity fields, take scaled macros
+      return Object.assign({}, c, {
+        kcal:    scaled.kcal,
+        protein: scaled.protein,
+        carbs:   scaled.carbs,
+        fat:     scaled.fat,
+        _scaled: scaled._scaled,
+        _scaleRatio: scaled._scaleRatio,
+        _baselineKcal: scaled._baselineKcal
+      });
+    });
+  }
   return out;
 }
 
@@ -22425,78 +24090,33 @@ function _renderByCuisineTab(container, originalMeal, mealIndex, overlay, highes
   // ── RENDERERS ──
   function renderCarousel() {
     while (carouselRow.firstChild) carouselRow.removeChild(carouselRow.firstChild);
+    // Phase D3: pills are built from the shared renderCuisineTile helper so
+    // the carousel and the Settings picker share one visual language. The
+    // tile component already handles selected state, accent stripe, badge,
+    // emoji sizing, and the orange-glow on selection — we just pass the
+    // recipe count as badgeCount and wire the onClick to drive carousel
+    // scrolling.
     CUISINES.forEach(cuisine => {
       const slotCandidates = _candidatesForCuisine(cuisine.id);
-      const theme = CUISINE_THEMES[cuisine.id] || CUISINE_THEMES.general;
       const isSelected = (cuisine.id === selectedCuisineId);
       const hasRecipes = slotCandidates.length > 0;
-      const shortLabel = cuisine.label.split(' /')[0].split(' &')[0].replace('Healthy', '').trim();
-
-      const pill = el('button', {
-        'data-cuisine-id': cuisine.id,
-        'data-selected': isSelected ? '1' : '0',
-        style:{
-          flexShrink:'0',
-          width:'76px', minHeight:'82px',
-          background: isSelected ? '#1a1a1a' : '#0a0a0a',
-          border: isSelected ? '2px solid #ff6b3b' : '1px solid #2a2a2a',
-          borderRadius:'10px',
-          padding:'8px 4px 6px',
-          cursor: hasRecipes ? 'pointer' : 'not-allowed',
-          opacity: hasRecipes ? '1' : '0.4',
-          display:'flex', flexDirection:'column',
-          alignItems:'center', justifyContent:'flex-start',
-          gap:'3px',
-          transition:'background 160ms ease-out, border-color 160ms ease-out, transform 160ms ease-out',
-          position:'relative', overflow:'hidden',
-          transform: isSelected ? 'translateY(-1px)' : 'translateY(0)',
-          boxShadow: isSelected ? '0 4px 12px rgba(255,107,59,0.25)' : 'none'
-        }
-      });
-      // Cuisine-color stripe at top for identity
-      pill.appendChild(el('div', {
-        style:{
-          position:'absolute', top:'0', left:'0', right:'0',
-          height: isSelected ? '3px' : '2px',
-          background: theme.hex
-        }
-      }));
-      pill.appendChild(el('span', {
-        style:{
-          fontSize: isSelected ? '28px' : '24px',
-          lineHeight:'1', marginTop:'4px',
-          transition:'font-size 160ms ease-out'
-        }
-      }, cuisine.emoji));
-      pill.appendChild(el('span', {
-        style:{
-          fontFamily:"'Bebas Neue',sans-serif",
-          fontSize:'11px',
-          color: isSelected ? '#ebebeb' : '#9a9a9a',
-          letterSpacing:'0.06em',
-          textAlign:'center', lineHeight:'1.1',
-          whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis',
-          maxWidth:'68px'
-        }
-      }, shortLabel.toUpperCase()));
-      if (hasRecipes) {
-        pill.appendChild(el('span', {
-          style:{
-            fontSize:'9px', fontWeight:'700',
-            color: isSelected ? '#ff6b3b' : '#666',
-            fontFamily:"'DM Mono',monospace"
-          }
-        }, slotCandidates.length + ''));
-      }
-      if (hasRecipes) {
-        pill.onclick = (e) => {
-          e.stopPropagation();
-          selectedCuisineId = cuisine.id;
+      const pill = renderCuisineTile(cuisine.id, {
+        size: 'small',
+        selected: isSelected,
+        disabled: !hasRecipes,
+        badgeCount: slotCandidates.length,
+        onClick: (e, cId) => {
+          selectedCuisineId = cId;
           renderCarousel();
           renderRecipes();
-          try { pill.scrollIntoView({ behavior:'smooth', block:'nearest', inline:'center' }); } catch(err) {}
-        };
-      }
+          // Find the freshly-rebuilt tile for this cuisine so scroll-into-view
+          // targets the right node (the one we just clicked has been replaced)
+          try {
+            const fresh = carouselRow.querySelector('[data-cuisine-id="' + cId + '"]');
+            if (fresh) fresh.scrollIntoView({ behavior:'smooth', block:'nearest', inline:'center' });
+          } catch(err) {}
+        }
+      });
       carouselRow.appendChild(pill);
     });
   }
@@ -23775,87 +25395,40 @@ function showCuisinePreferencesModal(onClose) {
     style:{ fontSize:'12px', color:'var(--text-tertiary)', lineHeight:'1.5', marginBottom:'20px' }
   }, 'Pick a few. We will prioritise these when suggesting swaps for your meal slots. You can change this anytime.'));
 
-  // Multi-select grid — 2-up
+  // Multi-select grid — 2-up. Tiles built from the shared cuisine-tile helper
+  // so visual identity matches the swap-modal carousel and any future
+  // cuisine-aware UI.
   const selected = new Set();
   const grid = el('div',{
     style:{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px', marginBottom:'20px' }
   });
 
-  CUISINES.forEach(cuisine => {
-    const theme = CUISINE_THEMES[cuisine.id] || CUISINE_THEMES.general;
-    const card = el('button',{
-      'data-cuisine-id': cuisine.id,
-      style:{
-        background:'var(--bg-inset)',
-        border:'1px solid var(--border-default)',
-        borderRadius:'10px',
-        padding:'14px 10px 12px',
-        cursor:'pointer',
-        display:'flex', flexDirection:'column',
-        alignItems:'center', justifyContent:'center',
-        gap:'6px', minHeight:'110px',
-        position:'relative', overflow:'hidden',
-        transition:'background 160ms ease-out, border-color 160ms ease-out, transform 160ms ease-out'
-      }
+  // Helper to rebuild tile state without re-creating the whole grid — simpler
+  // than tracking individual element refs. We rebuild on every toggle.
+  function rebuildGrid() {
+    while (grid.firstChild) grid.removeChild(grid.firstChild);
+    CUISINES.forEach(cuisine => {
+      const tile = renderCuisineTile(cuisine.id, {
+        size: 'large',
+        selected: selected.has(cuisine.id),
+        onClick: (e, cId) => {
+          if (selected.has(cId)) selected.delete(cId);
+          else selected.add(cId);
+          rebuildGrid();
+          // Update the continue button enabled state to match selection
+          const cta = modal.querySelector('[data-cuisine-continue]');
+          if (cta) {
+            const hasSelection = selected.size > 0;
+            cta.disabled = !hasSelection;
+            cta.style.opacity = hasSelection ? '1' : '0.5';
+            cta.style.cursor = hasSelection ? 'pointer' : 'not-allowed';
+          }
+        }
+      });
+      grid.appendChild(tile);
     });
-    // Cuisine-color stripe at top (same pattern as By Cuisine carousel pills)
-    const stripe = el('div',{
-      style:{
-        position:'absolute', top:'0', left:'0', right:'0',
-        height:'2px', background: theme.hex
-      }
-    });
-    card.appendChild(stripe);
-    // Emoji
-    card.appendChild(el('span',{ style:{ fontSize:'34px', lineHeight:'1', marginTop:'6px' } }, cuisine.emoji));
-    // Label
-    const shortLabel = cuisine.label.split(' /')[0].split(' &')[0].replace('Healthy','').trim();
-    card.appendChild(el('span',{
-      style:{
-        fontFamily:"'Bebas Neue',sans-serif",
-        fontSize:'14px', color:'var(--text-secondary)',
-        letterSpacing:'0.06em', textAlign:'center', lineHeight:'1.15'
-      }
-    }, shortLabel.toUpperCase()));
-    // Checkmark badge — hidden by default
-    const checkBadge = el('span',{
-      'data-check': cuisine.id,
-      style:{
-        position:'absolute', top:'7px', right:'7px',
-        width:'20px', height:'20px',
-        borderRadius:'50%',
-        background:'#ff6b3b', color:'#0e0e0e',
-        display:'none', alignItems:'center', justifyContent:'center',
-        fontSize:'12px', fontWeight:'700'
-      }
-    }, '✓');
-    card.appendChild(checkBadge);
-
-    card.onclick = (e) => {
-      e.stopPropagation();
-      if (selected.has(cuisine.id)) {
-        selected.delete(cuisine.id);
-        card.style.borderColor = '#2a2a2a';
-        card.style.background = '#0a0a0a';
-        stripe.style.height = '2px';
-        checkBadge.style.display = 'none';
-      } else {
-        selected.add(cuisine.id);
-        card.style.borderColor = '#ff6b3b';
-        card.style.background = '#1a1a1a';
-        stripe.style.height = '3px';
-        checkBadge.style.display = 'flex';
-      }
-      const cta = modal.querySelector('[data-cuisine-continue]');
-      if (cta) {
-        const hasSelection = selected.size > 0;
-        cta.disabled = !hasSelection;
-        cta.style.opacity = hasSelection ? '1' : '0.5';
-        cta.style.cursor = hasSelection ? 'pointer' : 'not-allowed';
-      }
-    };
-    grid.appendChild(card);
-  });
+  }
+  rebuildGrid();
   modal.appendChild(grid);
 
   // Skip link (centered, subtle)
@@ -24146,6 +25719,8 @@ function renderSettingsModal(section) {
     body.appendChild(renderCloudSyncSection());
   } else if (section === 'display') {
     body.appendChild(renderDisplaySection());
+  } else if (section === 'workout') {
+    body.appendChild(renderWorkoutSection());
   } else if (section === 'preferences') {
     // Cuisine selection modal — opens from Session 13d's dedicated UI.
     // Close the settings overlay first so the cuisine modal stacks cleanly
@@ -24202,6 +25777,98 @@ function applyTextScale() {
   const presetId = getTextScale();
   const found = TEXT_SCALE_PRESETS.find(p => p.id === presetId) || TEXT_SCALE_PRESETS[0];
   try { document.documentElement.style.setProperty('--app-text-scale', String(found.value)); } catch(e) {}
+}
+
+// ─── WORKOUT PREFERENCES ──────────────────────────────────────────────────
+// Single boolean toggle: should rest-end auto-advance into the next set's
+// countdown, or wait for an explicit READY tap? Default is auto-start ON
+// (Fraser's preference) — between sets you usually want to flow without
+// stopping to tap a button.
+const WM_PROMPT_NEXT_KEY = 'fraser_wm_prompt_next_v1';
+
+function getWmPromptNextSet() {
+  try {
+    const raw = localStorage.getItem(WM_PROMPT_NEXT_KEY);
+    if (raw === '1' || raw === 'true') return true;
+    return false; // default: auto-start
+  } catch(e) { return false; }
+}
+
+function setWmPromptNextSet(on) {
+  try { localStorage.setItem(WM_PROMPT_NEXT_KEY, on ? '1' : '0'); } catch(e) {}
+}
+
+function renderWorkoutSection() {
+  const wrap = div({});
+
+  // Intro / context card
+  const intro = div({
+    background:'var(--bg-card)', border:'1px solid var(--border-subtle)',
+    borderRadius:'10px', padding:'14px 16px', marginBottom:'14px'
+  });
+  intro.appendChild(el('div', {style:{fontSize:'8px',color:'#ff6b3b',letterSpacing:'0.25em',textTransform:'uppercase',fontWeight:'700',marginBottom:'4px'}}, '◐ Workout Mode'));
+  intro.appendChild(el('div', {style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'18px',color:'var(--text-primary)',letterSpacing:'0.04em',marginBottom:'6px'}}, 'Pacing between sets'));
+  intro.appendChild(el('div', {style:{fontSize:'12px',color:'var(--text-muted)',lineHeight:'1.55'}},
+    'By default, the next set starts automatically when the rest timer hits zero. Turn this on if you want to tap a READY button before each set starts.'
+  ));
+  wrap.appendChild(intro);
+
+  // The toggle row
+  const cur = getWmPromptNextSet();
+  const toggleCard = div({
+    background:'var(--bg-card)', border:'1px solid var(--border-subtle)',
+    borderRadius:'10px', padding:'14px 16px', marginBottom:'14px',
+    display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px'
+  });
+  const labelCol = div({flex:'1', minWidth:'0'});
+  labelCol.appendChild(el('div', {style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'16px',color:'var(--text-primary)',letterSpacing:'0.04em',lineHeight:'1.1'}}, 'Prompt before next set'));
+  labelCol.appendChild(el('div', {style:{fontSize:'10px',color:'var(--text-muted)',marginTop:'4px',lineHeight:'1.4'}}, cur ? 'You will tap READY before each new set.' : 'Sets start automatically when rest hits zero.'));
+  toggleCard.appendChild(labelCol);
+
+  const toggle = el('button', {
+    class:'btn',
+    style:{
+      flexShrink:'0',
+      width:'52px', height:'30px', borderRadius:'15px',
+      background: cur ? '#ff6b3b' : '#2a2a2a',
+      border:'none',
+      position:'relative', cursor:'pointer',
+      transition:'background 0.2s ease',
+      padding:'0'
+    }
+  });
+  const knob = el('div', {
+    style:{
+      position:'absolute',
+      top:'3px', left: cur ? '25px' : '3px',
+      width:'24px', height:'24px', borderRadius:'50%',
+      background:'#fff',
+      transition:'left 0.2s ease',
+      boxShadow:'0 2px 4px rgba(0,0,0,0.3)'
+    }
+  });
+  toggle.appendChild(knob);
+  toggle.onclick = (e) => {
+    e.stopPropagation();
+    const newVal = !getWmPromptNextSet();
+    setWmPromptNextSet(newVal);
+    // Re-render the section to reflect new state
+    const newSection = renderWorkoutSection();
+    wrap.parentNode.replaceChild(newSection, wrap);
+  };
+  toggleCard.appendChild(toggle);
+  wrap.appendChild(toggleCard);
+
+  // Footnote with the workflow reminder
+  const note = div({
+    background:'var(--bg-inset)', border:'1px solid var(--border-subtle)',
+    borderRadius:'8px', padding:'12px 14px',
+    fontSize:'11px', color:'var(--text-muted)', lineHeight:'1.55'
+  });
+  note.textContent = 'Auto-start only fires once your reps are logged for the previous set. If you have not entered reps, the timer will still wait for you regardless of this setting.';
+  wrap.appendChild(note);
+
+  return wrap;
 }
 
 function renderDisplaySection() {
@@ -24397,6 +26064,64 @@ function renderAboutSection() {
     'App works fully offline once installed. Your changes save locally and persist between sessions.'));
   wrap.appendChild(conn);
 
+  // ─── Phase E (scoping) — Developer / experimental toggle ───
+  // The OCR Lab is hidden from default users. This single toggle exposes a
+  // new entry in the Settings menu when on. Kept in the About section
+  // because that's the "tinkering" area of the app.
+  const exp = div({
+    background:'var(--bg-card)', border:'1px solid #fbbf2433', borderRadius:'10px',
+    padding:'12px 14px', marginTop:'10px'
+  });
+  exp.appendChild(el('div', {style:{fontSize:'8px',color:'#fbbf24',letterSpacing:'0.25em',textTransform:'uppercase',fontWeight:'700',marginBottom:'6px'}}, '⚗ Experimental'));
+  exp.appendChild(el('div', {style:{fontSize:'10px',color:'var(--text-muted)',lineHeight:'1.55',marginBottom:'10px'}},
+    'Toggle previews of in-progress features. These can change shape or disappear at any time — they exist to validate ideas, not to be relied on.'));
+
+  const ocrRow = div({display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',padding:'8px 0'});
+  const ocrLeft = div({flex:'1', minWidth:'0'});
+  ocrLeft.appendChild(el('div', {
+    style:{fontSize:'11px',color:'var(--text-primary)',fontWeight:'700',marginBottom:'2px'}
+  }, 'OCR Lab'));
+  ocrLeft.appendChild(el('div', {
+    style:{fontSize:'9px',color:'var(--text-tertiary)',lineHeight:'1.5'}
+  }, 'Renpho screenshot parser prototype. No data is saved.'));
+  ocrRow.appendChild(ocrLeft);
+
+  const ocrToggleOn = (typeof isOcrLabEnabled === 'function') && isOcrLabEnabled();
+  const ocrToggle = el('button', {
+    'data-ocr-lab-toggle': '1',
+    'data-ocr-lab-on': ocrToggleOn ? '1' : '0',
+    style:{
+      width:'52px', height:'28px',
+      background: ocrToggleOn ? 'var(--accent-primary)' : 'var(--bg-inset)',
+      border:'1px solid ' + (ocrToggleOn ? 'var(--accent-primary)' : 'var(--border-default)'),
+      borderRadius:'14px', cursor:'pointer',
+      position:'relative', flexShrink:'0',
+      transition:'background 160ms ease-out, border-color 160ms ease-out',
+      padding:'0'
+    },
+    onclick: () => {
+      const newState = !isOcrLabEnabled();
+      setOcrLabEnabled(newState);
+      renderSettingsModal('about');  // refresh About section so the toggle visually updates
+    }
+  });
+  // Slider dot — positioned via JS so the visual matches state
+  const dot = el('div', {
+    style:{
+      position:'absolute', top:'3px',
+      left: ocrToggleOn ? '27px' : '3px',
+      width:'20px', height:'20px',
+      borderRadius:'50%',
+      background: ocrToggleOn ? 'var(--bg-elevated)' : 'var(--text-tertiary)',
+      transition:'left 160ms ease-out, background 160ms ease-out'
+    }
+  });
+  ocrToggle.appendChild(dot);
+  ocrRow.appendChild(ocrToggle);
+  exp.appendChild(ocrRow);
+
+  wrap.appendChild(exp);
+
   return wrap;
 }
 
@@ -24408,17 +26133,30 @@ function renderSettingsMenu() {
     { id:'preferences', icon:'🍽', label:'Preferences',  desc:'Cuisines you enjoy · meal suggestions' },
     { id:'sync',    icon:'☁',  label:'Cloud Sync',       desc:'Optional: sync across devices via Google Drive' },
     { id:'display', icon:'◐',  label:'Display',          desc:'Text size · readability presets' },
+    { id:'workout', icon:'◑',  label:'Workout',          desc:'Pacing · auto-start vs prompt before next set' },
     { id:'about',   icon:'ℹ',  label:'About this app',  desc:'Storage, install, version info' },
     { id:'units',   icon:'📏', label:'Units',           desc:'Coming soon — toggle metric/imperial', disabled:true },
     { id:'reset',   icon:'🔄', label:'Reset App Data',  desc:'Coming soon — wipe local storage', disabled:true }
   ];
+
+  // Phase E (scoping): inject the experimental OCR Lab row only when the
+  // feature flag is on. The flag is set from the About section's "Developer"
+  // toggle so users don't stumble into it accidentally.
+  if (typeof isOcrLabEnabled === 'function' && isOcrLabEnabled()) {
+    items.splice(items.length - 2, 0, {
+      id:'ocr-lab', icon:'⚗', label:'OCR Lab',
+      desc:'Experimental · Renpho screenshot parser (Phase E scoping)',
+      _experimental:true
+    });
+  }
+
   items.forEach(item => {
     const row = el('button',{
       class:'btn dark-card',
       style:{
         width:'100%', textAlign:'left',
         background: item.disabled ? 'var(--bg-inset)' : 'var(--bg-card)',
-        border:'1px solid var(--border-subtle)',
+        border:'1px solid ' + (item._experimental ? '#fbbf2455' : 'var(--border-subtle)'),
         padding:'14px 16px', borderRadius:'var(--radius-card)',
         marginBottom:'8px',
         display:'flex', alignItems:'center', gap:'14px',
@@ -24426,7 +26164,13 @@ function renderSettingsMenu() {
         opacity: item.disabled ? '0.45' : '1',
         transition:'var(--transition-card)'
       },
-      onclick: item.disabled ? null : (() => renderSettingsModal(item.id))
+      onclick: item.disabled ? null : (() => {
+        if (item.id === 'ocr-lab') {
+          openOcrLabModal();
+        } else {
+          renderSettingsModal(item.id);
+        }
+      })
     });
     row.appendChild(el('span',{style:{fontSize:'22px',flexShrink:'0'}}, item.icon));
     const txt = div({flex:'1'});
@@ -28144,6 +29888,361 @@ function setSystemAlarm(timeStr, label) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// PHASE C2 — SLEEP CLOCK VISUALIZATION
+// ═══════════════════════════════════════════════════════════════════════════
+// 24-hour analog clock face with bedtime→wake arc + a 7-night week strip
+// below that lets the user load any recent night into the clock.
+//
+// Architecture mirrors Phase C1 stats charts: helpers are file-scoped (prefixed
+// with _sleepClock), the public entry point is renderSleepClockSection() which
+// returns a complete card. Pure SVG, no external libraries.
+//
+// Empty-state aware: shows a friendly message if no nights are logged. If
+// fewer than 7 nights are logged, the strip shows what's available padded
+// with placeholder bars (so the visual rhythm is preserved).
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Convert "minute-of-day" (0-1439, where 0=midnight, 720=noon) to an angle in
+// radians on a 24-hour clock where midnight sits at the TOP (12 o'clock).
+// Standard SVG angle convention: 0 rad = 3 o'clock, PI/2 = 6 o'clock, etc.
+// So midnight (top) corresponds to -PI/2.
+function _sleepClockAngleForMin(minOfDay) {
+  return (minOfDay / 1440) * 2 * Math.PI - Math.PI / 2;
+}
+
+// Build an SVG arc-path string from bed minute to wake minute on a 24-hour
+// circular dial. Handles the midnight-crossover case (wake < bed) by treating
+// wake as "tomorrow" and sweeping clockwise.
+function _sleepClockArcPath(bedMin, wakeMin, cx, cy, r) {
+  if (bedMin == null || wakeMin == null) return '';
+  let sweepMin = wakeMin - bedMin;
+  if (sweepMin <= 0) sweepMin += 1440;  // crosses midnight
+  const startA = _sleepClockAngleForMin(bedMin);
+  const endA = _sleepClockAngleForMin((bedMin + sweepMin) % 1440);
+  const x1 = cx + r * Math.cos(startA);
+  const y1 = cy + r * Math.sin(startA);
+  const x2 = cx + r * Math.cos(endA);
+  const y2 = cy + r * Math.sin(endA);
+  const largeArc = sweepMin > 720 ? 1 : 0;  // arc > 180deg
+  return 'M ' + x1.toFixed(2) + ' ' + y1.toFixed(2) +
+         ' A ' + r + ' ' + r + ' 0 ' + largeArc + ' 1 ' +
+         x2.toFixed(2) + ' ' + y2.toFixed(2);
+}
+
+// Format minutes (0-1440) as a 12-hour time string ("7:00am", "11:30pm")
+function _sleepClockFmtTime(minOfDay) {
+  if (minOfDay == null) return '—';
+  while (minOfDay < 0) minOfDay += 1440;
+  while (minOfDay >= 1440) minOfDay -= 1440;
+  let h = Math.floor(minOfDay / 60);
+  const m = minOfDay % 60;
+  const ampm = h < 12 ? 'am' : 'pm';
+  h = h % 12;
+  if (h === 0) h = 12;
+  return h + (m === 0 ? '' : ':' + (m < 10 ? '0' : '') + m) + ampm;
+}
+
+// Render the empty-state card when the user has no sleep nights logged.
+function _sleepClockEmptyCard() {
+  const card = div({
+    background: 'var(--bg-card)', border: '1px solid var(--border-subtle)',
+    borderRadius: '12px', padding: '18px 16px 20px', marginBottom: '12px'
+  });
+  card.appendChild(el('div', {
+    style: {fontSize:'8px',color:'#9b72cf',letterSpacing:'0.22em',textTransform:'uppercase',marginBottom:'10px',fontWeight:'700'}
+  }, 'Sleep Clock'));
+
+  // Render the empty clock dial so users see what they'll get once they log
+  const SIZE = 220;
+  const CX = SIZE/2, CY = SIZE/2;
+  const R_DIAL = SIZE/2 - 14;
+  let svgHtml = '<svg width="' + SIZE + '" height="' + SIZE + '" viewBox="0 0 ' + SIZE + ' ' + SIZE + '" style="display:block;margin:6px auto 14px">';
+  svgHtml += '<circle cx="' + CX + '" cy="' + CY + '" r="' + R_DIAL + '" fill="none" stroke="var(--border-default)" stroke-width="2"/>';
+  // 24 hour marks
+  for (let h = 0; h < 24; h++) {
+    const a = _sleepClockAngleForMin(h * 60);
+    const inR = R_DIAL - (h % 6 === 0 ? 10 : 5);
+    const outR = R_DIAL;
+    const x1 = CX + inR * Math.cos(a);
+    const y1 = CY + inR * Math.sin(a);
+    const x2 = CX + outR * Math.cos(a);
+    const y2 = CY + outR * Math.sin(a);
+    svgHtml += '<line x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) + '" x2="' + x2.toFixed(1) + '" y2="' + y2.toFixed(1) + '" stroke="var(--text-footnote)" stroke-width="' + (h % 6 === 0 ? 2 : 1) + '"/>';
+  }
+  // 12am label at top
+  svgHtml += '<text x="' + CX + '" y="' + (CY - R_DIAL + 22) + '" text-anchor="middle" font-family="DM Mono, monospace" font-size="8" fill="var(--text-tertiary)" letter-spacing="0.1em">12am</text>';
+  svgHtml += '<text x="' + CX + '" y="' + (CY + 4) + '" text-anchor="middle" font-family="Bebas Neue, sans-serif" font-size="20" fill="var(--text-tertiary)" letter-spacing="0.04em">—</text>';
+  svgHtml += '<text x="' + CX + '" y="' + (CY + 22) + '" text-anchor="middle" font-family="DM Mono, monospace" font-size="8" fill="var(--text-footnote)" letter-spacing="0.18em">NO DATA</text>';
+  svgHtml += '</svg>';
+
+  const dial = el('div', {style:{textAlign:'center'}});
+  dial.innerHTML = svgHtml;
+  card.appendChild(dial);
+
+  card.appendChild(el('div', {
+    style:{fontSize:'11px',color:'var(--text-muted)',padding:'4px 4px 0',textAlign:'center',fontStyle:'italic',lineHeight:'1.55'}
+  }, 'Log a night in the Sleep tab to see your sleep arc.'));
+  return card;
+}
+
+// Build the SVG for the 24-hour clock face showing a single night's arc.
+// Returns an element ready to insert.
+function _sleepClockRenderDial(night, accentColor) {
+  const SIZE = 240;
+  const CX = SIZE / 2, CY = SIZE / 2;
+  const R_DIAL = SIZE / 2 - 16;
+  const R_ARC = R_DIAL - 14;
+
+  let svgHtml = '<svg width="' + SIZE + '" height="' + SIZE + '" viewBox="0 0 ' + SIZE + ' ' + SIZE + '" style="display:block;margin:6px auto">';
+
+  // Outer dial circle
+  svgHtml += '<circle cx="' + CX + '" cy="' + CY + '" r="' + R_DIAL + '" fill="none" stroke="var(--border-default)" stroke-width="1.5"/>';
+
+  // 24 hour tick marks. Cardinals (every 6h) are longer + thicker.
+  for (let h = 0; h < 24; h++) {
+    const a = _sleepClockAngleForMin(h * 60);
+    const isCardinal = (h % 6 === 0);
+    const inR = R_DIAL - (isCardinal ? 11 : 5);
+    const outR = R_DIAL;
+    const x1 = CX + inR * Math.cos(a);
+    const y1 = CY + inR * Math.sin(a);
+    const x2 = CX + outR * Math.cos(a);
+    const y2 = CY + outR * Math.sin(a);
+    const strokeC = isCardinal ? 'var(--text-tertiary)' : 'var(--text-footnote)';
+    const strokeW = isCardinal ? 2 : 1;
+    svgHtml += '<line x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) + '" x2="' + x2.toFixed(1) + '" y2="' + y2.toFixed(1) + '" stroke="' + strokeC + '" stroke-width="' + strokeW + '"/>';
+  }
+
+  // Cardinal labels: 12am (top), 6am (right), 12pm (bottom), 6pm (left)
+  const labelOffset = R_DIAL - 22;
+  const labelDefs = [
+    { min: 0,    text: '12am' },
+    { min: 360,  text: '6am' },
+    { min: 720,  text: '12pm' },
+    { min: 1080, text: '6pm' }
+  ];
+  labelDefs.forEach(ld => {
+    const a = _sleepClockAngleForMin(ld.min);
+    const lx = CX + labelOffset * Math.cos(a);
+    const ly = CY + labelOffset * Math.sin(a) + 3;  // +3 vertical baseline correction
+    svgHtml += '<text x="' + lx.toFixed(1) + '" y="' + ly.toFixed(1) + '" text-anchor="middle" font-family="DM Mono, monospace" font-size="8" fill="var(--text-tertiary)" letter-spacing="0.1em">' + ld.text + '</text>';
+  });
+
+  // Sleep arc (the headline visual). Only drawn if we have both bedtime + wake.
+  const bedMin = (night && night.bedtime) ? parseTimeStr(night.bedtime) : null;
+  const wakeMin = (night && night.wakeTime) ? parseTimeStr(night.wakeTime) : null;
+  if (bedMin != null && wakeMin != null) {
+    const arcD = _sleepClockArcPath(bedMin, wakeMin, CX, CY, R_ARC);
+    svgHtml += '<path d="' + arcD + '" fill="none" stroke="' + accentColor + '" stroke-width="10" stroke-linecap="round" opacity="0.92"/>';
+
+    // Tiny moon glyph at bedtime end of the arc
+    const bedA = _sleepClockAngleForMin(bedMin);
+    const bx = CX + R_ARC * Math.cos(bedA);
+    const by = CY + R_ARC * Math.sin(bedA);
+    svgHtml += '<circle cx="' + bx.toFixed(1) + '" cy="' + by.toFixed(1) + '" r="6" fill="' + accentColor + '"/>';
+    svgHtml += '<circle cx="' + (bx + 2).toFixed(1) + '" cy="' + (by - 1).toFixed(1) + '" r="4" fill="var(--bg-card)"/>';
+
+    // Sun glyph at wake end of the arc
+    const wakeA = _sleepClockAngleForMin(wakeMin);
+    const wx = CX + R_ARC * Math.cos(wakeA);
+    const wy = CY + R_ARC * Math.sin(wakeA);
+    svgHtml += '<circle cx="' + wx.toFixed(1) + '" cy="' + wy.toFixed(1) + '" r="6" fill="#FFD166"/>';
+  }
+
+  // Centre text: duration + bed→wake range
+  const dur = (night && night.durationMin) ? night.durationMin : null;
+  if (dur != null) {
+    const h = Math.floor(dur / 60);
+    const m = dur % 60;
+    const durStr = h + 'h' + (m > 0 ? ' ' + m + 'm' : '');
+    svgHtml += '<text x="' + CX + '" y="' + (CY - 2) + '" text-anchor="middle" font-family="Bebas Neue, sans-serif" font-size="32" fill="var(--text-primary)" letter-spacing="0.02em">' + durStr + '</text>';
+    if (bedMin != null && wakeMin != null) {
+      svgHtml += '<text x="' + CX + '" y="' + (CY + 20) + '" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="var(--text-muted)" letter-spacing="0.08em">' + _sleepClockFmtTime(bedMin) + ' → ' + _sleepClockFmtTime(wakeMin) + '</text>';
+    }
+  } else {
+    svgHtml += '<text x="' + CX + '" y="' + (CY + 2) + '" text-anchor="middle" font-family="Bebas Neue, sans-serif" font-size="24" fill="var(--text-tertiary)" letter-spacing="0.02em">—</text>';
+    svgHtml += '<text x="' + CX + '" y="' + (CY + 20) + '" text-anchor="middle" font-family="DM Mono, monospace" font-size="8" fill="var(--text-footnote)" letter-spacing="0.18em">NO DATA</text>';
+  }
+
+  svgHtml += '</svg>';
+
+  const wrap = el('div', {style:{textAlign:'center'}});
+  wrap.innerHTML = svgHtml;
+  return wrap;
+}
+
+// Build the week strip: 7 vertical bars below the clock. Each bar represents
+// one of the last 7 nights, height proportional to duration. Tap a bar to
+// load that night into the clock. Latest night is the default selection.
+function _sleepClockRenderWeekStrip(last7Logs, selectedDate, accentColor, onSelect) {
+  const wrap = div({marginTop:'14px',padding:'0 4px'});
+
+  // Compute scale — max bar height = 100% of strip height, scaled by max in window
+  const STRIP_HEIGHT = 64;
+  const goalHours = 8;  // visual reference height
+  const maxHours = Math.max(goalHours, ...last7Logs.map(l => l ? (l.durationMin || 0) / 60 : 0));
+
+  const strip = div({display:'flex',justifyContent:'space-between',gap:'4px',alignItems:'flex-end',height:STRIP_HEIGHT + 'px'});
+
+  // Build 7 slots, oldest → newest. Pad with placeholders if fewer than 7.
+  const slots = [];
+  const totalNeeded = 7;
+  if (last7Logs.length >= totalNeeded) {
+    for (let i = 0; i < totalNeeded; i++) slots.push(last7Logs[i]);
+  } else {
+    // Fewer than 7 — pad the beginning with placeholders (older nights missing)
+    const padCount = totalNeeded - last7Logs.length;
+    for (let i = 0; i < padCount; i++) slots.push(null);
+    for (let i = 0; i < last7Logs.length; i++) slots.push(last7Logs[i]);
+  }
+
+  const dayLabels = ['S','M','T','W','T','F','S'];
+
+  slots.forEach((night, idx) => {
+    const isSelected = night && (night.date === selectedDate);
+    const isLatest = night && (idx === slots.length - 1) && (night === last7Logs[last7Logs.length - 1]);
+
+    const col = el('div', {
+      style:{
+        flex:'1',
+        display:'flex',
+        flexDirection:'column',
+        alignItems:'center',
+        gap:'4px',
+        cursor: night ? 'pointer' : 'default',
+        minWidth:'0'
+      }
+    });
+    if (night) {
+      col.setAttribute('data-sleep-night-date', night.date);
+      col.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (onSelect) onSelect(night.date);
+      });
+    }
+
+    // Bar container — fixed height, bar fills from bottom
+    const barWrap = div({width:'100%',height:STRIP_HEIGHT + 'px',display:'flex',alignItems:'flex-end',justifyContent:'center'});
+
+    if (night && night.durationMin) {
+      const hours = night.durationMin / 60;
+      const heightPct = Math.max(8, Math.min(100, (hours / maxHours) * 100));
+      const bar = div({
+        width:'100%',
+        maxWidth:'24px',
+        height: heightPct + '%',
+        borderRadius:'4px 4px 2px 2px',
+        background: isSelected ? accentColor : (isLatest ? accentColor : '#3a2f55'),
+        opacity: isSelected ? '1' : (isLatest ? '0.72' : '0.55'),
+        transition:'opacity 0.2s ease, background 0.2s ease',
+        boxShadow: isSelected ? '0 0 0 2px ' + accentColor + '33' : 'none'
+      });
+      barWrap.appendChild(bar);
+    } else {
+      // Placeholder for missing night — faint outline only
+      const placeholder = div({
+        width:'100%',
+        maxWidth:'24px',
+        height:'8%',
+        borderRadius:'2px',
+        background:'transparent',
+        border:'1px dashed var(--border-subtle)'
+      });
+      barWrap.appendChild(placeholder);
+    }
+    col.appendChild(barWrap);
+
+    // Day-of-week letter beneath the bar
+    let dayLetter = '·';
+    if (night && night.date) {
+      // Date is YYYY-MM-DD format
+      const parts = night.date.split('-');
+      if (parts.length === 3) {
+        const dt = new Date(Date.UTC(parseInt(parts[0],10), parseInt(parts[1],10)-1, parseInt(parts[2],10)));
+        // UTC dow → letter; close enough for AU users since sleep dates are local
+        const dow = dt.getUTCDay();
+        dayLetter = dayLabels[dow];
+      }
+    }
+    col.appendChild(el('div', {
+      style:{
+        fontSize:'10px',
+        color: isSelected || isLatest ? 'var(--text-primary)' : 'var(--text-tertiary)',
+        fontFamily:"'DM Mono',monospace",
+        letterSpacing:'0.1em',
+        fontWeight: isSelected || isLatest ? '700' : '400'
+      }
+    }, dayLetter));
+
+    strip.appendChild(col);
+  });
+
+  wrap.appendChild(strip);
+  return wrap;
+}
+
+// Top-level entry point: returns a complete sleep clock card. Handles empty
+// state, latest-night selection, and tap-to-load-into-clock interaction.
+function renderSleepClockSection() {
+  const allLogs = getAllSleepLogs();
+  if (!allLogs || allLogs.length === 0) {
+    return _sleepClockEmptyCard();
+  }
+
+  const last7 = allLogs.slice(-7);
+  const latest = last7[last7.length - 1];
+
+  // Determine which night to display in the clock. If the user has tapped a
+  // bar (sleepClockSelectedDate is set) and that date is in last7, use it.
+  // Otherwise default to the latest night.
+  let selectedNight = null;
+  let selectedDate = sleepClockSelectedDate;
+  if (selectedDate) {
+    selectedNight = last7.find(n => n.date === selectedDate) || null;
+  }
+  if (!selectedNight) {
+    selectedNight = latest;
+    selectedDate = latest.date;
+  }
+
+  const accent = '#9b72cf';   // sleep tab brand, matches header
+
+  // Card shell
+  const card = div({
+    background: 'var(--bg-card)', border: '1px solid var(--border-subtle)',
+    borderRadius: '12px', padding: '16px 16px 14px', marginBottom: '12px'
+  });
+
+  // Eyebrow row: title left, "Latest" indicator right when selection is latest
+  const hdrRow = div({display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'});
+  hdrRow.appendChild(el('div', {
+    style:{fontSize:'8px',color:accent,letterSpacing:'0.22em',textTransform:'uppercase',fontWeight:'700'}
+  }, 'Sleep Clock'));
+  const isLatestSelected = (selectedDate === latest.date);
+  hdrRow.appendChild(el('div', {
+    style:{fontSize:'8px',color: isLatestSelected ? 'var(--text-tertiary)' : 'var(--accent-primary)',letterSpacing:'0.18em',textTransform:'uppercase',fontFamily:"'DM Mono',monospace"}
+  }, isLatestSelected ? 'Latest Night' : 'Tap latest to reset'));
+  card.appendChild(hdrRow);
+
+  // Date subtitle
+  const dateSub = el('div', {
+    style:{fontSize:'10px',color:'var(--text-muted)',fontFamily:"'DM Mono',monospace",letterSpacing:'0.06em',marginBottom:'2px'}
+  }, selectedDate);
+  card.appendChild(dateSub);
+
+  // 24h clock dial
+  card.appendChild(_sleepClockRenderDial(selectedNight, accent));
+
+  // Week strip
+  card.appendChild(_sleepClockRenderWeekStrip(last7, selectedDate, accent, (date) => {
+    sleepClockSelectedDate = date;
+    renderSleep();
+  }));
+
+  return card;
+}
+
 function renderSleep() {
   const root = document.getElementById('sleep-content');
   root.innerHTML = '';
@@ -28227,6 +30326,12 @@ function renderSleep() {
     modeRow.appendChild(btn);
   });
   root.appendChild(modeRow);
+
+  // ── SLEEP CLOCK (Phase C2) — 24h dial + week strip ──
+  // Always rendered, regardless of plan/log mode. Sits above the plan/log
+  // content so the user sees a visual summary of their recent sleep before
+  // diving into editing tools below.
+  root.appendChild(renderSleepClockSection());
 
   // ── PLAN MODE ──
   if (sleepMode === 'plan') {
@@ -30515,6 +32620,536 @@ function registerServiceWorker() {
   });
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// PHASE E — PHOTO OCR SCOPING (PROTOTYPE)
+// ═══════════════════════════════════════════════════════════════════════════
+// Auto-import body composition data from a Renpho Health app screenshot.
+//
+// SCOPING ONLY — this is a working prototype behind a feature flag, not a
+// shipped feature. The goal of this code is to prove out three things before
+// committing to a full OCR rollout:
+//
+//   1. The DATA SHAPE — what fields exist in a typical Renpho screenshot,
+//      what label variations occur, how confidence should be scored, and
+//      how the parsed result maps onto the existing METRIC_FIELDS schema.
+//
+//   2. The UI FLOW — photo upload → preview → extracted values with
+//      editable confidence indicators → review → confirm. The flow proves
+//      out cleanly without ever loading the 15 MB tesseract.js bundle by
+//      offering a "paste raw text" mode that bypasses OCR entirely. Once
+//      the parser logic is solid, plugging in tesseract.js is mechanical.
+//
+//   3. THE PLAUSIBILITY GATING — out-of-range values should drop confidence
+//      and force user review rather than silently importing bad data. We
+//      define per-field ranges that match the existing seed-baseline values
+//      Fraser uses, with a 2x slack on both sides.
+//
+// What's intentionally OUT of scope this session:
+//
+//   • The actual OCR engine (tesseract.js). Bundle is 15 MB and would need
+//     to be lazy-loaded on demand; that's deferred until the parser proves
+//     itself on real screenshot text the user pastes in.
+//   • Integration with saveMetrics(). The Confirm button logs the parsed
+//     object to console only. No mutation of existing metrics storage.
+//   • Photos of the physical Renpho scale display (those are 7-segment
+//     digits and would need a specialized tesseract model — see scoping
+//     doc for the comparison). Renpho's scale screen only shows weight +
+//     BMI + body fat anyway; the app screenshot has all 13+ fields.
+//
+// Storage keys:
+//   • fraser_ocr_lab_enabled_v1 — feature flag, default off
+//
+// NOT added to SYNC_KEY_PREFIXES because the flag is a per-device dev
+// affordance, not user data worth syncing across devices.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const OCR_LAB_FLAG_KEY = 'fraser_ocr_lab_enabled_v1';
+
+function isOcrLabEnabled() {
+  try { return localStorage.getItem(OCR_LAB_FLAG_KEY) === 'true'; }
+  catch(e) { return false; }
+}
+
+function setOcrLabEnabled(on) {
+  try {
+    if (on) localStorage.setItem(OCR_LAB_FLAG_KEY, 'true');
+    else localStorage.removeItem(OCR_LAB_FLAG_KEY);
+  } catch(e) {}
+}
+
+// ─── PARSER ──────────────────────────────────────────────────────────────
+// Field definitions for Renpho screenshots. Each entry maps the existing
+// METRIC_FIELDS key to:
+//   • labelPatterns: regex alternatives that match how the Renpho app prints
+//     this field. Order matters — earlier patterns win on collision.
+//   • unitPatterns: regex for the unit that immediately follows the number.
+//     Used as a tie-breaker when two numbers could match the same label.
+//   • range: [min, max] plausibility window. Out-of-range values still get
+//     parsed, but confidence is downgraded.
+//   • allowInteger: some fields (visceralFat, metabolicAge) come through as
+//     integers, so we reject decimal matches for those.
+const OCR_RENPHO_FIELDS = [
+  { key:'weight',         labelPatterns:[/\bweight\b/i],
+    unitPatterns:[/\bkg\b/i, /\blb\b/i],
+    range:[30, 250], allowInteger:false },
+  { key:'bodyFat',        labelPatterns:[/\bbody\s*fat(?!\s*free)\b/i, /\bfat\s*percent/i],
+    unitPatterns:[/%/], range:[1, 60], allowInteger:false },
+  // bmi has no METRIC_FIELDS entry (computed) but we still parse it so the
+  // user can sanity-check the screenshot vs Fraser's existing weight+height.
+  { key:'bmi',            labelPatterns:[/\bbmi\b/i, /\bbody\s*mass\s*index\b/i],
+    unitPatterns:[/^$/], range:[10, 50], allowInteger:false },
+  { key:'skeletalMuscle', labelPatterns:[/\bskeletal\s*muscle\b/i],
+    unitPatterns:[/%/], range:[15, 65], allowInteger:false },
+  { key:'muscleMass',     labelPatterns:[/\bmuscle\s*mass\b/i],
+    unitPatterns:[/\bkg\b/i], range:[20, 100], allowInteger:false },
+  { key:'fatFreeMass',    labelPatterns:[/\bfat[- ]free(\s*(body|mass))?\b/i, /\blbm\b/i],
+    unitPatterns:[/\bkg\b/i], range:[30, 150], allowInteger:false },
+  { key:'subcutaneousFat',labelPatterns:[/\bsubcutaneous\s*fat\b/i],
+    unitPatterns:[/%/], range:[5, 50], allowInteger:false },
+  { key:'visceralFat',    labelPatterns:[/\bvisceral\s*fat\b/i],
+    unitPatterns:[/^$/], range:[1, 30], allowInteger:true },
+  { key:'bodyWater',      labelPatterns:[/\bbody\s*water\b/i, /\btotal\s*body\s*water\b/i],
+    unitPatterns:[/%/], range:[30, 75], allowInteger:false },
+  { key:'protein',        labelPatterns:[/\bprotein\b/i],
+    unitPatterns:[/%/], range:[10, 25], allowInteger:false },
+  { key:'boneMass',       labelPatterns:[/\bbone\s*mass\b/i],
+    unitPatterns:[/\bkg\b/i], range:[1, 6], allowInteger:false },
+  { key:'bmr',            labelPatterns:[/\bbmr\b/i, /\bbasal\s*metab/i],
+    unitPatterns:[/kcal/i, /cal/i], range:[800, 3500], allowInteger:false },
+  { key:'metabolicAge',   labelPatterns:[/\bmetabolic\s*age\b/i],
+    unitPatterns:[/^$/], range:[5, 100], allowInteger:true }
+];
+
+// Confidence levels — three buckets is enough for the user-facing pill UI.
+// 'low' means "we found something but we're unsure"; 'none' means the field
+// wasn't found in the input at all.
+const OCR_CONFIDENCE = { HIGH:'high', MED:'medium', LOW:'low', NONE:'none' };
+
+// Parse a chunk of raw text (either pasted in by the user or, eventually,
+// produced by tesseract.js) into a structured result. Returns:
+//   {
+//     fields: {
+//       <key>: { value, confidence, source: 'line excerpt', unit }
+//     },
+//     unmatched: [<raw lines>]  // lines we couldn't classify
+//   }
+function parseRenphoScreenshot(rawText) {
+  const out = { fields: {}, unmatched: [] };
+  if (!rawText || typeof rawText !== 'string') return out;
+
+  // Normalize line breaks + strip multiple spaces. Most OCR engines emit
+  // either pure newlines or odd whitespace; we want to deal with both.
+  const lines = rawText
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map(l => l.trim().replace(/\s+/g, ' '))
+    .filter(l => l.length > 0);
+
+  // Tracking which line indices have been "claimed" by a field so we don't
+  // double-assign one line to two fields. This matters when a field name
+  // appears in the description of another (e.g. "Fat-Free Mass" lines should
+  // not also match the broad /fat/ pattern of bodyFat).
+  const claimedLineIdx = new Set();
+
+  // Numeric extractor — finds the first standalone number on a line. Note
+  // that we accept commas as thousand separators since the Renpho app shows
+  // BMR as "1,685 kcal" on some locales.
+  const numRe = /-?\d+(?:[.,]\d+)?/;
+
+  OCR_RENPHO_FIELDS.forEach(field => {
+    // Find the best-matching line for this field — prefer lines that haven't
+    // been claimed, then lines where the unit pattern also matches.
+    let bestLineIdx = -1;
+    let bestScore = -1;
+    let bestNumStr = null;
+
+    lines.forEach((line, idx) => {
+      // Skip if already claimed by a higher-priority field
+      if (claimedLineIdx.has(idx)) return;
+      // Does any label pattern match?
+      const labelMatch = field.labelPatterns.some(re => re.test(line));
+      if (!labelMatch) return;
+      // Extract a number from the same line
+      const m = line.match(numRe);
+      if (!m) return;
+      // Score: starts at 2 for a label hit, +1 if unit pattern also matches
+      let score = 2;
+      const unitMatched = field.unitPatterns.some(re => re.test(line));
+      if (unitMatched) score += 1;
+      if (score > bestScore) {
+        bestScore = score;
+        bestLineIdx = idx;
+        bestNumStr = m[0];
+      }
+    });
+
+    if (bestLineIdx < 0 || bestNumStr == null) {
+      out.fields[field.key] = { value:null, confidence: OCR_CONFIDENCE.NONE, source:null, unit:null };
+      return;
+    }
+
+    // Convert "1,685" → 1685
+    const normalized = bestNumStr.replace(/,/g, '.');
+    let value = parseFloat(normalized);
+    // For integer-only fields, drop fractional component — sometimes the
+    // OCR engine inserts a stray decimal point ("8.0" for visceral fat 8)
+    if (field.allowInteger) value = Math.round(value);
+
+    // Plausibility check → confidence rating
+    let confidence = OCR_CONFIDENCE.HIGH;
+    if (bestScore < 3) confidence = OCR_CONFIDENCE.MED;  // label hit but no unit
+    if (value < field.range[0] || value > field.range[1]) confidence = OCR_CONFIDENCE.LOW;
+
+    claimedLineIdx.add(bestLineIdx);
+    out.fields[field.key] = {
+      value: value,
+      confidence: confidence,
+      source: lines[bestLineIdx],
+      unit: field.unitPatterns[0] ? field.unitPatterns[0].source.replace(/[^a-z%]/gi, '') : null
+    };
+  });
+
+  // Collect lines we couldn't classify (useful for parser improvement)
+  lines.forEach((line, idx) => {
+    if (!claimedLineIdx.has(idx)) out.unmatched.push(line);
+  });
+
+  return out;
+}
+
+// ─── UI ──────────────────────────────────────────────────────────────────
+// OCR Lab modal. Two tabs: "Paste Text" (works now) and "Photo" (preview
+// only — no real OCR yet, since tesseract.js is deferred to a later phase).
+function openOcrLabModal() {
+  const overlay = el('div', {
+    style:{
+      position:'fixed', top:'0', left:'0', right:'0', bottom:'0',
+      background:'rgba(0,0,0,0.85)', zIndex:'10500',
+      overflow:'auto', padding:'0'
+    }
+  });
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+  const modal = el('div', {
+    style:{
+      background:'var(--bg-elevated)',
+      width:'100%', maxWidth:'520px',
+      margin:'0 auto', minHeight:'100vh',
+      padding:'calc(env(safe-area-inset-top, 0px) + 20px) 16px calc(env(safe-area-inset-bottom, 0px) + 80px)',
+      position:'relative'
+    }
+  });
+  modal.onclick = (e) => e.stopPropagation();
+
+  // Close button — top-right
+  const closeBtn = el('button', {
+    'aria-label':'Close OCR Lab',
+    style:{
+      position:'absolute',
+      top:'calc(env(safe-area-inset-top, 0px) + 14px)', right:'14px',
+      background:'transparent', border:'1px solid var(--border-default)',
+      color:'var(--text-tertiary)',
+      width:'40px', height:'40px', fontSize:'22px',
+      cursor:'pointer', lineHeight:'1', padding:'0',
+      zIndex:'5', borderRadius:'50%',
+      display:'flex', alignItems:'center', justifyContent:'center'
+    },
+    onclick:() => overlay.remove()
+  }, '×');
+  modal.appendChild(closeBtn);
+
+  // Eyebrow + title
+  modal.appendChild(el('div', {
+    style:{fontSize:'8px',color:'#fbbf24',letterSpacing:'0.28em',textTransform:'uppercase',fontWeight:'700',marginBottom:'6px',paddingRight:'48px'}
+  }, '⚗ Experimental · Phase E scoping'));
+  modal.appendChild(el('div', {
+    style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'28px',color:'var(--text-primary)',letterSpacing:'0.04em',lineHeight:'1.05',marginBottom:'6px'}
+  }, 'OCR Lab'));
+  modal.appendChild(el('div', {
+    style:{fontSize:'11px',color:'var(--text-tertiary)',lineHeight:'1.55',marginBottom:'18px'}
+  }, 'Prototype Renpho screenshot parser. Paste raw OCR text below to see how fields are extracted with confidence scoring. Photo OCR engine is deferred — the photo tab previews uploads but does not run OCR yet.'));
+
+  // Tab switcher (Paste Text vs Photo)
+  let activeMode = 'text';
+  const tabRow = div({display:'flex',gap:'6px',marginBottom:'14px'});
+  const tabBtn = (id, label) => {
+    const b = el('button', {
+      style:{
+        flex:'1', padding:'10px 8px',
+        background: activeMode === id ? 'var(--bg-card-highlight)' : 'var(--bg-inset)',
+        border:'1px solid ' + (activeMode === id ? 'var(--accent-primary)' : 'var(--border-default)'),
+        color: activeMode === id ? 'var(--text-primary)' : 'var(--text-tertiary)',
+        borderRadius:'8px',
+        fontSize:'10px', letterSpacing:'0.18em',
+        textTransform:'uppercase', fontWeight:'700',
+        fontFamily:"'DM Mono',monospace",
+        cursor:'pointer',
+        transition:'background 160ms ease-out, border-color 160ms ease-out'
+      },
+      onclick:() => { activeMode = id; render(); }
+    }, label);
+    return b;
+  };
+
+  // Content host
+  const content = div({});
+
+  function render() {
+    while (tabRow.firstChild) tabRow.removeChild(tabRow.firstChild);
+    tabRow.appendChild(tabBtn('text', 'Paste Text'));
+    tabRow.appendChild(tabBtn('photo', 'Photo'));
+    while (content.firstChild) content.removeChild(content.firstChild);
+    if (activeMode === 'text') renderTextMode();
+    else renderPhotoMode();
+  }
+
+  function renderTextMode() {
+    const intro = el('div', {
+      style:{fontSize:'10px',color:'var(--text-muted)',lineHeight:'1.6',marginBottom:'10px',fontStyle:'italic'}
+    }, 'Paste the text content of a Renpho Health app screenshot. The parser is permissive about formatting — multi-line, comma-separated, or label-then-newline-then-value all work.');
+    content.appendChild(intro);
+
+    const textarea = el('textarea', {
+      placeholder: 'Weight 78.25 kg\nBody Fat 11.2%\nBMI 24.7\nSkeletal Muscle 51.4%\nBody Water 60.1%\nBMR 1685 kcal\n...',
+      style:{
+        width:'100%', minHeight:'160px',
+        background:'var(--bg-inset)', color:'var(--text-primary)',
+        border:'1px solid var(--border-default)', borderRadius:'8px',
+        padding:'10px 12px', fontSize:'12px',
+        fontFamily:"'DM Mono',monospace", lineHeight:'1.55',
+        resize:'vertical', marginBottom:'10px'
+      }
+    });
+    content.appendChild(textarea);
+
+    const parseBtn = el('button', {
+      style:{
+        width:'100%', padding:'12px',
+        background:'var(--accent-primary)', color:'var(--bg-elevated)',
+        border:'none', borderRadius:'8px',
+        fontFamily:"'Bebas Neue',sans-serif",
+        fontSize:'15px', letterSpacing:'0.16em',
+        textTransform:'uppercase', fontWeight:'700',
+        cursor:'pointer', marginBottom:'16px'
+      },
+      onclick: () => {
+        const result = parseRenphoScreenshot(textarea.value);
+        renderResult(result, textarea.value);
+      }
+    }, '◇ Parse Text');
+    content.appendChild(parseBtn);
+  }
+
+  function renderPhotoMode() {
+    const intro = el('div', {
+      style:{fontSize:'10px',color:'var(--text-muted)',lineHeight:'1.6',marginBottom:'10px',fontStyle:'italic'}
+    }, 'Photo upload preview only this phase. OCR engine integration is deferred — once the parser proves itself on pasted text, tesseract.js can be lazy-loaded on demand (15 MB) and wired into this same flow.');
+    content.appendChild(intro);
+
+    const fileInput = el('input', {
+      type:'file', accept:'image/*',
+      style:{
+        display:'block', width:'100%', marginBottom:'10px',
+        color:'var(--text-tertiary)', fontSize:'11px'
+      }
+    });
+    content.appendChild(fileInput);
+
+    const previewWrap = div({marginBottom:'14px', textAlign:'center'});
+    content.appendChild(previewWrap);
+
+    fileInput.onchange = (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        while (previewWrap.firstChild) previewWrap.removeChild(previewWrap.firstChild);
+        const img = el('img', {
+          src: ev.target.result,
+          alt:'screenshot preview',
+          style:{
+            maxWidth:'100%', maxHeight:'320px',
+            borderRadius:'8px',
+            border:'1px solid var(--border-default)'
+          }
+        });
+        previewWrap.appendChild(img);
+        previewWrap.appendChild(el('div', {
+          style:{fontSize:'9px',color:'var(--text-muted)',marginTop:'8px',letterSpacing:'0.08em',fontStyle:'italic'}
+        }, '⌁ Preview only · OCR engine not yet integrated this phase'));
+      };
+      reader.readAsDataURL(file);
+    };
+  }
+
+  function renderResult(result, rawText) {
+    // Remove any previous result block (so re-parsing is idempotent)
+    const existing = modal.querySelector('[data-ocr-result]');
+    if (existing) existing.remove();
+
+    const wrap = div({});
+    wrap.setAttribute('data-ocr-result', '1');
+
+    wrap.appendChild(el('div', {
+      style:{fontSize:'8px',color:'#3bdfff',letterSpacing:'0.28em',textTransform:'uppercase',fontWeight:'700',marginBottom:'10px'}
+    }, '◆ Parsed Fields'));
+
+    const fieldKeys = Object.keys(result.fields);
+    const hitCount = fieldKeys.filter(k => result.fields[k].confidence !== OCR_CONFIDENCE.NONE).length;
+
+    wrap.appendChild(el('div', {
+      style:{fontSize:'10px',color:'var(--text-muted)',marginBottom:'12px',fontFamily:"'DM Mono',monospace",letterSpacing:'0.06em'}
+    }, hitCount + ' of ' + fieldKeys.length + ' fields recognized'));
+
+    fieldKeys.forEach(key => {
+      const f = result.fields[key];
+      const row = div({
+        display:'flex', justifyContent:'space-between', alignItems:'center',
+        gap:'8px', padding:'10px 12px',
+        background:'var(--bg-card)', border:'1px solid var(--border-subtle)',
+        borderRadius:'8px', marginBottom:'6px'
+      });
+      const left = div({flex:'1', minWidth:'0'});
+      left.appendChild(el('div', {
+        style:{fontSize:'10px',color:'var(--text-tertiary)',letterSpacing:'0.1em',textTransform:'uppercase',fontWeight:'700',marginBottom:'2px'}
+      }, key));
+      if (f.source) {
+        left.appendChild(el('div', {
+          style:{fontSize:'9px',color:'var(--text-footnote)',fontFamily:"'DM Mono',monospace",whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}
+        }, '↳ ' + f.source));
+      }
+      row.appendChild(left);
+
+      // Editable input
+      const input = el('input', {
+        type:'number', step:'any',
+        value: f.value != null ? f.value : '',
+        placeholder:'—',
+        style:{
+          width:'90px', padding:'6px 8px',
+          background:'var(--bg-inset)', color:'var(--text-primary)',
+          border:'1px solid var(--border-default)', borderRadius:'4px',
+          fontFamily:"'DM Mono',monospace", fontSize:'12px',
+          textAlign:'right'
+        }
+      });
+      row.appendChild(input);
+
+      // Confidence pill
+      const pillColors = {
+        high:'#6aff3b', medium:'#fbbf24', low:'#ff7b3b', none:'var(--text-disabled)'
+      };
+      row.appendChild(el('span', {
+        style:{
+          fontSize:'7.5px', letterSpacing:'0.18em', textTransform:'uppercase',
+          fontWeight:'700', fontFamily:"'DM Mono',monospace",
+          color: pillColors[f.confidence],
+          padding:'3px 6px',
+          background:'var(--bg-inset)',
+          border:'1px solid ' + pillColors[f.confidence] + '55',
+          borderRadius:'3px',
+          minWidth:'52px', textAlign:'center'
+        }
+      }, f.confidence));
+
+      wrap.appendChild(row);
+    });
+
+    // Unmatched lines block (parser improvement aid)
+    if (result.unmatched && result.unmatched.length > 0) {
+      wrap.appendChild(el('div', {
+        style:{fontSize:'8px',color:'var(--text-muted)',letterSpacing:'0.2em',textTransform:'uppercase',fontWeight:'700',marginTop:'14px',marginBottom:'6px'}
+      }, 'Unmatched lines (' + result.unmatched.length + ')'));
+      const ulBox = div({
+        background:'var(--bg-inset)', border:'1px solid var(--border-subtle)',
+        borderRadius:'6px', padding:'8px 10px',
+        fontSize:'10px', color:'var(--text-tertiary)',
+        fontFamily:"'DM Mono',monospace", lineHeight:'1.6',
+        maxHeight:'120px', overflowY:'auto'
+      });
+      result.unmatched.forEach(l => {
+        ulBox.appendChild(el('div', {}, l));
+      });
+      wrap.appendChild(ulBox);
+    }
+
+    // Confirm button — this prototype LOGS only, never saves. The save path
+    // will get wired in once the parser proves itself on real data.
+    const confirmBtn = el('button', {
+      style:{
+        width:'100%', padding:'12px', marginTop:'16px',
+        background:'#6aff3b', color:'var(--bg-elevated)',
+        border:'none', borderRadius:'8px',
+        fontFamily:"'Bebas Neue',sans-serif",
+        fontSize:'14px', letterSpacing:'0.16em',
+        textTransform:'uppercase', fontWeight:'700',
+        cursor:'pointer'
+      },
+      onclick: () => {
+        if (typeof console !== 'undefined' && console.log) {
+          console.log('[OCR Lab] Parsed result (not saved — prototype):', result);
+        }
+        if (typeof showToast === 'function') showToast('✓ Logged to console (prototype mode — nothing was saved)');
+      }
+    }, '✓ Log Parsed Result (Console)');
+    wrap.appendChild(confirmBtn);
+
+    wrap.appendChild(el('div', {
+      style:{fontSize:'9px',color:'var(--text-footnote)',textAlign:'center',marginTop:'10px',fontStyle:'italic',lineHeight:'1.5'}
+    }, '⌁ Prototype only. No metrics are saved. Confirm path will be wired in a later phase.'));
+
+    content.appendChild(wrap);
+  }
+
+  modal.appendChild(tabRow);
+  modal.appendChild(content);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  render();
+}
+
+// ─── PHASE D2 — SPLASH SCREEN HIDE LOGIC ─────────────────────────────────
+// The splash markup lives in the HTML directly so it appears at the very
+// first paint. JS triggers its fade-out once the app has rendered. Two
+// guarantees:
+//   1. Minimum dwell of 1500ms — if the app boots in <1.5s the user still
+//      sees the brand mark for a moment. Avoids a flickery look.
+//   2. Hard timeout of 3500ms — if for any reason the app fails to call
+//      hideSplashScreen() (init crash, slow boot, etc.) the splash hides
+//      itself anyway. The user is never trapped behind it.
+//
+// The hide is idempotent — subsequent calls after the first are no-ops.
+
+const APP_SPLASH_MIN_DWELL_MS = 1500;
+const APP_SPLASH_MAX_DWELL_MS = 3500;
+const _appSplashStartTime = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+let _appSplashHidden = false;
+
+function hideSplashScreen() {
+  if (_appSplashHidden) return;
+  _appSplashHidden = true;
+
+  const el = document.getElementById('app-splash');
+  if (!el) return;
+
+  const elapsed = ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - _appSplashStartTime;
+  const remaining = Math.max(0, APP_SPLASH_MIN_DWELL_MS - elapsed);
+
+  setTimeout(() => {
+    // Trigger CSS fade via class swap, then remove from DOM after transition
+    el.classList.add('app-splash-fading');
+    setTimeout(() => {
+      // Defensive: in case the node was re-parented or removed elsewhere
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+    }, 450);  // 400ms transition + 50ms safety
+  }, remaining);
+}
+
+// Hard cap: if init somehow never calls hideSplashScreen, the splash hides
+// itself after 3.5s anyway. The user is never trapped behind the splash.
+setTimeout(hideSplashScreen, APP_SPLASH_MAX_DWELL_MS);
+
 // ─── INIT ────────────────────────────────────────────────────────────
 registerServiceWorker();
 renderOfflineIndicator();
@@ -30597,6 +33232,12 @@ attachHaloGestureHandlers();
 applyProfileToHeader();
 // Safety: defer one frame so layout has settled before we measure widths
 requestAnimationFrame(() => renderHaloNav());
+
+// Phase D2 — fade out the boot splash now that the first render is done.
+// hideSplashScreen() handles the minimum-dwell timing internally, so calling
+// it here just means "the app is ready when you are". The hard 3.5s cap set
+// at module load will fire instead if init somehow didn't reach this line.
+requestAnimationFrame(hideSplashScreen);
 // Schedule the first auto-collapse: bar starts expanded so user discovers it,
 // collapses to a pill after 5s if untouched.
 scheduleHaloAutoCollapse();
@@ -30878,7 +33519,10 @@ const SYNC_KEY_PREFIXES = [
   // Display preferences — text size syncs so the preference follows the user
   // across devices. UI-only state (PWA install hint dismissed, etc.) does NOT
   // sync because it's per-device by nature.
-  'fraser_text_scale_v1'
+  'fraser_text_scale_v1',
+  // Workout preferences — prompt-before-next-set is the kind of pacing toggle
+  // a person sets once and expects everywhere.
+  'fraser_wm_prompt_next_v1'
 ];
 
 function isSyncableKey(key) {
