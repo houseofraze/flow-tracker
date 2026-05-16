@@ -708,7 +708,7 @@
 //   1. Bump APP_VERSION here
 //   2. Bump CACHE_VERSION in service-worker.js to match
 //   3. mv fraser-final-complete.html index.html; git commit; git push
-const APP_VERSION = '2026.05.14.14';
+const APP_VERSION = '2026.05.14.16';
 
 let activeTab = 'overview';
 let activeDay = 0; // will be set to today on init
@@ -13927,9 +13927,25 @@ function renderOverview() {
   }
   root.appendChild(hero);
 
-  // ── 1a. BODY FIGURE (Phase D1) — tappable measurement anchors on silhouette ──
+  // ── 1a. BODY FIGURE (Phase F2) — tappable measurement anchors on silhouette ──
   // Sits between the hero and the trends section. Default-open collapsible.
-  root.appendChild(renderBodyFigureSection());
+  // Wrapped defensively: the figure is a rich SVG component, and if anything
+  // inside it throws on a given device/data shape, that must NOT take down
+  // the rest of the Stats tab (or, via a cascading render() exception, the
+  // halo nav). A failure here degrades to a small inline notice instead.
+  try {
+    root.appendChild(renderBodyFigureSection());
+  } catch (figErr) {
+    if (typeof console !== 'undefined') console.error('renderBodyFigureSection failed', figErr);
+    const fallback = div({
+      background:'var(--bg-card)', border:'1px solid var(--border-subtle)',
+      borderRadius:'12px', marginBottom:'12px', padding:'14px'
+    });
+    fallback.appendChild(el('div', {
+      style:{fontSize:'11px',color:'var(--text-muted)',lineHeight:'1.5',textAlign:'center'}
+    }, 'Body figure could not be drawn. Your measurements are safe and still editable below.'));
+    root.appendChild(fallback);
+  }
 
   // ── 1b. TRENDS (Phase C1) — bodyweight / body fat / lean mass / macros / PRs ──
   // Collapsible card containing five SVG charts. Open by default since the
@@ -31056,7 +31072,14 @@ function buildShoppingList() {
   let costTierSum = 0;
   let costTierCount = 0;
 
+  // Phase G — shopping day filter. Only days the user has left included
+  // contribute to the list. Default (no filter set) includes every day, so
+  // this is a no-op for anyone who hasn't touched the filter.
+  const _includedDays = new Set(getShoppingDayFilter());
+
   Object.keys(mealsByDay).forEach(dayNum => {
+    // Skip any program day the user has excluded from this week's shop.
+    if (!_includedDays.has(Number(dayNum))) return;
     const meals = mealsByDay[dayNum] || [];
     meals.forEach(meal => {
       if (!meal || !meal.ingredients) return;
@@ -31558,6 +31581,42 @@ function setPantryFlag(itemKey, on, offset) {
 // Pack-size rounding is OFF by default per spec. User opts in via the
 // shopping tab's settings card. Persisted globally (not per-week).
 const SHOPPING_SETTINGS_KEY = 'fraser_shopping_settings_v1';
+
+// ── SHOPPING DAY FILTER (Phase G) ──────────────────────────────────────────
+// Lets the user include/exclude specific program days from the generated
+// shopping list. Use case: shop + meal-prep the training days you've
+// committed to, and leave still-undecided days off the list.
+//
+// Stored PER WEEK via the standard loadData/saveData week-keying, so a new
+// week always starts fresh with every day included. The stored shape is
+// { days: [<included program day numbers>] }. Absence of any stored value
+// means "all days included" — the default, identical to pre-Phase-G
+// behaviour, so users who never touch the filter see no change.
+//
+// The filter is a SHOPPING-LIST-VIEW concern only. It does not mutate the
+// meal plan, the training program, or anything on other tabs. Drift
+// detection (hasUnlockedChanges) and the locked-plan snapshot are computed
+// independently and are unaffected.
+function getShoppingDayFilter() {
+  const saved = loadData('shopdayfilter', weekOffset, 0);
+  if (saved && Array.isArray(saved.days)) {
+    // Intersect with the current PROGRAM days, so a program change can't
+    // leave a stale day number in the filter.
+    const valid = new Set(PROGRAM.map(d => d.day));
+    return saved.days.filter(n => valid.has(n));
+  }
+  return PROGRAM.map(d => d.day);  // default: every day included
+}
+function setShoppingDayFilter(dayNums) {
+  // saveData uses weekOffset internally — this persists for the current week.
+  saveData('shopdayfilter', 0, { days: dayNums.slice().sort((a,b) => a - b) });
+}
+// True when at least one program day is excluded — used to decide whether
+// to show the "list is filtered" note so missing items don't look like a bug.
+function isShoppingDayFilterActive() {
+  return getShoppingDayFilter().length < PROGRAM.length;
+}
+
 function getShoppingSettings() {
   try {
     const raw = localStorage.getItem(SHOPPING_SETTINGS_KEY);
@@ -31574,6 +31633,117 @@ function setShoppingSettings(patch) {
 }
 
 // ─── SHOPPING TAB ─────────────────────────────────────────────────────────────
+
+// Phase G — day filter control. Returns a card with a chip per program day
+// (toggle to include/exclude), a live summary, an excluded-days note, and
+// two quick actions (All Days, Weekdays Only). Always rendered on the
+// Shopping tab — even when the list is empty — so the user can always
+// recover from an over-aggressive filter.
+function renderShoppingDayFilter() {
+  const wrap = div({
+    background:'var(--bg-card)', border:'1px solid var(--border-subtle)',
+    borderRadius:'var(--radius-card)', padding:'10px 12px', marginBottom:'10px'
+  });
+  wrap.className = 'no-print';
+
+  const included = new Set(getShoppingDayFilter());
+  const totalDays = PROGRAM.length;
+  const incCount = included.size;
+
+  // Header: label + live summary. Default (all days) is kept visually quiet
+  // so it doesn't read like a warning.
+  const hdr = div({display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'});
+  hdr.appendChild(el('div',{
+    style:{fontSize:'9px',color:'var(--text-tertiary)',letterSpacing:'0.18em',textTransform:'uppercase',fontWeight:'700'}
+  }, 'Shopping Days'));
+  const summaryTxt = incCount === totalDays ? 'All days'
+    : (incCount === 0 ? 'No days selected' : incCount + ' of ' + totalDays + ' days');
+  hdr.appendChild(el('div',{
+    style:{
+      fontSize:'10px', fontFamily:"'DM Mono',monospace",
+      color: incCount === 0 ? 'var(--accent-primary)'
+           : (incCount < totalDays ? 'var(--accent-info)' : 'var(--text-muted)')
+    }
+  }, summaryTxt));
+  wrap.appendChild(hdr);
+
+  // One chip per program day. Weekday label is primary (the user thinks in
+  // Mon-Fri terms); training title is a small secondary hint.
+  const chipRow = div({display:'flex',gap:'5px',flexWrap:'wrap',marginBottom:'8px'});
+  PROGRAM.forEach(d => {
+    const on = included.has(d.day);
+    const jsWd = (typeof getWeekdayForActiveDay === 'function') ? getWeekdayForActiveDay(d.day - 1) : null;
+    const wdLabel = (jsWd != null && WEEKDAY_LABELS_SHORT[jsWd]) ? WEEKDAY_LABELS_SHORT[jsWd] : ('D' + d.day);
+    const chip = el('button',{
+      class:'btn',
+      'aria-label': (on ? 'Exclude ' : 'Include ') + wdLabel + ' ' + d.title + ' from shopping list',
+      style:{
+        flex:'1', minWidth:'40px',
+        background: on ? (d.accent + '22') : 'transparent',
+        border:'1px solid ' + (on ? d.accent : 'var(--border-default)'),
+        borderRadius:'7px', padding:'6px 3px', cursor:'pointer',
+        display:'flex',flexDirection:'column',alignItems:'center',gap:'2px',
+        transition:'background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease',
+        opacity: on ? '1' : '0.5'
+      },
+      onclick: () => {
+        const cur = new Set(getShoppingDayFilter());
+        if (cur.has(d.day)) cur.delete(d.day); else cur.add(d.day);
+        setShoppingDayFilter(Array.from(cur));
+        renderShopping();
+      }
+    });
+    chip.appendChild(el('div',{
+      style:{fontSize:'10px',fontWeight:'700',fontFamily:"'DM Mono',monospace",letterSpacing:'0.04em',color: on ? d.accent : 'var(--text-tertiary)'}
+    }, wdLabel));
+    chip.appendChild(el('div',{
+      style:{fontSize:'7px',textTransform:'uppercase',letterSpacing:'0.03em',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',maxWidth:'100%',color: on ? 'var(--text-secondary)' : 'var(--text-muted)'}
+    }, d.title));
+    chipRow.appendChild(chip);
+  });
+  wrap.appendChild(chipRow);
+
+  // Excluded-days note — only when the filter is active. Makes it explicit
+  // that missing items are intentional, not a bug.
+  if (incCount < totalDays && incCount > 0) {
+    const excluded = PROGRAM.filter(d => !included.has(d.day)).map(d => {
+      const j = (typeof getWeekdayForActiveDay === 'function') ? getWeekdayForActiveDay(d.day - 1) : null;
+      return (j != null && WEEKDAY_LABELS_SHORT[j]) ? WEEKDAY_LABELS_SHORT[j] : ('Day ' + d.day);
+    });
+    wrap.appendChild(el('div',{
+      style:{fontSize:'9px',color:'var(--text-muted)',marginBottom:'8px',fontStyle:'italic',lineHeight:'1.4'}
+    }, 'Not included: ' + excluded.join(', ') + '. These days stay on your meal plan.'));
+  }
+
+  // Quick actions
+  const qaRow = div({display:'flex',gap:'6px'});
+  const mkQuick = (label, fn) => el('button',{
+    class:'btn',
+    style:{
+      flex:'1', background:'var(--bg-inset)',
+      border:'1px solid var(--border-default)', borderRadius:'6px',
+      padding:'6px 8px', cursor:'pointer',
+      fontSize:'8px',letterSpacing:'0.14em',textTransform:'uppercase',
+      fontWeight:'700',fontFamily:"'DM Mono',monospace",color:'var(--text-tertiary)'
+    },
+    onclick: fn
+  }, label);
+  qaRow.appendChild(mkQuick('All Days', () => {
+    setShoppingDayFilter(PROGRAM.map(d => d.day));
+    renderShopping();
+  }));
+  qaRow.appendChild(mkQuick('Weekdays Only', () => {
+    // Program days that land on Mon-Fri (JS weekday 1-5).
+    const wd = PROGRAM.filter(d => {
+      const j = (typeof getWeekdayForActiveDay === 'function') ? getWeekdayForActiveDay(d.day - 1) : null;
+      return j != null && j >= 1 && j <= 5;
+    }).map(d => d.day);
+    if (wd.length) { setShoppingDayFilter(wd); renderShopping(); }
+  }));
+  wrap.appendChild(qaRow);
+
+  return wrap;
+}
 
 function renderShopping() {
   const con = document.getElementById('shopping-content');
@@ -31603,6 +31773,30 @@ function renderShopping() {
   });
 
   // ── EMPTY STATE (Upgrade.C) ─────────────────────────────────────────
+  // Phase G — render the day filter control FIRST, so it is always visible
+  // and the user can always recover even if they have excluded every day.
+  con.appendChild(renderShoppingDayFilter());
+
+  // Empty specifically because every program day is filtered out. Distinct
+  // from "no meals planned" — the filter card above is the way to recover.
+  if (getShoppingDayFilter().length === 0) {
+    const noDays = div({
+      background: 'var(--bg-elevated)',
+      border: '1px solid var(--border-subtle)',
+      borderRadius: 'var(--radius-card)',
+      padding: '32px 24px', textAlign: 'center', marginTop: '4px'
+    });
+    noDays.appendChild(el('div', {style:{fontSize:'40px',marginBottom:'10px',opacity:'0.6'}}, '\ud83d\uddd3\ufe0f'));
+    noDays.appendChild(el('div', {
+      style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'20px',color:'var(--text-primary)',letterSpacing:'0.05em',marginBottom:'8px'}
+    }, 'No days selected'));
+    noDays.appendChild(el('div', {
+      style:{fontSize:'12px',color:'var(--text-secondary)',lineHeight:'1.6'}
+    }, 'Pick at least one day above to build your shopping list. Your meal plan is unchanged.'));
+    con.appendChild(noDays);
+    return;
+  }
+
   // No items at all means no plan / no meals — render a friendly empty
   // state instead of a bunch of empty headers, with a CTA back to plan
   // the week from the Nutrition tab.
@@ -33226,17 +33420,41 @@ syncProgramToProfile();
 // so Monday morning doesn't feel like everything got wiped. Idempotent — only
 // runs once per ISO week.
 carryForwardWeeklyState();
-render();
+
+// ─── HALO NAV FIRST (Phase F2 hotfix) ─────────────────────────────────────────
+// The halo nav is the app's ONLY navigation. Previously it was wired AFTER
+// render() — meaning any exception thrown inside render() (a bad data shape,
+// a device-specific SVG quirk, etc.) would skip attachHaloGestureHandlers()
+// and leave the nav visible but completely dead. The nav setup depends only
+// on static DOM (#halo-nav-track is in the HTML) and module-level state, not
+// on render() having run, so it is safe and correct to wire it FIRST.
+attachHaloGestureHandlers();
+try { renderHaloNav(); }
+catch (e) { if (typeof console !== 'undefined') console.error('initial renderHaloNav failed', e); }
+
+// First content render — wrapped so a failure cannot cascade into the rest
+// of init. If render() throws, the nav still works (wired above), the splash
+// still gets hidden (below), and the user can navigate to other tabs.
+try {
+  render();
+} catch (e) {
+  if (typeof console !== 'undefined') console.error('render() threw during init', e);
+}
+
+// Re-affirm nav handlers (idempotent — the gesturesAttached guard makes a
+// second call a no-op if the track element persisted, which it does).
 attachHaloGestureHandlers();
 // Apply user profile to header text (display name + program label)
 applyProfileToHeader();
 // Safety: defer one frame so layout has settled before we measure widths
-requestAnimationFrame(() => renderHaloNav());
+requestAnimationFrame(() => {
+  try { renderHaloNav(); } catch (e) {}
+});
 
 // Phase D2 — fade out the boot splash now that the first render is done.
-// hideSplashScreen() handles the minimum-dwell timing internally, so calling
-// it here just means "the app is ready when you are". The hard 3.5s cap set
-// at module load will fire instead if init somehow didn't reach this line.
+// hideSplashScreen() handles the minimum-dwell timing internally. The hard
+// 3.5s cap set at module load is the backstop if init somehow didn't reach
+// this line.
 requestAnimationFrame(hideSplashScreen);
 // Schedule the first auto-collapse: bar starts expanded so user discovers it,
 // collapses to a pill after 5s if untouched.
