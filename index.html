@@ -708,7 +708,7 @@
 //   1. Bump APP_VERSION here
 //   2. Bump CACHE_VERSION in service-worker.js to match
 //   3. mv fraser-final-complete.html index.html; git commit; git push
-const APP_VERSION = '2026.05.14.16';
+const APP_VERSION = '2026.05.14.18';
 
 let activeTab = 'overview';
 let activeDay = 0; // will be set to today on init
@@ -2669,6 +2669,37 @@ function buildPrepSequence(lockedPlan) {
   const shared = Object.values(sharedMap);
   if (!shared.length) return [];
 
+  // Phase I — per-meal marinade ingredient map. The marinade stage task used
+  // to show only a generic instruction; users had to open the full recipe to
+  // find the actual marinade. For every meal containing a marinatable protein,
+  // collect that meal's marinade/seasoning components: the meal's ingredients
+  // minus the protein itself and minus anything handled by another stage
+  // (grains in Stage C, roast veg in Stage B). What remains is the marinade
+  // and seasoning. Nothing is silently dropped — anything left is shown.
+  const marinadeByMeal = {};
+  Object.keys(lockedPlan.mealsByDay).forEach(dayNum => {
+    (lockedPlan.mealsByDay[dayNum] || []).forEach(meal => {
+      if (!meal || !meal.ingredients || !meal.name) return;
+      if (marinadeByMeal[meal.name]) return; // already captured
+      const hasMarinatable = meal.ingredients.some(ing => {
+        const c = categorizePrepIngredient(ing.n);
+        return c && c.category === 'marinatedProtein';
+      });
+      if (!hasMarinatable) return;
+      const components = [];
+      meal.ingredients.forEach(ing => {
+        const c = categorizePrepIngredient(ing.n);
+        // Skip the protein, grains and roast veg — handled by other stages.
+        if (c && (c.category === 'marinatedProtein' || c.category === 'grains' || c.category === 'roastVeg')) return;
+        components.push({
+          label: ing.n,
+          amount: (ing.m != null ? (ing.m + (ing.mu || '')) : '')
+        });
+      });
+      marinadeByMeal[meal.name] = components; // may be empty (plain protein)
+    });
+  });
+
   // Step 3: Distribute tasks into stages
   const stageA = [], stageB = [], stageC = [], stageD = [], stageE = [];
   shared.forEach(s => {
@@ -2676,7 +2707,7 @@ function buildPrepSequence(lockedPlan) {
     if (s.category === 'grains')             stageC.push(buildGrainTask(s, meals));
     else if (s.category === 'roastVeg')      stageB.push(buildRoastTask(s, meals));
     else if (s.category === 'marinatedProtein') {
-      const m = buildMarinadeTask(s, meals);
+      const m = buildMarinadeTask(s, meals, marinadeByMeal);
       if (m) stageA.push(m);
       stageD.push(buildProteinTask(s, meals));
     }
@@ -2685,16 +2716,29 @@ function buildPrepSequence(lockedPlan) {
     else if (s.category === 'aromatics')     stageA.push(buildAromaticsTask(s, meals));
   });
 
+  // Phase I — aggregate the meals each stage feeds, for the stage summary
+  // line. Deduped union of every task's coversMeals.
+  function _stageSummaryMeals(tasks) {
+    const set = new Set();
+    (tasks || []).forEach(t => (t.coversMeals || []).forEach(m => { if (m) set.add(m); }));
+    return Array.from(set).sort();
+  }
+
   const stages = [];
   if (stageA.length) stages.push({id:'A', title:'Marinades & Mise', icon:'🧪', estTime:'15-20 min',
+    summaryMeals:_stageSummaryMeals(stageA),
     sequenceNote:'Start here. Marinades need 30+ min to penetrate, so they rest while you cook everything else.', tasks:stageA});
   if (stageB.length) stages.push({id:'B', title:'Oven Roasts', icon:'🔥', estTime:'40-45 min',
+    summaryMeals:_stageSummaryMeals(stageB),
     sequenceNote:'Preheat to 200°C once. Roastable veg can share the oven on parallel trays.', tasks:stageB});
   if (stageC.length) stages.push({id:'C', title:'Grains', icon:'🍚', estTime:'25-30 min',
+    summaryMeals:_stageSummaryMeals(stageC),
     sequenceNote:'Runs in parallel with the oven — stovetop work, no oven competition.', tasks:stageC});
   if (stageD.length) stages.push({id:'D', title:'Proteins', icon:'🍗', estTime:'15-25 min',
+    summaryMeals:_stageSummaryMeals(stageD),
     sequenceNote:'Sear marinated proteins last so they hit the fridge as fresh as possible.', tasks:stageD});
   if (stageE.length) stages.push({id:'E', title:'Storage & Mid-week', icon:'📦', estTime:'5-10 min',
+    summaryMeals:_stageSummaryMeals(stageE),
     sequenceNote:'Labels, fresh-only reminders, and Wednesday refresh notes.', tasks:stageE});
   return stages;
 }
@@ -2763,15 +2807,34 @@ function buildRoastTask(s, meals) {
   };
 }
 
-function buildMarinadeTask(s, meals) {
+function buildMarinadeTask(s, meals, marinadeByMeal) {
   const p = s.canonical;
   if (!(p.includes('chicken thigh') || p.includes('lamb') || p.includes('beef rump'))) return null;
+
+  // Phase I — attach the real per-meal marinade ingredients so the user does
+  // not have to leave prep mode and open the recipe. marinadeByMeal maps a
+  // meal name to its marinade/seasoning components (already stripped of the
+  // protein, grains and roast veg upstream).
+  const detail = {};
+  let anyComponents = false;
+  (meals || []).forEach(mn => {
+    if (marinadeByMeal && marinadeByMeal[mn]) {
+      detail[mn] = marinadeByMeal[mn];
+      if (marinadeByMeal[mn].length) anyComponents = true;
+    }
+  });
+
+  const step = anyComponents
+    ? `Make each meal's marinade from the ingredients listed below, combine in a zip-bag with the protein, and massage to coat. Rest 30+ min at room temperature, or up to overnight in the fridge.`
+    : `Combine the marinade ingredients for each meal in a zip-bag, add the protein, massage to coat. Rest 30+ min at room temperature, or overnight in the fridge.`;
+
   return {
     stepKey: 'prep-marinade-' + s.canonical,
     portions: s.portions,
+    marinadeDetail: Object.keys(detail).length ? detail : null,
     label: `Marinate ${p} for tonight's prep cook`,
     coversMeals: meals,
-    step: `Combine each meal's marinade ingredients (oil + acid + spices, e.g. harissa-yogurt-lemon, soy-honey-ginger) in a zip-bag. Add the protein, massage to coat. Rest 30+ min at room temp, or up to overnight in fridge.`,
+    step: step,
     sensoryCheck: `Marinade should coat each piece thickly, like wet paint. If runny and pooling, add a teaspoon of mustard or yogurt to thicken.`,
     mistake: `Marinating less than 20 min adds flavour to the surface only. Salt needs time to penetrate.`,
     tip: `Add 1 tsp honey to any savoury marinade. Doesn't make it sweet, dramatically improves caramelisation when you sear.`,
@@ -2968,6 +3031,19 @@ function renderPrepStage(stage) {
     }, stage.sequenceNote));
   }
 
+  // Phase I — stage summary: which meals this stage prepares.
+  if (stage.summaryMeals && stage.summaryMeals.length) {
+    const meals = stage.summaryMeals;
+    let txt = meals.slice(0, 3).join(', ');
+    if (meals.length > 3) txt += ', +' + (meals.length - 3) + ' more';
+    const row = div({fontSize:'8px',marginBottom:'8px',letterSpacing:'0.05em',lineHeight:'1.5'});
+    row.appendChild(el('span',{
+      style:{textTransform:'uppercase',fontWeight:'700',marginRight:'5px',color:'#5fd463aa',letterSpacing:'0.14em'}
+    }, 'Feeds'));
+    row.appendChild(el('span',{style:{color:'#aaa'}}, txt));
+    card.appendChild(row);
+  }
+
   stage.tasks.forEach(task => card.appendChild(renderPrepTask(task)));
   return card;
 }
@@ -3116,6 +3192,41 @@ function renderPrepTask(task) {
     wrap.appendChild(portionList);
   }
 
+  // ─── Phase I — marinade ingredient breakdown (inline) ───
+  if (task.marinadeDetail && Object.keys(task.marinadeDetail).length) {
+    const mList = div({
+      marginTop:'6px',marginBottom:'6px',
+      padding:'6px 8px',
+      background:'#0a0a0a',
+      borderLeft:'2px solid #5fd46333',
+      borderRadius:'3px'
+    });
+    mList.appendChild(el('div',{
+      style:{fontSize:'7px',color:'#5fd463aa',letterSpacing:'0.18em',textTransform:'uppercase',marginBottom:'4px',fontWeight:'700'}
+    }, '🧪 Marinade Ingredients'));
+    Object.keys(task.marinadeDetail).sort().forEach(mealName => {
+      const comps = task.marinadeDetail[mealName] || [];
+      mList.appendChild(el('div',{
+        style:{fontSize:'9px',color:'#ebebeb',fontWeight:'700',marginTop:'4px',marginBottom:'2px',lineHeight:'1.4'}
+      }, mealName));
+      if (comps.length) {
+        comps.forEach(c => {
+          const row = div({display:'flex',gap:'8px',fontSize:'9px',color:'#cfcfcf',lineHeight:'1.5',marginBottom:'1px'});
+          row.appendChild(el('span',{
+            style:{color:'#5fd463',fontFamily:"'DM Mono',monospace",fontWeight:'700',flexShrink:'0',minWidth:'56px'}
+          }, c.amount || '-'));
+          row.appendChild(el('span',{style:{flex:'1',color:'#cfcfcf'}}, c.label));
+          mList.appendChild(row);
+        });
+      } else {
+        mList.appendChild(el('div',{
+          style:{fontSize:'8px',color:'#888',fontStyle:'italic',lineHeight:'1.5'}
+        }, 'No separate marinade — season simply with salt and pepper before cooking.'));
+      }
+    });
+    wrap.appendChild(mList);
+  }
+
   // ─── Covers list (which meals this task feeds) — kept for non-portion tasks ───
   if ((!task.portions || !Object.keys(task.portions).length) && task.coversMeals && task.coversMeals.length) {
     const covers = div({fontSize:'8px',marginBottom:'6px',letterSpacing:'0.05em',lineHeight:'1.5'});
@@ -3182,8 +3293,10 @@ function renderMealPrepChefMode() {
   }
   overlay.innerHTML = '';
 
-  // Compute prep sequence from current state (live, swap-aware)
-  const livePlan = { mealsByDay: buildCurrentPlanSnapshot() };
+  // Compute prep sequence from current state (live, swap-aware).
+  // Phase I — uses the day-filtered snapshot so prep mode only sequences the
+  // days the user is shopping for (matching the Phase G shopping day filter).
+  const livePlan = { mealsByDay: getFilteredPlanSnapshot() };
   const isLocked = !!getWeekPlan();
   const stages = buildPrepSequence(livePlan);
 
@@ -3280,6 +3393,25 @@ function renderMealPrepChefMode() {
       : `Live preview based on your current meal selections. Lock the week to commit. ${totalTasks} batch opportunities identified across ${totalMeals.size} meals.`)
   ));
 
+  // Phase I — day filter note. When the Phase G shopping day filter is active,
+  // make it explicit that the prep flow is intentionally scoped.
+  const _chefDayNote = getPrepDayFilterNote();
+  if (_chefDayNote) {
+    body.appendChild(div({
+      background: CHEF_PALETTE.bgPanel,
+      border: '1px solid ' + CHEF_PALETTE.info + '55',
+      borderLeft: '4px solid ' + CHEF_PALETTE.info,
+      borderRadius: '8px',
+      padding: '12px 14px',
+      marginTop: '8px',
+      marginBottom: '6px'
+    },
+      el('div', {
+        style:{ fontSize:'13px', color:CHEF_PALETTE.textPrimary, lineHeight:'1.5' }
+      }, '🗓 ' + _chefDayNote)
+    ));
+  }
+
   // Render each stage with global task numbering
   let globalTaskNum = 0;
   stages.forEach(stage => {
@@ -3375,6 +3507,29 @@ function renderPrepChefStageHeader(stage) {
         paddingLeft:'4px'
       }
     }, stage.sequenceNote));
+  }
+
+  // Phase I — stage summary: which meals this stage prepares. Distinct from
+  // the sequenceNote (the how) — this is the what.
+  if (stage.summaryMeals && stage.summaryMeals.length) {
+    const meals = stage.summaryMeals;
+    const shown = meals.slice(0, 3);
+    let txt = shown.join(', ');
+    if (meals.length > 3) txt += ', +' + (meals.length - 3) + ' more';
+    const row = div({
+      display:'flex', gap:'6px', alignItems:'baseline',
+      marginTop:'6px', paddingLeft:'4px'
+    });
+    row.appendChild(el('span',{
+      style:{
+        fontSize:'8px',color:CHEF_PALETTE.primary,fontWeight:'700',
+        letterSpacing:'0.16em',textTransform:'uppercase',flexShrink:'0'
+      }
+    }, 'Feeds'));
+    row.appendChild(el('span',{
+      style:{fontSize:'12px',color:CHEF_PALETTE.textPrimary,lineHeight:'1.5'}
+    }, txt));
+    wrap.appendChild(row);
   }
   return wrap;
 }
@@ -3500,6 +3655,56 @@ function renderPrepChefTask(task, globalNum, stageId) {
       pCard.appendChild(row);
     });
     card.appendChild(pCard);
+  }
+
+  // Phase I — marinade ingredient breakdown. Lists each covered meal's actual
+  // marinade/seasoning ingredients with amounts, so the user does not have to
+  // leave prep mode to find them.
+  if (task.marinadeDetail && Object.keys(task.marinadeDetail).length) {
+    const mCard = div({
+      background: CHEF_PALETTE.bgPanel,
+      border: '1px solid ' + CHEF_PALETTE.border,
+      borderRadius: '8px',
+      padding: '12px 14px',
+      marginBottom: '14px'
+    });
+    mCard.appendChild(el('div',{
+      style:{
+        fontSize:'9px',color:CHEF_PALETTE.primary,
+        letterSpacing:'0.18em',textTransform:'uppercase',
+        marginBottom:'8px',fontWeight:'700'
+      }
+    }, '🧪 Marinade Ingredients'));
+    Object.keys(task.marinadeDetail).sort().forEach(mealName => {
+      const comps = task.marinadeDetail[mealName] || [];
+      mCard.appendChild(el('div',{
+        style:{
+          fontSize:'13px',color:CHEF_PALETTE.textPrimary,fontWeight:'700',
+          marginTop:'6px',marginBottom:'3px',lineHeight:'1.4'
+        }
+      }, mealName));
+      if (comps.length) {
+        comps.forEach(c => {
+          const row = div({display:'flex',gap:'10px',alignItems:'baseline',fontSize:'13px',lineHeight:'1.5',marginBottom:'2px'});
+          row.appendChild(el('span',{
+            style:{
+              color:CHEF_PALETTE.primary,fontFamily:"'DM Mono',monospace",
+              fontWeight:'700',flexShrink:'0',minWidth:'72px',fontSize:'12px'
+            }
+          }, c.amount || '-'));
+          row.appendChild(el('span',{style:{flex:'1',color:CHEF_PALETTE.textPrimary}}, c.label));
+          mCard.appendChild(row);
+        });
+      } else {
+        mCard.appendChild(el('div',{
+          style:{fontSize:'12px',color:CHEF_PALETTE.textDim,fontStyle:'italic',lineHeight:'1.5'}
+        }, 'No separate marinade — this protein is seasoned simply or rubbed dry. Season with salt and pepper before cooking.'));
+      }
+    });
+    mCard.appendChild(el('div',{
+      style:{fontSize:'11px',color:CHEF_PALETTE.textDim,fontStyle:'italic',marginTop:'8px',lineHeight:'1.5'}
+    }, 'These are the seasoning and marinade components for each meal. Check the full recipe if you want the exact method.'));
+    card.appendChild(mCard);
   }
 
   // Callout cards (sensory check / mistake / tip / why)
@@ -6507,6 +6712,46 @@ function buildCurrentPlanSnapshot() {
     mealsByDay[d.day] = scaled.filter(m => m && !m._optional);
   });
   return mealsByDay;
+}
+
+// Phase I — returns buildCurrentPlanSnapshot() with the days excluded by the
+// Phase G shopping day filter removed. Meal prep mode uses this so it only
+// sequences the days the user is actually shopping for. buildCurrentPlanSnapshot
+// is deliberately NOT filtered at source: drift detection (hasUnlockedChanges)
+// and the locked-plan snapshot must always compare the FULL plan. The shopping
+// list applies the same getShoppingDayFilter() inline, so the two stay
+// behaviourally consistent.
+function getFilteredPlanSnapshot() {
+  const full = buildCurrentPlanSnapshot();
+  let included;
+  try {
+    included = new Set(getShoppingDayFilter());
+  } catch (e) {
+    return full; // filter unavailable — fall back to the full plan
+  }
+  const out = {};
+  Object.keys(full).forEach(dayNum => {
+    if (included.has(Number(dayNum))) out[dayNum] = full[dayNum];
+  });
+  return out;
+}
+
+// Phase I — note text shown in meal prep mode when the shopping day filter is
+// active, so a shorter prep sequence reads as intentional rather than broken.
+// Returns null when no days are excluded.
+function getPrepDayFilterNote() {
+  try {
+    if (!isShoppingDayFilterActive()) return null;
+    const included = getShoppingDayFilter();
+    const excluded = PROGRAM.filter(d => included.indexOf(d.day) < 0).map(d => {
+      const j = (typeof getWeekdayForActiveDay === 'function') ? getWeekdayForActiveDay(d.day - 1) : null;
+      return (j != null && WEEKDAY_LABELS_SHORT[j]) ? WEEKDAY_LABELS_SHORT[j] : ('Day ' + d.day);
+    });
+    return 'Prepping ' + included.length + ' of ' + PROGRAM.length +
+      ' days, matching your shopping list. Not included: ' + excluded.join(', ') + '.';
+  } catch (e) {
+    return null;
+  }
 }
 
 // Detect if any swaps exist that differ from what's locked. Used to show
@@ -17643,6 +17888,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: true, vegan: false, glutenFree: false, dairyFree: false, pescatarian: true, nutFree: true },
     costTier: 'cheap',
     emoji: '🍳',
+    portability: { style: 'fresh', prepAhead: false, container: 'none', note: 'Best straight from the pan. Scrambled eggs go rubbery and the toast turns soggy if packed.' },
     source: {
       url: 'https://www.bbcgoodfood.com/recipes/spinach-feta-scrambled-eggs',
       author: 'BBC Good Food',
@@ -17686,6 +17932,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: false, vegan: false, glutenFree: true, dairyFree: false, pescatarian: false, nutFree: true },
     costTier: 'mid',
     emoji: '🍛',
+    portability: { style: 'microwave', prepAhead: true, container: 'leakproof', note: 'Chicken and rice reheat well. Keep the raita in a separate pot and add it cold.' },
     source: {
       url: 'https://www.indianhealthyrecipes.com/chicken-tikka-recipe/',
       author: 'Swasthi Shreekanth',
@@ -17775,6 +18022,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: true, vegan: false, glutenFree: false, dairyFree: false, pescatarian: true, nutFree: false },
     costTier: 'cheap',
     emoji: '🥣',
+    portability: { style: 'cold', prepAhead: true, container: 'leakproof', note: 'Made in the jar the night before and eaten cold. The original grab-and-go breakfast.' },
     source: {
       url: 'https://www.skinnytaste.com/peanut-butter-and-jelly-overnight-oats/',
       author: 'Gina Homolka',
@@ -17814,6 +18062,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: true, vegan: false, glutenFree: true, dairyFree: false, pescatarian: true, nutFree: true },
     costTier: 'cheap',
     emoji: '🥚',
+    portability: { style: 'either', prepAhead: true, container: 'standard', note: 'Batch-bake a tray. Holds 4 days in the fridge, eaten cold or microwaved 20 seconds.' },
     source: {
       url: 'https://www.eatingwell.com/recipe/250338/spinach-egg-muffins/',
       author: 'EatingWell Test Kitchen',
@@ -17851,6 +18100,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: true, vegan: false, glutenFree: false, dairyFree: false, pescatarian: true, nutFree: true },
     costTier: 'cheap',
     emoji: '🍓',
+    portability: { style: 'cold', prepAhead: true, container: 'leakproof', note: 'Assembles in a jar. Carry the granola separately and add it at the last minute so it stays crunchy.' },
     source: {
       url: 'https://www.bbcgoodfood.com/recipes/granola-yogurt-pot',
       author: 'BBC Good Food',
@@ -17893,6 +18143,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: false, vegan: false, glutenFree: true, dairyFree: false, pescatarian: true, nutFree: true },
     costTier: 'cheap',
     emoji: '🥗',
+    portability: { style: 'cold', prepAhead: true, container: 'leakproof', note: 'A no-cook cold bowl. Holds 2 days; if anything, the flavours improve as it sits.' },
     source: {
       url: 'https://www.skinnytaste.com/mediterranean-tuna-and-chickpea-salad/',
       author: 'Gina Homolka',
@@ -17935,6 +18186,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: true, vegan: true, glutenFree: true, dairyFree: true, pescatarian: true, nutFree: false },
     costTier: 'cheap',
     emoji: '🥙',
+    portability: { style: 'cold', prepAhead: true, container: 'leakproof', note: 'Eats well cold or at room temperature. Carry the tahini drizzle separately and add it at the desk.' },
     source: {
       url: 'https://cookieandkate.com/sweet-potato-quinoa-bowl-recipe/',
       author: 'Kathryne Taylor',
@@ -18379,6 +18631,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: true, vegan: false, glutenFree: false, dairyFree: false, pescatarian: true, nutFree: true },
     costTier: 'cheap',
     emoji: '🥣',
+    portability: { style: 'fresh', prepAhead: false, container: 'none', note: 'A hot, fresh-cooked breakfast. Better made on the morning than reheated.' },
     source: {
       url: 'https://www.bbcgoodfood.com/recipes/apple-cinnamon-porridge',
       author: 'BBC Good Food',
@@ -18418,6 +18671,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: false, vegan: false, glutenFree: false, dairyFree: false, pescatarian: true, nutFree: true },
     costTier: 'mid',
     emoji: '🍳',
+    portability: { style: 'fresh', prepAhead: false, container: 'none', note: 'Soft scrambled eggs need to be eaten immediately. Cold they turn rubbery and the sourdough goes soft.' },
     source: {
       url: 'https://www.bbcgoodfood.com/recipes/scrambled-eggs-smoked-salmon',
       author: 'BBC Good Food',
@@ -18459,6 +18713,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: true, vegan: false, glutenFree: true, dairyFree: false, pescatarian: true, nutFree: true },
     costTier: 'cheap',
     emoji: '🥔',
+    portability: { style: 'microwave', prepAhead: true, container: 'standard', note: 'Bake the potato ahead; it reheats in the microwave in 2 to 3 minutes. Add the cottage cheese cold.' },
     source: {
       url: 'https://www.bbcgoodfood.com/recipes/jacket-potato-cottage-cheese',
       author: 'BBC Good Food',
@@ -18497,6 +18752,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: false, vegan: false, glutenFree: false, dairyFree: false, pescatarian: false, nutFree: true },
     costTier: 'cheap',
     emoji: '🧀',
+    portability: { style: 'cold', prepAhead: true, container: 'standard', note: 'A ploughmans is a packed lunch by tradition. All cold components, assembles in minutes.' },
     source: {
       url: 'https://www.bbcgoodfood.com/recipes/ploughmans-lunch',
       author: 'BBC Good Food',
@@ -18536,6 +18792,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: false, vegan: false, glutenFree: false, dairyFree: false, pescatarian: true, nutFree: true },
     costTier: 'mid',
     emoji: '🐟',
+    portability: { style: 'cold', prepAhead: true, container: 'leakproof', note: 'The pate keeps cold for 2 days. Carry oatcakes or bread separately and spread it when you eat.' },
     source: {
       url: 'https://www.bbcgoodfood.com/recipes/smoked-mackerel-pate',
       author: 'BBC Good Food',
@@ -18954,6 +19211,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: true, vegan: false, glutenFree: false, dairyFree: false, pescatarian: true, nutFree: true },
     costTier: 'cheap',
     emoji: '🍳',
+    portability: { style: 'fresh', prepAhead: false, container: 'none', note: 'Runny-yolked eggs in hot sauce. A sit-down dish, not a packed one.' },
     source: {
       url: 'https://cooking.nytimes.com/recipes/1014721-shakshuka-with-feta',
       author: 'Melissa Clark',
@@ -18992,6 +19250,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: true, vegan: false, glutenFree: false, dairyFree: false, pescatarian: true, nutFree: false },
     costTier: 'cheap',
     emoji: '🍓',
+    portability: { style: 'fresh', prepAhead: false, container: 'none', note: 'Toast goes soft and stale once topped. Assemble and eat fresh.' },
     source: {
       url: 'https://www.bonappetit.com/recipe/ricotta-toast-with-honey-strawberries',
       author: 'Bon Appétit Test Kitchen',
@@ -19036,6 +19295,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: false, vegan: false, glutenFree: true, dairyFree: true, pescatarian: true, nutFree: true },
     costTier: 'cheap',
     emoji: '🥗',
+    portability: { style: 'cold', prepAhead: true, container: 'leakproof', note: 'Designed to be eaten at room temperature. Travels and keeps very well.' },
     source: {
       url: 'https://www.skinnytaste.com/tuscan-tuna-white-bean-salad/',
       author: 'Gina Homolka',
@@ -19078,6 +19338,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: true, vegan: false, glutenFree: false, dairyFree: false, pescatarian: true, nutFree: true },
     costTier: 'cheap',
     emoji: '🍅',
+    portability: { style: 'cold', prepAhead: true, container: 'standard', note: 'Panzanella is meant to sit so the bread soaks up the dressing. Made ahead is the right way to eat it.' },
     source: {
       url: 'https://www.seriouseats.com/the-best-panzanella-tuscan-bread-and-tomato-salad-recipe',
       author: 'J. Kenji López-Alt',
@@ -19116,6 +19377,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: true, vegan: false, glutenFree: true, dairyFree: false, pescatarian: true, nutFree: true },
     costTier: 'cheap',
     emoji: '🍅',
+    portability: { style: 'cold', prepAhead: true, container: 'leakproof', note: 'A no-cook cold bowl. Keep the dressing separate if it has to travel far.' },
     source: {
       url: 'https://www.bbcgoodfood.com/recipes/caprese-salad-recipe',
       author: 'BBC Good Food',
@@ -19543,6 +19805,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: true, vegan: false, glutenFree: false, dairyFree: false, pescatarian: true, nutFree: true },
     costTier: 'cheap',
     emoji: '🍳',
+    portability: { style: 'fresh', prepAhead: false, container: 'none', note: 'A hot omelette with toast. Best eaten straight away.' },
     source: {
       url: 'https://www.indianhealthyrecipes.com/masala-omelette-recipe/',
       author: 'Swasthi Shreekanth',
@@ -19588,6 +19851,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: true, vegan: true, glutenFree: true, dairyFree: true, pescatarian: true, nutFree: false },
     costTier: 'cheap',
     emoji: '🌾',
+    portability: { style: 'fresh', prepAhead: false, container: 'none', note: 'A fresh-cooked warm dish. The toasted peanuts soften and the poha dries out if held.' },
     source: {
       url: 'https://www.indianhealthyrecipes.com/poha-recipe-kanda-poha-aval-upma/',
       author: 'Swasthi Shreekanth',
@@ -19637,6 +19901,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: true, vegan: true, glutenFree: true, dairyFree: true, pescatarian: true, nutFree: true },
     costTier: 'cheap',
     emoji: '🥘',
+    portability: { style: 'microwave', prepAhead: true, container: 'leakproof', note: 'Curry and rice reheat excellently. A classic make-ahead microwave lunch; the flavour deepens overnight.' },
     source: {
       url: 'https://www.indianhealthyrecipes.com/chana-masala-recipe/',
       author: 'Swasthi Shreekanth',
@@ -19683,6 +19948,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: false, vegan: false, glutenFree: true, dairyFree: false, pescatarian: false, nutFree: true },
     costTier: 'mid',
     emoji: '🍗',
+    portability: { style: 'microwave', prepAhead: true, container: 'leakproof', note: 'Chicken and rice reheat well. Keep the kachumber salad cold and separate.' },
     source: {
       url: 'https://www.bbcgoodfood.com/recipes/tandoori-chicken-1',
       author: 'BBC Good Food',
@@ -19730,6 +19996,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: false, vegan: false, glutenFree: true, dairyFree: false, pescatarian: true, nutFree: true },
     costTier: 'mid',
     emoji: '🍤',
+    portability: { style: 'microwave', prepAhead: true, container: 'leakproof', note: 'Reheats well, though warm the prawns gently so they do not toughen.' },
     source: {
       url: 'https://www.bbcgoodfood.com/recipes/quick-prawn-curry',
       author: 'BBC Good Food',
@@ -20184,6 +20451,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: true, vegan: false, glutenFree: false, dairyFree: true, pescatarian: true, nutFree: true },
     costTier: 'cheap',
     emoji: '🍳',
+    portability: { style: 'fresh', prepAhead: false, container: 'none', note: 'A delicate hot egg custard, served immediately.' },
     source: {
       url: 'https://thewoksoflife.com/chinese-steamed-eggs/',
       author: 'Bill Leung',
@@ -20227,6 +20495,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: false, vegan: false, glutenFree: false, dairyFree: true, pescatarian: false, nutFree: true },
     costTier: 'cheap',
     emoji: '🥣',
+    portability: { style: 'microwave', prepAhead: true, container: 'leakproof', note: 'Congee reheats beautifully. Cook a batch, portion it, microwave 2 to 3 minutes with a splash of water.' },
     source: {
       url: 'https://thewoksoflife.com/chicken-congee-jook/',
       author: 'Sarah Leung',
@@ -20276,6 +20545,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: false, vegan: false, glutenFree: false, dairyFree: true, pescatarian: false, nutFree: true },
     costTier: 'cheap',
     emoji: '🥦',
+    portability: { style: 'microwave', prepAhead: true, container: 'leakproof', note: 'Stir-fry and rice are a meal-prep staple. Microwave 2 to 3 minutes, stirring once.' },
     source: {
       url: 'https://thewoksoflife.com/chicken-and-broccoli-stir-fry/',
       author: 'Bill Leung',
@@ -20326,6 +20596,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: false, vegan: false, glutenFree: false, dairyFree: true, pescatarian: false, nutFree: false },
     costTier: 'mid',
     emoji: '🌶️',
+    portability: { style: 'microwave', prepAhead: true, container: 'leakproof', note: 'Reheats well. Carry the cashews separately so they keep their crunch.' },
     source: {
       url: 'https://thewoksoflife.com/kung-pao-chicken/',
       author: 'Bill Leung',
@@ -20374,6 +20645,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: false, vegan: false, glutenFree: false, dairyFree: true, pescatarian: false, nutFree: true },
     costTier: 'mid',
     emoji: '🥢',
+    portability: { style: 'microwave', prepAhead: true, container: 'leakproof', note: 'Stir-fry and rice reheat cleanly in the microwave in 2 to 3 minutes.' },
     source: {
       url: 'https://www.bbcgoodfood.com/recipes/beef-black-bean-stir-fry',
       author: 'BBC Good Food',
@@ -20820,6 +21092,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: false, vegan: false, glutenFree: false, dairyFree: true, pescatarian: true, nutFree: true },
     costTier: 'mid',
     emoji: '🍙',
+    portability: { style: 'cold', prepAhead: true, container: 'standard', note: 'Onigiri are the original portable food, eaten cold or at room temperature. Skip the miso soup when packing, or make it fresh.' },
     source: {
       url: 'https://www.justonecookbook.com/onigiri-japanese-rice-balls/',
       author: 'Namiko Hirasawa Chen',
@@ -20862,6 +21135,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: true, vegan: false, glutenFree: false, dairyFree: true, pescatarian: true, nutFree: true },
     costTier: 'cheap',
     emoji: '🍳',
+    portability: { style: 'cold', prepAhead: true, container: 'standard', note: 'A bento by design. Tamago-yaki is meant to be eaten cold, so it travels perfectly.' },
     source: {
       url: 'https://www.justonecookbook.com/tamagoyaki/',
       author: 'Namiko Hirasawa Chen',
@@ -21217,6 +21491,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: false, vegan: false, glutenFree: true, dairyFree: true, pescatarian: false, nutFree: true },
     costTier: 'cheap',
     emoji: '🌿',
+    portability: { style: 'either', prepAhead: true, container: 'leakproof', note: 'Larb is good warm or at room temperature. Keep the rice and cucumber separate.' },
     source: {
       url: 'https://hot-thai-kitchen.com/larb-gai/',
       author: 'Pailin Chongchitnant',
@@ -21357,6 +21632,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: false, vegan: false, glutenFree: true, dairyFree: true, pescatarian: false, nutFree: true },
     costTier: 'mid',
     emoji: '🍜',
+    portability: { style: 'fresh', prepAhead: false, container: 'none', note: 'A fresh-assembled hot soup. The noodles go mushy and the herbs wilt if packed.' },
     source: {
       url: 'https://www.helenrecipes.com/quick-and-easy-vietnamese-chicken-noodle-soup-pho-ga/',
       author: 'Helen Le',
@@ -21405,6 +21681,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: false, vegan: false, glutenFree: false, dairyFree: true, pescatarian: false, nutFree: true },
     costTier: 'cheap',
     emoji: '🥢',
+    portability: { style: 'microwave', prepAhead: true, container: 'leakproof', note: 'Pork and rice reheat well; the pickled carrot stays cold and crisp alongside.' },
     source: {
       url: 'https://www.helenrecipes.com/vietnamese-grilled-pork-rice-noodles-bun-thit-nuong/',
       author: 'Helen Le',
@@ -21506,6 +21783,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: true, vegan: false, glutenFree: true, dairyFree: false, pescatarian: true, nutFree: true },
     costTier: 'cheap',
     emoji: '\ud83c\udf73',
+    portability: { style: 'fresh', prepAhead: false, container: 'none', note: 'The tortillas need to stay just-crisp and the eggs just-fried. Does not survive packing.' },
     source: {
       url: 'https://patijinich.com/chilaquiles-verdes/',
       author: 'Pati Jinich',
@@ -21552,6 +21830,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: true, vegan: false, glutenFree: true, dairyFree: false, pescatarian: true, nutFree: true },
     costTier: 'cheap',
     emoji: '\ud83c\udf5b',
+    portability: { style: 'fresh', prepAhead: false, container: 'none', note: 'Fried eggs on warm tortillas. A fresh, sit-down breakfast.' },
     source: {
       url: 'https://www.mexicoinmykitchen.com/huevos-rancheros-recipe/',
       author: 'Mely Mart\u00ednez',
@@ -21600,6 +21879,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: false, vegan: false, glutenFree: true, dairyFree: false, pescatarian: false, nutFree: true },
     costTier: 'cheap',
     emoji: '\ud83c\udf2e',
+    portability: { style: 'microwave', prepAhead: true, container: 'leakproof', note: 'Carry the warm tinga and the tortillas separately, then assemble at the desk so nothing goes soggy.' },
     source: {
       url: 'https://www.rickbayless.com/recipe/tinga-poblana/',
       author: 'Rick Bayless',
@@ -21872,6 +22152,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: true, vegan: false, glutenFree: true, dairyFree: false, pescatarian: true, nutFree: true },
     costTier: 'cheap',
     emoji: '\ud83c\udf31',
+    portability: { style: 'cold', prepAhead: true, container: 'leakproof', note: 'A cold grain bowl. Build it ahead but add the avocado the morning of so it stays fresh.' },
     source: {
       url: 'https://cookieandkate.com/quinoa-burrito-bowls/',
       author: 'Kathryne Taylor',
@@ -21921,6 +22202,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: false, vegan: false, glutenFree: true, dairyFree: true, pescatarian: false, nutFree: true },
     costTier: 'cheap',
     emoji: '\ud83c\udf36',
+    portability: { style: 'microwave', prepAhead: true, container: 'leakproof', note: 'Fajita chicken, rice and beans reheat well. Add the avocado fresh when you eat.' },
     source: {
       url: 'https://www.skinnytaste.com/chicken-fajita-bowls/',
       author: 'Gina Homolka',
@@ -22065,6 +22347,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: false, vegan: false, glutenFree: true, dairyFree: true, pescatarian: true, nutFree: true },
     costTier: 'mid',
     emoji: '\ud83c\udf4b',
+    portability: { style: 'fresh', prepAhead: false, container: 'none', note: 'Ceviche must be eaten fresh. The fish keeps curing in the lime and toughens if it sits.' },
     source: {
       url: 'https://www.seriouseats.com/peruvian-ceviche-recipe',
       author: 'Daniel Gritzer',
@@ -22206,6 +22489,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: false, vegan: false, glutenFree: true, dairyFree: false, pescatarian: false, nutFree: true },
     costTier: 'cheap',
     emoji: '\ud83c\udf73',
+    portability: { style: 'fresh', prepAhead: false, container: 'none', note: 'The hash reheats but the fried eggs do not. Best fresh from the skillet.' },
     source: {
       url: 'https://www.skinnytaste.com/sweet-potato-hash-with-eggs/',
       author: 'Gina Homolka',
@@ -22248,6 +22532,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: true, vegan: false, glutenFree: false, dairyFree: false, pescatarian: true, nutFree: true },
     costTier: 'cheap',
     emoji: '\ud83e\udd5e',
+    portability: { style: 'either', prepAhead: true, container: 'standard', note: 'Protein pancakes batch well. Stack them cold or microwave briefly; carry the berries separately.' },
     source: {
       url: 'https://www.eatingwell.com/recipe/cottage-cheese-protein-pancakes/',
       author: 'EatingWell Test Kitchen',
@@ -22298,6 +22583,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: false, vegan: false, glutenFree: false, dairyFree: false, pescatarian: false, nutFree: true },
     costTier: 'mid',
     emoji: '\ud83e\udd57',
+    portability: { style: 'cold', prepAhead: true, container: 'leakproof', note: 'Layer with dressing at the bottom and croutons separate, and this chopped salad travels well.' },
     source: {
       url: 'https://www.skinnytaste.com/bbq-chicken-chopped-salad/',
       author: 'Gina Homolka',
@@ -22344,6 +22630,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: false, vegan: false, glutenFree: true, dairyFree: false, pescatarian: false, nutFree: true },
     costTier: 'mid',
     emoji: '\ud83e\udd57',
+    portability: { style: 'cold', prepAhead: true, container: 'leakproof', note: 'Built to be dressed at the table, which makes it a natural packed salad. Keep the vinaigrette separate.' },
     source: {
       url: 'https://www.seriouseats.com/cobb-salad-recipe',
       author: 'J. Kenji L\u00f3pez-Alt',
@@ -22388,6 +22675,7 @@ const MEAL_DATABASE = [
     dietFlags: { vegetarian: false, vegan: false, glutenFree: true, dairyFree: false, pescatarian: false, nutFree: false },
     costTier: 'mid',
     emoji: '\ud83e\udd57',
+    portability: { style: 'cold', prepAhead: true, container: 'leakproof', note: 'Grain bowls hold well and the massaged kale stays sturdy. Carry the dressing separately.' },
     source: {
       url: 'https://www.halfbakedharvest.com/sweet-potato-kale-quinoa-bowl/',
       author: 'Tieghan Gerard',
@@ -22956,7 +23244,512 @@ const MEAL_DATABASE = [
     },
     healthifyNotes: 'A genuinely Japanese-influenced pre-workout that doesn\u2019t need any unusual ingredients. Rice + banana = perfect fast-clearing carbs. Cottage cheese as the protein anchor keeps the meal stable rather than spiky. ~390 kcal, 13g protein, 65g carbs, 3g fat.'
   },
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // PHASE H — PACK-FRIENDLY BREAKFASTS (prep-ahead, eaten cold / microwave)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  {
+    id: 'general-apple-cinnamon-bircher',
+    name: 'Apple & Cinnamon Bircher Muesli',
+    description: 'The original overnight oats. Rolled oats soaked in yogurt and milk with grated apple, cinnamon and a scatter of walnuts. Made the night before, eaten cold straight from the jar.',
+    cuisine: 'general',
+    mealSlots: ['Breakfast'],
+    servings: 1,
+    ingredients: [
+      { ingredientId: 'rolled-oats-dry',      quantity: 50,  unit: 'g' },
+      { ingredientId: 'greek-yogurt-2pct',    quantity: 170, unit: 'g' },
+      { ingredientId: 'milk-skim',            quantity: 60,  unit: 'ml' },
+      { ingredientId: 'apple-raw',            quantity: 80,  unit: 'g', note: 'grated, skin on' },
+      { ingredientId: 'whey-protein-isolate', quantity: 15,  unit: 'g', note: 'vanilla works well' },
+      { ingredientId: 'walnuts-raw',          quantity: 10,  unit: 'g', note: 'roughly chopped' },
+      { ingredientId: 'honey',                quantity: 6,   unit: 'g' },
+      { ingredientId: 'cinnamon-ground',      quantity: 1,   unit: 'g' }
+    ],
+    instructions: [
+      'Add the oats, whey protein and cinnamon to a jar or sealable container and stir dry to combine.',
+      'Pour in the yogurt and milk, stir until there are no dry pockets.',
+      'Grate the apple straight into the jar (skin on for fibre) and fold through.',
+      'Drizzle the honey on top, seal, and refrigerate overnight (at least 4 hours).',
+      'In the morning, scatter the walnuts over and eat cold. Keeps 2 days.'
+    ],
+    prepMinutes: 6,
+    cookMinutes: 0,
+    equipment: ['jar or sealable container', 'box grater'],
+    dietFlags: { vegetarian: true, vegan: false, glutenFree: false, dairyFree: false, pescatarian: true, nutFree: false },
+    costTier: 'cheap',
+    emoji: '🍎',
+    portability: { style: 'cold', prepAhead: true, container: 'leakproof', note: 'Build it in the jar you will eat from. Refrigerate overnight, grab on the way out.' },
+    source: {
+      url: 'https://www.bbcgoodfood.com/recipes/bircher-muesli',
+      author: 'BBC Good Food',
+      publication: 'BBC Good Food',
+      accessed: '2026-05-16',
+      modifications: 'Added whey protein to lift the protein toward the breakfast target. Used 2% Greek yogurt instead of cream for the soak. Walnuts kept to a controlled 10g so fat stays in range.'
+    },
+    healthifyNotes: 'Whey is the only non-traditional addition and it is what makes the macros work for a training breakfast. Grated apple skin-on adds fibre. Honey is kept low because the apple already sweetens it.'
+  },
+
+  {
+    id: 'mediterranean-berry-chia-pudding',
+    name: 'Berry Chia Pudding with Almonds',
+    description: 'Chia seeds set overnight into a thick, spoonable pudding with skimmed milk and Greek yogurt, layered with blueberries and strawberries. Cold, no cooking, travels well.',
+    cuisine: 'mediterranean',
+    mealSlots: ['Breakfast'],
+    servings: 1,
+    ingredients: [
+      { ingredientId: 'chia-seeds',           quantity: 30,  unit: 'g' },
+      { ingredientId: 'milk-skim',            quantity: 150, unit: 'ml' },
+      { ingredientId: 'greek-yogurt-nonfat',  quantity: 120, unit: 'g' },
+      { ingredientId: 'whey-protein-isolate', quantity: 18,  unit: 'g', note: 'vanilla' },
+      { ingredientId: 'blueberries-raw',      quantity: 60,  unit: 'g' },
+      { ingredientId: 'strawberries-raw',     quantity: 60,  unit: 'g', note: 'sliced' },
+      { ingredientId: 'almonds-raw',          quantity: 12,  unit: 'g', note: 'flaked or chopped' },
+      { ingredientId: 'honey',                quantity: 6,   unit: 'g' }
+    ],
+    instructions: [
+      'Whisk the chia seeds, whey protein and milk together in a jar until no clumps remain.',
+      'Stir in the Greek yogurt and honey.',
+      'Seal and refrigerate overnight, giving it one more stir after the first 15 minutes so the chia sets evenly.',
+      'In the morning, top with the blueberries, sliced strawberries and almonds.',
+      'Eat cold. Keeps 3 days, though add the berries fresh each day if you can.'
+    ],
+    prepMinutes: 7,
+    cookMinutes: 0,
+    equipment: ['jar or sealable container', 'whisk'],
+    dietFlags: { vegetarian: true, vegan: false, glutenFree: true, dairyFree: false, pescatarian: true, nutFree: false },
+    costTier: 'mid',
+    emoji: '🫐',
+    portability: { style: 'cold', prepAhead: true, container: 'leakproof', note: 'Sets fully overnight. Carry the berries separately if it has to survive a long commute.' },
+    source: {
+      url: 'https://www.skinnytaste.com/chia-seed-pudding/',
+      author: 'Gina Homolka',
+      publication: 'Skinnytaste',
+      accessed: '2026-05-16',
+      modifications: 'Whey protein and nonfat Greek yogurt added to push protein to the breakfast target without adding fat. Honey reduced because the berries carry most of the sweetness.'
+    },
+    healthifyNotes: 'Chia gives the pudding its texture plus fibre and omega-3s. The protein comes from yogurt and whey rather than from a sugary granola, which keeps carbs controlled.'
+  },
+
+  {
+    id: 'western-make-ahead-egg-muffins',
+    name: 'Make-Ahead Veggie Egg Muffins',
+    description: 'Baked egg muffins with red pepper, spinach and cheddar. Bake a tray on Sunday, eat them cold or briefly microwaved through the week, with a slice of wholemeal toast.',
+    cuisine: 'western',
+    mealSlots: ['Breakfast'],
+    servings: 1,
+    ingredients: [
+      { ingredientId: 'egg-whole-raw',     quantity: 3,  unit: 'whole' },
+      { ingredientId: 'egg-white-raw',     quantity: 60, unit: 'g' },
+      { ingredientId: 'bell-pepper-red-raw', quantity: 40, unit: 'g', note: 'finely diced' },
+      { ingredientId: 'spinach-raw',       quantity: 30, unit: 'g', note: 'chopped' },
+      { ingredientId: 'cheddar-cheese',    quantity: 30, unit: 'g', note: 'grated' },
+      { ingredientId: 'spring-onion-raw',  quantity: 15, unit: 'g', note: 'sliced' },
+      { ingredientId: 'wholemeal-bread',   quantity: 40, unit: 'g', note: '1 slice, served alongside' }
+    ],
+    instructions: [
+      'Heat the oven to 180C. Lightly oil a muffin tin (this portion fills about 3 cups).',
+      'Beat the whole eggs and egg whites together and season.',
+      'Stir through the diced pepper, chopped spinach, grated cheddar and spring onion.',
+      'Divide between the muffin cups and bake 18 to 20 minutes until set and just golden.',
+      'Cool fully, then refrigerate in a sealed box. Eat 3 muffins cold, or microwave 20 seconds, with a slice of wholemeal toast.'
+    ],
+    prepMinutes: 8,
+    cookMinutes: 20,
+    equipment: ['muffin tin', 'mixing bowl', 'oven', 'toaster'],
+    dietFlags: { vegetarian: true, vegan: false, glutenFree: false, dairyFree: false, pescatarian: true, nutFree: true },
+    costTier: 'cheap',
+    emoji: '🧁',
+    portability: { style: 'either', prepAhead: true, container: 'standard', note: 'Batch-friendly: multiply up and bake a full tray. Egg muffins hold cold for 4 days and reheat in 20 seconds.' },
+    source: {
+      url: 'https://www.skinnytaste.com/egg-muffins/',
+      author: 'Gina Homolka',
+      publication: 'Skinnytaste',
+      accessed: '2026-05-16',
+      modifications: 'Extra egg whites raise protein without raising fat. Wholemeal toast on the side brings carbs to the breakfast target so the muffins are not relied on for everything.'
+    },
+    healthifyNotes: 'Egg muffins are the strongest meal-prep breakfast there is: cook once, eat all week. The egg-white-to-whole-egg ratio is tuned so protein lands high while fat stays moderate.'
+  },
+
+  {
+    id: 'british-pb-banana-protein-oats',
+    name: 'Peanut Butter & Banana Protein Oats',
+    description: 'Overnight oats with natural peanut butter, mashed banana and a scoop of whey. A filling, faintly indulgent cold breakfast that needs no cooking and no spoon-licking guilt.',
+    cuisine: 'british',
+    mealSlots: ['Breakfast'],
+    servings: 1,
+    ingredients: [
+      { ingredientId: 'rolled-oats-dry',      quantity: 50,  unit: 'g' },
+      { ingredientId: 'greek-yogurt-nonfat',  quantity: 150, unit: 'g' },
+      { ingredientId: 'milk-skim',            quantity: 80,  unit: 'ml' },
+      { ingredientId: 'whey-protein-isolate', quantity: 12,  unit: 'g', note: 'vanilla or chocolate' },
+      { ingredientId: 'peanut-butter-natural', quantity: 16, unit: 'g' },
+      { ingredientId: 'banana-raw',           quantity: 80,  unit: 'g', note: 'half a banana, mashed' },
+      { ingredientId: 'cinnamon-ground',      quantity: 1,   unit: 'g' }
+    ],
+    instructions: [
+      'Stir the oats, whey protein and cinnamon together dry in a jar.',
+      'Add the yogurt and milk and stir until smooth.',
+      'Mash the banana and fold it through.',
+      'Drop the peanut butter in as a single spoonful on top (it softens overnight and you stir it through in the morning).',
+      'Seal, refrigerate overnight, and eat cold. Keeps 2 days.'
+    ],
+    prepMinutes: 6,
+    cookMinutes: 0,
+    equipment: ['jar or sealable container', 'fork'],
+    dietFlags: { vegetarian: true, vegan: false, glutenFree: false, dairyFree: false, pescatarian: true, nutFree: false },
+    costTier: 'cheap',
+    emoji: '🍌',
+    portability: { style: 'cold', prepAhead: true, container: 'leakproof', note: 'Made in the jar the night before. The peanut butter softens as it sits so it stirs through easily by morning.' },
+    source: {
+      url: 'https://www.bbcgoodfood.com/recipes/peanut-butter-overnight-oats',
+      author: 'BBC Good Food',
+      publication: 'BBC Good Food',
+      accessed: '2026-05-16',
+      modifications: 'Natural peanut butter capped at 16g so fat stays in range while still tasting indulgent. Nonfat Greek yogurt plus whey carry the protein. Banana replaces added sugar.'
+    },
+    healthifyNotes: 'Peanut butter is the flavour anchor and it is deliberately portion-controlled rather than removed. The protein comes from yogurt and whey so the meal is not just a carb-and-fat bowl.'
+  },
+
+  {
+    id: 'east-asian-coconut-chia-cashew-pudding',
+    name: 'Coconut Chia Pudding with Toasted Cashews',
+    description: 'Chia set in light coconut milk and Greek yogurt for a faintly tropical cold breakfast, with banana and toasted cashews. Prep at night, eat at your desk.',
+    cuisine: 'east_asian',
+    mealSlots: ['Breakfast'],
+    servings: 1,
+    ingredients: [
+      { ingredientId: 'chia-seeds',           quantity: 28,  unit: 'g' },
+      { ingredientId: 'coconut-milk-light',   quantity: 120, unit: 'ml' },
+      { ingredientId: 'greek-yogurt-nonfat',  quantity: 130, unit: 'g' },
+      { ingredientId: 'whey-protein-isolate', quantity: 15,  unit: 'g', note: 'vanilla' },
+      { ingredientId: 'banana-raw',           quantity: 60,  unit: 'g', note: 'sliced' },
+      { ingredientId: 'cashews-raw',          quantity: 12,  unit: 'g', note: 'toasted, chopped' },
+      { ingredientId: 'honey',                quantity: 6,   unit: 'g' }
+    ],
+    instructions: [
+      'Whisk the chia seeds and whey protein into the light coconut milk until smooth.',
+      'Stir in the Greek yogurt and honey.',
+      'Seal and refrigerate overnight, stirring once after 15 minutes so it sets evenly.',
+      'Toast the cashews in a dry pan for 2 minutes (do this in advance, they keep).',
+      'In the morning, top with sliced banana and the toasted cashews. Eat cold.'
+    ],
+    prepMinutes: 7,
+    cookMinutes: 2,
+    equipment: ['jar or sealable container', 'whisk', 'small pan'],
+    dietFlags: { vegetarian: true, vegan: false, glutenFree: true, dairyFree: false, pescatarian: true, nutFree: false },
+    costTier: 'mid',
+    emoji: '🥥',
+    portability: { style: 'cold', prepAhead: true, container: 'leakproof', note: 'Sets overnight in the jar. Toast a batch of cashews once and they last the week, kept separately so they stay crunchy.' },
+    source: {
+      url: 'https://www.bbcgoodfood.com/recipes/coconut-chia-pudding',
+      author: 'BBC Good Food',
+      publication: 'BBC Good Food',
+      accessed: '2026-05-16',
+      modifications: 'Light coconut milk instead of full-fat halves the fat. Nonfat Greek yogurt plus whey carry the protein, which a traditional coconut pudding lacks entirely.'
+    },
+    healthifyNotes: 'Light coconut milk gives the tropical note without the heavy saturated fat of the full-fat tin. Cashews are portioned to 12g so the meal stays on target.'
+  },
+
+  {
+    id: 'indian-spiced-egg-frittata-cups',
+    name: 'Masala Egg Frittata Cups',
+    description: 'Baked egg cups with spinach, pepper and onion, lifted with turmeric, garam masala and fresh coriander. Bake ahead, eat cold or warmed, with a slice of wholemeal toast.',
+    cuisine: 'indian',
+    mealSlots: ['Breakfast'],
+    servings: 1,
+    ingredients: [
+      { ingredientId: 'egg-whole-raw',     quantity: 3,  unit: 'whole' },
+      { ingredientId: 'egg-white-raw',     quantity: 30, unit: 'g' },
+      { ingredientId: 'spinach-raw',       quantity: 40, unit: 'g', note: 'chopped' },
+      { ingredientId: 'bell-pepper-red-raw', quantity: 40, unit: 'g', note: 'finely diced' },
+      { ingredientId: 'onion-raw',         quantity: 30, unit: 'g', note: 'finely diced' },
+      { ingredientId: 'cheddar-cheese',    quantity: 20, unit: 'g', note: 'grated' },
+      { ingredientId: 'coriander-fresh',   quantity: 8,  unit: 'g', note: 'chopped' },
+      { ingredientId: 'turmeric-ground',   quantity: 1,  unit: 'g' },
+      { ingredientId: 'garam-masala',      quantity: 2,  unit: 'g' },
+      { ingredientId: 'wholemeal-bread',   quantity: 40, unit: 'g', note: '1 slice, served alongside' }
+    ],
+    instructions: [
+      'Heat the oven to 180C and lightly oil a muffin tin (about 3 cups for this portion).',
+      'Beat the whole eggs and egg whites with the turmeric, garam masala and a little salt.',
+      'Stir in the spinach, pepper, onion, cheddar and most of the coriander.',
+      'Divide between the muffin cups and bake 18 to 20 minutes until set.',
+      'Cool and refrigerate. Eat cold or microwave 20 seconds, scattered with the remaining coriander, with a slice of wholemeal toast.'
+    ],
+    prepMinutes: 9,
+    cookMinutes: 20,
+    equipment: ['muffin tin', 'mixing bowl', 'oven', 'toaster'],
+    dietFlags: { vegetarian: true, vegan: false, glutenFree: false, dairyFree: false, pescatarian: true, nutFree: true },
+    costTier: 'cheap',
+    emoji: '🍳',
+    portability: { style: 'either', prepAhead: true, container: 'standard', note: 'Batch-bake a tray on the weekend. Holds 4 days cold and reheats in 20 seconds.' },
+    source: {
+      url: 'https://www.bbcgoodfood.com/recipes/masala-frittata-fried-bread',
+      author: 'BBC Good Food',
+      publication: 'BBC Good Food',
+      accessed: '2026-05-16',
+      modifications: 'Reworked from a fried-bread frittata into baked egg cups for portability. Egg whites raise protein. Wholemeal toast replaces fried bread and brings the carbs on target.'
+    },
+    healthifyNotes: 'The spice blend means flavour without salt or oil being the main lever. Baking instead of frying removes the fried-bread fat. Genuinely good cold, which is the whole point.'
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // PHASE H — PACK-FRIENDLY LUNCHES (prep-ahead, eaten cold / microwave)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  {
+    id: 'mediterranean-greek-salad-jar',
+    name: 'Greek Salad Jar with Chicken & Chickpeas',
+    description: 'A layered mason-jar salad: dressing at the bottom, chickpeas and chicken in the middle, leaves at the top so nothing goes soggy. Shake when you are ready to eat.',
+    cuisine: 'mediterranean',
+    mealSlots: ['Lunch'],
+    servings: 1,
+    ingredients: [
+      { ingredientId: 'chicken-breast-raw',  quantity: 130, unit: 'g', note: 'cooked ahead, sliced, eaten cold' },
+      { ingredientId: 'chickpeas-canned',    quantity: 120, unit: 'g', note: 'drained and rinsed' },
+      { ingredientId: 'cucumber-raw',        quantity: 80,  unit: 'g', note: 'diced' },
+      { ingredientId: 'tomato-raw',          quantity: 100, unit: 'g', note: 'cherry, halved' },
+      { ingredientId: 'bell-pepper-red-raw', quantity: 60,  unit: 'g', note: 'diced' },
+      { ingredientId: 'feta-cheese',         quantity: 40,  unit: 'g', note: 'crumbled' },
+      { ingredientId: 'olives-kalamata',     quantity: 25,  unit: 'g' },
+      { ingredientId: 'olive-oil',           quantity: 10,  unit: 'ml' },
+      { ingredientId: 'lemon-raw',           quantity: 15,  unit: 'g', note: 'juice only' },
+      { ingredientId: 'oregano-dried',       quantity: 1,   unit: 'g' }
+    ],
+    instructions: [
+      'Whisk the olive oil, lemon juice and oregano together and pour into the bottom of a jar.',
+      'Layer in the cucumber, tomato and pepper (they sit happily in the dressing).',
+      'Add the chickpeas and the cold sliced chicken.',
+      'Top with the crumbled feta and olives so they stay dry.',
+      'Seal and refrigerate. When ready to eat, shake hard to coat everything, or tip into a bowl.'
+    ],
+    prepMinutes: 12,
+    cookMinutes: 10,
+    equipment: ['large jar', 'small whisk'],
+    dietFlags: { vegetarian: false, vegan: false, glutenFree: true, dairyFree: false, pescatarian: false, nutFree: true },
+    costTier: 'mid',
+    emoji: '🥗',
+    portability: { style: 'cold', prepAhead: true, container: 'leakproof', note: 'Dressing on the bottom, leaves and feta on top. Layered this way it keeps 2 days without going soggy.' },
+    source: {
+      url: 'https://www.bbcgoodfood.com/recipes/greek-salad',
+      author: 'BBC Good Food',
+      publication: 'BBC Good Food',
+      accessed: '2026-05-16',
+      modifications: 'Added cold sliced chicken and chickpeas to turn a side salad into a complete protein-led lunch. Olive oil measured rather than poured so fat stays in range.'
+    },
+    healthifyNotes: 'The jar-layering technique is what makes this genuinely portable: the dressing never touches the leaves until you shake it. Feta is the salt source so no extra is needed.'
+  },
+
+  {
+    id: 'general-chicken-quinoa-power-jar',
+    name: 'Chicken & Quinoa Power Jar',
+    description: 'Cooked quinoa, cold sliced chicken, spinach and tomato in a balsamic dressing. A solid grain-bowl lunch that holds its texture for two days in the fridge.',
+    cuisine: 'general',
+    mealSlots: ['Lunch'],
+    servings: 1,
+    ingredients: [
+      { ingredientId: 'chicken-breast-raw',  quantity: 160, unit: 'g', note: 'cooked ahead, sliced' },
+      { ingredientId: 'quinoa-raw',          quantity: 50,  unit: 'g', note: 'dry weight, cooked and cooled' },
+      { ingredientId: 'spinach-raw',         quantity: 40,  unit: 'g' },
+      { ingredientId: 'tomato-raw',          quantity: 80,  unit: 'g', note: 'cherry, halved' },
+      { ingredientId: 'cucumber-raw',        quantity: 60,  unit: 'g', note: 'diced' },
+      { ingredientId: 'almonds-raw',         quantity: 10,  unit: 'g', note: 'chopped' },
+      { ingredientId: 'balsamic-vinegar',    quantity: 12,  unit: 'ml' },
+      { ingredientId: 'olive-oil',           quantity: 8,   unit: 'ml' }
+    ],
+    instructions: [
+      'Cook the quinoa ahead, drain well and let it cool completely (warm quinoa makes leaves wilt).',
+      'Whisk the balsamic vinegar and olive oil and spoon into the base of the jar.',
+      'Layer the cooled quinoa, then the tomato and cucumber.',
+      'Add the cold sliced chicken, then the spinach on top.',
+      'Seal and refrigerate. Shake or tip into a bowl, scatter the almonds over, and eat.'
+    ],
+    prepMinutes: 10,
+    cookMinutes: 15,
+    equipment: ['large jar', 'saucepan', 'small whisk'],
+    dietFlags: { vegetarian: false, vegan: false, glutenFree: true, dairyFree: true, pescatarian: false, nutFree: false },
+    costTier: 'mid',
+    emoji: '🍱',
+    portability: { style: 'cold', prepAhead: true, container: 'leakproof', note: 'Cook the quinoa the night before and cool it fully before layering, otherwise the residual heat wilts the spinach.' },
+    source: {
+      url: 'https://www.bbcgoodfood.com/recipes/quinoa-salad',
+      author: 'BBC Good Food',
+      publication: 'BBC Good Food',
+      accessed: '2026-05-16',
+      modifications: 'Built around 160g chicken to hit the lunch protein target. Olive oil measured to 8ml. Almonds carried separately and kept to 10g.'
+    },
+    healthifyNotes: 'Quinoa is a complete protein in its own right and holds texture cold far better than rice. The dressing-at-the-bottom method keeps the spinach crisp.'
+  },
+
+  {
+    id: 'chinese-cold-sesame-noodle-salad',
+    name: 'Cold Sesame Noodle Salad with Chicken',
+    description: 'Rice noodles tossed in a sesame and peanut dressing with shredded chicken, carrot, cucumber and edamame. Genuinely better cold than hot, which makes it a perfect desk lunch.',
+    cuisine: 'chinese',
+    mealSlots: ['Lunch'],
+    servings: 1,
+    ingredients: [
+      { ingredientId: 'rice-noodles-dry',     quantity: 60,  unit: 'g', note: 'cooked, rinsed cold' },
+      { ingredientId: 'chicken-breast-raw',   quantity: 130, unit: 'g', note: 'cooked ahead, shredded' },
+      { ingredientId: 'edamame-frozen',       quantity: 60,  unit: 'g', note: 'podded, blanched' },
+      { ingredientId: 'carrot-raw',           quantity: 50,  unit: 'g', note: 'julienned' },
+      { ingredientId: 'cucumber-raw',         quantity: 60,  unit: 'g', note: 'julienned' },
+      { ingredientId: 'spring-onion-raw',     quantity: 15,  unit: 'g', note: 'sliced' },
+      { ingredientId: 'peanut-butter-natural', quantity: 16, unit: 'g' },
+      { ingredientId: 'soy-sauce',            quantity: 12,  unit: 'ml' },
+      { ingredientId: 'sesame-oil',           quantity: 6,   unit: 'ml' },
+      { ingredientId: 'rice-vinegar',         quantity: 10,  unit: 'ml' }
+    ],
+    instructions: [
+      'Cook the rice noodles, then rinse under cold water and drain well so they do not clump.',
+      'Whisk the peanut butter, soy sauce, sesame oil and rice vinegar into a smooth dressing, loosening with a splash of water if needed.',
+      'Toss the cold noodles, shredded chicken, edamame, carrot and cucumber through the dressing.',
+      'Pack into a container and refrigerate.',
+      'Eat cold straight from the box, finished with the sliced spring onion. Keeps 2 days.'
+    ],
+    prepMinutes: 14,
+    cookMinutes: 8,
+    equipment: ['saucepan', 'mixing bowl', 'small whisk'],
+    dietFlags: { vegetarian: false, vegan: false, glutenFree: false, dairyFree: true, pescatarian: false, nutFree: false },
+    costTier: 'mid',
+    emoji: '🍜',
+    portability: { style: 'cold', prepAhead: true, container: 'leakproof', note: 'Rinse the noodles cold so they do not stick. The whole thing keeps 2 days and only improves as the dressing soaks in.' },
+    source: {
+      url: 'https://www.bbcgoodfood.com/recipes/sesame-noodle-salad',
+      author: 'BBC Good Food',
+      publication: 'BBC Good Food',
+      accessed: '2026-05-16',
+      modifications: 'Peanut butter capped at 16g and sesame oil at 6ml so the dressing tastes rich without blowing the fat budget. Chicken and edamame both added for protein.'
+    },
+    healthifyNotes: 'This dish is designed to be eaten cold, so there is no quality compromise in packing it. Edamame plus chicken double up the protein so it actually hits the lunch target.'
+  },
+
+  {
+    id: 'mexican-black-bean-burrito-bowl-jar',
+    name: 'Black Bean Burrito Bowl Jar',
+    description: 'A layered burrito bowl in a jar: brown rice, black beans, chicken, corn and pepper, with avocado added on the morning so it stays fresh. Lime and coriander keep it bright.',
+    cuisine: 'mexican',
+    mealSlots: ['Lunch'],
+    servings: 1,
+    ingredients: [
+      { ingredientId: 'chicken-breast-raw',  quantity: 150, unit: 'g', note: 'cooked ahead, diced' },
+      { ingredientId: 'black-beans-canned',  quantity: 120, unit: 'g', note: 'drained and rinsed' },
+      { ingredientId: 'brown-rice-raw',      quantity: 45,  unit: 'g', note: 'dry weight, cooked and cooled' },
+      { ingredientId: 'corn-kernels-frozen', quantity: 50,  unit: 'g', note: 'thawed' },
+      { ingredientId: 'bell-pepper-red-raw', quantity: 60,  unit: 'g', note: 'diced' },
+      { ingredientId: 'tomato-raw',          quantity: 80,  unit: 'g', note: 'diced' },
+      { ingredientId: 'avocado-raw',         quantity: 50,  unit: 'g', note: 'add the morning of' },
+      { ingredientId: 'lime-raw',            quantity: 15,  unit: 'g', note: 'juice only' },
+      { ingredientId: 'coriander-fresh',     quantity: 8,   unit: 'g', note: 'chopped' }
+    ],
+    instructions: [
+      'Cook the brown rice ahead and cool it fully.',
+      'Layer the rice into the base of a jar, then the black beans and corn.',
+      'Add the diced chicken, pepper and tomato.',
+      'Squeeze the lime over and add the coriander. Seal and refrigerate.',
+      'On the morning you eat it, dice the avocado in fresh so it does not brown. Tip into a bowl and mix.'
+    ],
+    prepMinutes: 12,
+    cookMinutes: 20,
+    equipment: ['large jar', 'saucepan'],
+    dietFlags: { vegetarian: false, vegan: false, glutenFree: true, dairyFree: true, pescatarian: false, nutFree: true },
+    costTier: 'mid',
+    emoji: '🌯',
+    portability: { style: 'cold', prepAhead: true, container: 'leakproof', note: 'Build it the night before but add the avocado the morning of, otherwise it browns. Everything else holds 2 days.' },
+    source: {
+      url: 'https://www.skinnytaste.com/burrito-bowl/',
+      author: 'Gina Homolka',
+      publication: 'Skinnytaste',
+      accessed: '2026-05-16',
+      modifications: 'Built around 150g chicken plus black beans for a double protein source. Brown rice instead of white for fibre. Avocado portioned to 50g and added fresh.'
+    },
+    healthifyNotes: 'Black beans and chicken together carry the protein so the rice portion can stay modest. Avocado provides the good fats; adding it fresh each morning keeps it appetising.'
+  },
+
+  {
+    id: 'western-microwave-chicken-sweet-potato-chili',
+    name: 'Chicken & Sweet Potato Chili',
+    description: 'A thick chili with chicken mince, black beans and sweet potato. Cook a batch, portion it out, and microwave a tub at your desk. Tastes better on day two.',
+    cuisine: 'western',
+    mealSlots: ['Lunch'],
+    servings: 1,
+    ingredients: [
+      { ingredientId: 'chicken-mince-lean-raw', quantity: 190, unit: 'g' },
+      { ingredientId: 'black-beans-canned',    quantity: 150, unit: 'g', note: 'drained and rinsed' },
+      { ingredientId: 'tomato-canned-chopped', quantity: 150, unit: 'g' },
+      { ingredientId: 'sweet-potato-raw',      quantity: 120, unit: 'g', note: 'diced small' },
+      { ingredientId: 'bell-pepper-red-raw',   quantity: 60,  unit: 'g', note: 'diced' },
+      { ingredientId: 'onion-raw',             quantity: 50,  unit: 'g', note: 'diced' },
+      { ingredientId: 'olive-oil',             quantity: 6,   unit: 'ml' },
+      { ingredientId: 'cumin-ground',          quantity: 2,   unit: 'g' }
+    ],
+    instructions: [
+      'Heat the olive oil in a pan and soften the onion and pepper for 3 minutes.',
+      'Add the chicken mince and cumin, breaking it up, and cook until no longer pink.',
+      'Stir in the diced sweet potato, black beans and chopped tomatoes.',
+      'Simmer 18 to 20 minutes until the sweet potato is tender and the chili has thickened.',
+      'Cool and portion into tubs. Refrigerate up to 3 days. Reheat in the microwave for 2 to 3 minutes, stirring once.'
+    ],
+    prepMinutes: 10,
+    cookMinutes: 25,
+    equipment: ['large pan', 'microwave-safe tubs'],
+    dietFlags: { vegetarian: false, vegan: false, glutenFree: true, dairyFree: true, pescatarian: false, nutFree: true },
+    costTier: 'cheap',
+    emoji: '🌶️',
+    portability: { style: 'microwave', prepAhead: true, container: 'leakproof', note: 'Cook once, portion into tubs, microwave 2 to 3 minutes at work. Keeps 3 days and the flavour deepens overnight.' },
+    source: {
+      url: 'https://www.skinnytaste.com/turkey-chili/',
+      author: 'Gina Homolka',
+      publication: 'Skinnytaste',
+      accessed: '2026-05-16',
+      modifications: 'Lean chicken mince in place of beef cuts saturated fat hard. Sweet potato replaces some of the beans for a lower-GI carb. Oil measured to 6ml.'
+    },
+    healthifyNotes: 'A genuinely reheatable lunch, which most salads are not. Lean chicken mince plus black beans hit the protein target without the fat load of a beef chili.'
+  },
+
+  {
+    id: 'british-ham-cheese-pasta-salad',
+    name: 'Ham, Cheese & Sweetcorn Pasta Salad',
+    description: 'A lightened take on the lunchbox classic: pasta, lean ham, cheddar, peas and sweetcorn in a yogurt-mustard dressing instead of mayonnaise. Cold, familiar, satisfying.',
+    cuisine: 'british',
+    mealSlots: ['Lunch'],
+    servings: 1,
+    ingredients: [
+      { ingredientId: 'pasta-elbow-dry',      quantity: 60,  unit: 'g', note: 'cooked and cooled' },
+      { ingredientId: 'lean-ham',             quantity: 110, unit: 'g', note: 'thick-cut, diced' },
+      { ingredientId: 'cheddar-cheese',       quantity: 35,  unit: 'g', note: 'diced small' },
+      { ingredientId: 'peas-frozen',          quantity: 50,  unit: 'g', note: 'blanched' },
+      { ingredientId: 'corn-kernels-frozen',  quantity: 40,  unit: 'g', note: 'thawed' },
+      { ingredientId: 'cucumber-raw',         quantity: 50,  unit: 'g', note: 'diced' },
+      { ingredientId: 'greek-yogurt-nonfat',  quantity: 60,  unit: 'g', note: 'dressing base' },
+      { ingredientId: 'dijon-mustard',        quantity: 8,   unit: 'g' }
+    ],
+    instructions: [
+      'Cook the pasta, drain, rinse under cold water and let it cool fully.',
+      'Whisk the Greek yogurt and Dijon mustard into a smooth dressing and season.',
+      'Blanch the peas for 1 minute, drain and cool.',
+      'Combine the cooled pasta, ham, cheddar, peas, sweetcorn and cucumber, then fold the dressing through.',
+      'Pack into a container and refrigerate. Eat cold. Keeps 2 days.'
+    ],
+    prepMinutes: 12,
+    cookMinutes: 10,
+    equipment: ['saucepan', 'mixing bowl', 'small whisk'],
+    dietFlags: { vegetarian: false, vegan: false, glutenFree: false, dairyFree: false, pescatarian: false, nutFree: true },
+    costTier: 'cheap',
+    emoji: '🧀',
+    portability: { style: 'cold', prepAhead: true, container: 'standard', note: 'Make it the night before. The yogurt dressing holds far better cold than mayonnaise and keeps 2 days.' },
+    source: {
+      url: 'https://www.bbcgoodfood.com/recipes/pasta-salad',
+      author: 'BBC Good Food',
+      publication: 'BBC Good Food',
+      accessed: '2026-05-16',
+      modifications: 'Nonfat Greek yogurt with Dijon replaces the mayonnaise, cutting fat sharply. Lean ham instead of processed cuts. Cheddar measured to 35g rather than handfuls.'
+    },
+    healthifyNotes: 'The yogurt-mustard dressing is the key swap: it gives the creamy, tangy hit of a mayo pasta salad with a fraction of the fat and a protein bump instead.'
+  },
 ];
+
 
 // ─── RECIPE LOOKUP HELPERS ────────────────────────────────────────────────
 
@@ -23750,6 +24543,32 @@ function _normalizeDbRecipe(recipe) {
 }
 
 // Return all swap candidates for a given meal — merged + de-duplicated.
+// ─── PHASE H — PACK-FRIENDLY MEAL FILTER ──────────────────────────────────
+// Surfaces the recipe portability metadata in the meal swap UI. A candidate
+// is "pack-friendly" when its source recipe carries a portability field and
+// the style is anything other than 'fresh' (i.e. it can be prepped ahead and
+// eaten cold, microwaved, or either). Used by the swap modal toggle so users
+// who work away from home can see only meals that travel.
+let _mealSwapPackOnly = false;
+function _candidatePortability(c) {
+  return (c && c._ref && c._ref.portability) ? c._ref.portability : null;
+}
+function _isCandidatePackFriendly(c) {
+  const p = _candidatePortability(c);
+  return !!(p && p.style && p.style !== 'fresh');
+}
+function _applyPackFilter(candidates) {
+  if (!_mealSwapPackOnly) return candidates;
+  return (candidates || []).filter(_isCandidatePackFriendly);
+}
+// Short display label for a portability style — used on swap cards.
+function portabilityLabel(style) {
+  if (style === 'cold') return 'Cold';
+  if (style === 'microwave') return 'Microwave';
+  if (style === 'either') return 'Cold or Hot';
+  return null; // 'fresh' or unknown → no pill
+}
+
 function _getAllSwapCandidates(originalMeal) {
   const out = [];
   // MEAL_ALTERNATIVES (curated quick swaps)
@@ -23898,6 +24717,24 @@ function _renderSwapCardDark(candidate, originalMeal, mealIndex, overlay, highes
       }
     }, cuisineLabel.split(' /')[0].split(' &')[0].replace('Healthy','').trim()));
   }
+  // Phase H — portability pill. Shows on pack-friendly recipes (cold /
+  // microwave / either) so users who eat away from home can spot them at a
+  // glance. Fresh-only recipes get no pill.
+  const _cardPort = (candidate._ref && candidate._ref.portability) ? candidate._ref.portability : null;
+  if (_cardPort) {
+    const _portLbl = portabilityLabel(_cardPort.style);
+    if (_portLbl) {
+      head.appendChild(el('span', {
+        'data-portability-pill': _cardPort.style,
+        style:{
+          fontSize:'8px', color:'#6aff3b', background:'#0a1606',
+          border:'1px solid #6aff3b44', padding:'2px 5px',
+          borderRadius:'3px', letterSpacing:'0.1em',
+          textTransform:'uppercase', fontWeight:'700', whiteSpace:'nowrap'
+        }
+      }, _portLbl));
+    }
+  }
   card.appendChild(head);
 
   // Description
@@ -24017,12 +24854,12 @@ function _renderMostSimilarTab(container, originalMeal, mealIndex, overlay, high
       textTransform:'uppercase', marginBottom:'10px', fontWeight:'700'
     }
   }, '◴ Closest macro match first'));
-  const candidates = _getAllSwapCandidates(originalMeal);
+  const candidates = _applyPackFilter(_getAllSwapCandidates(originalMeal));
   candidates.sort((a, b) => _proximityScore(a, originalMeal) - _proximityScore(b, originalMeal));
   if (candidates.length === 0) {
     container.appendChild(el('div', {
       style:{ padding:'40px 16px', textAlign:'center', color:'#666', fontSize:'12px', fontStyle:'italic' }
-    }, 'No alternatives available for this slot.'));
+    }, _mealSwapPackOnly ? 'No pack-friendly alternatives for this slot. Turn off the filter to see all options.' : 'No alternatives available for this slot.'));
     return;
   }
   // Resolve the highest-recommended key if caller didn't provide one
@@ -24042,12 +24879,12 @@ function _renderRecommendedTab(container, originalMeal, mealIndex, overlay, high
       textTransform:'uppercase', marginBottom:'10px', fontWeight:'700'
     }
   }, labelText));
-  const candidates = _getAllSwapCandidates(originalMeal);
+  const candidates = _applyPackFilter(_getAllSwapCandidates(originalMeal));
   candidates.sort((a, b) => _slotFitScore(a, originalMeal.slot) - _slotFitScore(b, originalMeal.slot));
   if (candidates.length === 0) {
     container.appendChild(el('div', {
       style:{ padding:'40px 16px', textAlign:'center', color:'#666', fontSize:'12px', fontStyle:'italic' }
-    }, 'No alternatives available for this slot.'));
+    }, _mealSwapPackOnly ? 'No pack-friendly alternatives for this slot. Turn off the filter to see all options.' : 'No alternatives available for this slot.'));
     return;
   }
   const hrKey = highestRecommendedKey || _candidateKey(candidates[0]); // top of sorted list IS the highest recommended
@@ -24063,7 +24900,7 @@ function _renderByCuisineTab(container, originalMeal, mealIndex, overlay, highes
   // Pull all candidates once. We'll filter by cuisine for the counts and the
   // per-cuisine list so MEAL_ALTERNATIVES tagged via inference also show up
   // alongside the MEAL_DATABASE recipes.
-  const allCandidates = _getAllSwapCandidates(originalMeal);
+  const allCandidates = _applyPackFilter(_getAllSwapCandidates(originalMeal));
   function _candidatesForCuisine(cId) {
     return allCandidates.filter(c => (c.cuisine || 'general') === cId);
   }
@@ -24326,6 +25163,48 @@ function openMealAlternativesModal(originalMeal, mealIndex) {
   tabBar.appendChild(recommendedTabBtn);
   tabBar.appendChild(cuisineTabBtn);
   modal.appendChild(tabBar);
+
+  // ── PHASE H — PACK-FRIENDLY FILTER TOGGLE ───────────────────────────
+  // Lightweight toggle that filters all three sub-tabs to recipes that can
+  // be prepped ahead and eaten cold or microwaved. For users who work away
+  // from home. Flipping it clears the lazy-build cache so the active tab
+  // re-renders with the filter applied.
+  const packToggleRow = el('div', {
+    style:{ display:'flex', justifyContent:'flex-end', marginBottom:'12px' }
+  });
+  function _renderPackToggle() {
+    while (packToggleRow.firstChild) packToggleRow.removeChild(packToggleRow.firstChild);
+    const on = _mealSwapPackOnly;
+    const btn = el('button', {
+      'data-pack-toggle': on ? '1' : '0',
+      class:'btn',
+      style:{
+        display:'inline-flex', alignItems:'center', gap:'6px',
+        background: on ? '#0a1606' : 'transparent',
+        border:'1px solid ' + (on ? '#6aff3b66' : '#2a2a2a'),
+        color: on ? '#6aff3b' : '#7a7a7a',
+        padding:'6px 11px', borderRadius:'6px', cursor:'pointer',
+        fontSize:'9px', letterSpacing:'0.12em', textTransform:'uppercase',
+        fontWeight:'700', fontFamily:"'DM Mono',monospace",
+        transition:'background 0.15s ease, border-color 0.15s ease, color 0.15s ease'
+      },
+      onclick:(e)=>{
+        e.stopPropagation();
+        _mealSwapPackOnly = !_mealSwapPackOnly;
+        // Clear lazy-build cache so tabs rebuild with the new filter.
+        similarContent.__built = false;
+        recommendedContent.__built = false;
+        cuisineContent.__built = false;
+        _renderPackToggle();
+        _switchSubTab(_activeSub);
+      }
+    });
+    btn.appendChild(el('span', { style:{ fontSize:'10px' } }, on ? '☑' : '☐'));
+    btn.appendChild(el('span', {}, 'Pack-friendly only'));
+    packToggleRow.appendChild(btn);
+  }
+  _renderPackToggle();
+  modal.appendChild(packToggleRow);
 
   // Per-tab content containers (lazy-built on first open)
   const similarContent = el('div', {});
@@ -24623,15 +25502,43 @@ function renderMealPrepSection() {
     wrap.appendChild(el('div',{style:{height:'1px',background:'#1a1a1a',margin:'12px 0'}}));
 
     // ─── Phase 1: Cross-meal batch sequence — always live, always visible ───
-    // Reads from buildCurrentPlanSnapshot() so it stays in sync with every swap.
+    // Reads from getFilteredPlanSnapshot() so it stays in sync with every swap
+    // AND respects the Phase G shopping day filter — prep mode only sequences
+    // the days the user is shopping for.
     // The lock state is a commitment marker, not a data gate.
     try {
-      const livePlan = { mealsByDay: buildCurrentPlanSnapshot() };
+      const livePlan = { mealsByDay: getFilteredPlanSnapshot() };
       const isLocked = !!getWeekPlan();
-      const stages = buildPrepSequence(livePlan);
-      if (stages && stages.length) {
-        const seqUI = renderPrepSequence(stages, isLocked);
-        if (seqUI) wrap.appendChild(seqUI);
+
+      // Phase I — when the day filter is active, show a note so a shorter
+      // prep sequence reads as intentional.
+      const _dayNote = getPrepDayFilterNote();
+      if (_dayNote) {
+        wrap.appendChild(el('div', {
+          style:{
+            fontSize:'10px', color:'#9ad6ff', lineHeight:'1.5',
+            background:'#0a1620', border:'1px solid #3b9eff33',
+            borderRadius:'6px', padding:'8px 10px', marginBottom:'10px'
+          }
+        }, '🗓 ' + _dayNote));
+      }
+
+      // Edge case: every day excluded by the filter — clean empty state.
+      const _includedCount = (function(){ try { return getShoppingDayFilter().length; } catch(e){ return 7; } })();
+      if (_includedCount === 0) {
+        wrap.appendChild(el('div', {
+          style:{
+            fontSize:'11px', color:'#9a9a9a', lineHeight:'1.5',
+            background:'#0e0e0e', border:'1px solid #1a1a1a',
+            borderRadius:'8px', padding:'16px', textAlign:'center'
+          }
+        }, 'No days selected in your shopping list, so there is nothing to prep. Pick at least one day on the Shopping tab.'));
+      } else {
+        const stages = buildPrepSequence(livePlan);
+        if (stages && stages.length) {
+          const seqUI = renderPrepSequence(stages, isLocked);
+          if (seqUI) wrap.appendChild(seqUI);
+        }
       }
     } catch (e) {
       console.warn('Prep sequence build failed:', e);
