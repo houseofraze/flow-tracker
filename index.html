@@ -708,7 +708,7 @@
 //   1. Bump APP_VERSION here
 //   2. Bump CACHE_VERSION in service-worker.js to match
 //   3. mv fraser-final-complete.html index.html; git commit; git push
-const APP_VERSION = '2026.05.18.4';
+const APP_VERSION = '2026.05.19.6';
 
 let activeTab = 'overview';
 let activeDay = 0; // will be set to today on init
@@ -14992,7 +14992,12 @@ function buildMetricsModal() {
       const data = {};
       let any = false;
       METRIC_FIELDS.forEach(f => {
-        const v = inputs[f.key].value.trim();
+        // Only read fields that actually have a rendered input. A field with
+        // no entry in inputs (for example a group that was not rendered) is
+        // skipped safely rather than throwing on a missing input.
+        const inp = inputs[f.key];
+        if (!inp) { return; }
+        const v = inp.value.trim();
         if (v !== '') { data[f.key] = parseFloat(v); any = true; }
       });
       if (!any && !photoFile && !scaleFile) {
@@ -17012,12 +17017,34 @@ const INGREDIENT_DATABASE = {
     per100g: { kcal: 354, protein: 78.6, carbs: 12.5, fat: 1.9, fiber: 0 },
     density: 0.55, commonUnit: 'g', aisle: 'Proteins'
   },
+  // Session 2 addition. Source: representative micellar casein label values
+  // (e.g. Optimum Nutrition Gold Standard Casein), cross-checked vs USDA dairy
+  // protein concentrates. Slow-digesting, used for the Wind Down casein pudding.
+  'casein-protein': {
+    usdaId: null, name: 'Casein protein powder, micellar',
+    per100g: { kcal: 360, protein: 78.0, carbs: 9.0,  fat: 1.5, fiber: 0 },
+    density: 0.55, commonUnit: 'g', aisle: 'Proteins'
+  },
 
   // ── GRAINS & CARBS ────────────────────────────────────────────────────
   'rolled-oats-dry': {
     usdaId: 173904, name: 'Rolled oats, dry',
     per100g: { kcal: 379, protein: 13.2, carbs: 67.7, fat: 6.5, fiber: 10.1 },
     density: 0.41, commonUnit: 'g', aisle: 'Grains & Carbs'
+  },
+  // Session 2 addition. Source: USDA FDC couscous, dry. Dry weight, consistent
+  // with the other grains in this section.
+  'couscous-dry': {
+    usdaId: 169721, name: 'Couscous, dry',
+    per100g: { kcal: 376, protein: 12.8, carbs: 77.4, fat: 0.6, fiber: 5.0 },
+    density: 0.72, commonUnit: 'g', aisle: 'Grains & Carbs'
+  },
+  // Session 2 addition. Source: USDA FDC rice cakes, brown rice, plain.
+  // As-sold weight. A standard cake is roughly 9 g.
+  'rice-cakes-plain': {
+    usdaId: 167572, name: 'Rice cakes, brown rice, plain',
+    per100g: { kcal: 387, protein: 8.2,  carbs: 81.5, fat: 2.8, fiber: 4.2 },
+    density: null, commonUnit: 'g', aisle: 'Grains & Carbs'
   },
   'basmati-rice-raw': {
     usdaId: 169704, name: 'Basmati rice, white, raw',
@@ -17209,6 +17236,12 @@ const INGREDIENT_DATABASE = {
     per100g: { kcal: 588, protein: 25.1, carbs: 20.0, fat: 50.4, fiber: 6.0 },
     density: null, commonUnit: 'g', aisle: 'Nuts & Seeds'
   },
+  // Session 2 addition. Source: USDA FDC almond butter, plain, without salt.
+  'almond-butter-natural': {
+    usdaId: 170591, name: 'Almond butter, natural, no added sugar',
+    per100g: { kcal: 614, protein: 20.8, carbs: 18.8, fat: 55.5, fiber: 10.3 },
+    density: null, commonUnit: 'g', aisle: 'Nuts & Seeds'
+  },
   'chia-seeds': {
     usdaId: 170554, name: 'Chia seeds, dry',
     per100g: { kcal: 486, protein: 16.5, carbs: 42.1, fat: 30.7, fiber: 34.4 },
@@ -17225,6 +17258,22 @@ const INGREDIENT_DATABASE = {
     usdaId: 174278, name: 'Soy sauce',
     per100g: { kcal: 53,  protein: 8.1,  carbs: 4.9,  fat: 0.6, fiber: 0.8 },
     density: 1.12, commonUnit: 'ml', aisle: 'Pantry & Condiments'
+  },
+  // Session 2 addition. Source: representative jarred green basil pesto label
+  // values (pesto varies by brand; this is a mid-range commercial figure).
+  // Costed flavour: it carries real fat and must scale through the solver.
+  'pesto-basil': {
+    usdaId: null, name: 'Basil pesto, jarred',
+    per100g: { kcal: 454, protein: 4.8,  carbs: 6.0,  fat: 45.6, fiber: 1.8 },
+    density: null, commonUnit: 'g', aisle: 'Pantry & Condiments'
+  },
+  // Session 2.1 addition. Source: representative jarred harissa paste label
+  // values (harissa varies by brand; this is a mid-range commercial figure).
+  // Costed flavour: it carries real fat and must scale through the solver.
+  'harissa-paste': {
+    usdaId: null, name: 'Harissa paste, jarred',
+    per100g: { kcal: 110, protein: 3.5,  carbs: 12.0, fat: 5.5, fiber: 5.0 },
+    density: null, commonUnit: 'g', aisle: 'Pantry & Condiments'
   },
   'curry-powder': {
     usdaId: 171323, name: 'Curry powder',
@@ -23828,6 +23877,1328 @@ const MEAL_DATABASE = [
 ];
 
 
+// ═══════════════════════════════════════════════════════════════════════════
+// MEAL ENGINE V2 START
+//
+// Session 2 foundation build. Data structures and pure functions for the
+// rebuilt meal-template system. No UI and no templates are defined here.
+// Everything between the START and END markers is self-contained and is
+// extracted verbatim by meal_engine_v2_test.js, so keep it free of
+// dependencies on the rest of the file.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── SLOT PROFILES ──────────────────────────────────────────────────────────
+// Seven first-class meal slots. dayPct is each slot's share of the day's
+// kcal, given separately for a training day and a rest day (a training day
+// swaps Dinner for Post-Workout Dinner and adds Pre-Workout). A slot with 0
+// for a day type is simply not eaten that day. macroChar is the slot's macro
+// emphasis as a protein / carb / fat split, used to weight how the day's
+// macros are shared out (see computeDayPlanTargets).
+const SLOT_PROFILES = {
+  'Breakfast':           { dayPct: { training: 20, rest: 22 }, macroChar: { p: 30, c: 45, f: 25 } },
+  'Pre-Workout':         { dayPct: { training: 8,  rest: 0  }, macroChar: { p: 20, c: 70, f: 10 } },
+  'Lunch':               { dayPct: { training: 22, rest: 30 }, macroChar: { p: 35, c: 40, f: 25 } },
+  'Dinner':              { dayPct: { training: 0,  rest: 28 }, macroChar: { p: 38, c: 35, f: 27 } },
+  'Post-Workout Dinner': { dayPct: { training: 28, rest: 0  }, macroChar: { p: 35, c: 50, f: 15 } },
+  'Snack':               { dayPct: { training: 12, rest: 10 }, macroChar: { p: 40, c: 35, f: 25 } },
+  'Wind Down':           { dayPct: { training: 10, rest: 10 }, macroChar: { p: 50, c: 20, f: 30 } }
+};
+
+// ── SWAP GROUPS ────────────────────────────────────────────────────────────
+// Protein, carb and veg rosters. protein-core members keep a swap within
+// roughly plus or minus 100 kcal at a typical protein anchor; protein-rich
+// members are fattier and drift out of band, but are kept and flagged amber,
+// never hidden. Every id below exists in INGREDIENT_DATABASE.
+const SWAP_GROUPS = {
+  'protein-core': { axis: 'protein', members: [
+    'chicken-breast-raw', 'cod-raw', 'prawns-raw', 'tuna-canned-water',
+    'beef-sirloin-lean-raw', 'pork-loin-lean-raw', 'chicken-thigh-raw'
+  ] },
+  'protein-rich': { axis: 'protein', members: [
+    'salmon-atlantic-raw', 'beef-mince-lean-raw', 'turkey-mince-lean',
+    'chicken-mince-lean-raw', 'lamb-mince-lean-raw', 'smoked-mackerel', 'tofu-firm'
+  ] },
+  'carb-grain':       { axis: 'carb', members: [ 'basmati-rice-raw', 'brown-rice-raw', 'quinoa-raw', 'couscous-dry' ] },
+  'carb-pasta':       { axis: 'carb', members: [ 'pasta-spaghetti-dry', 'wholewheat-pasta-dry', 'egg-noodles-dry', 'rice-noodles-dry' ] },
+  'carb-starchy-veg': { axis: 'carb', members: [ 'potato-white-raw', 'sweet-potato-raw' ] },
+  'carb-bread':       { axis: 'carb', members: [ 'wholemeal-bread', 'sourdough-bread' ] },
+  'veg-green': { axis: 'veg', members: [
+    'broccoli-raw', 'bok-choy-raw', 'spinach-raw', 'kale-raw',
+    'mangetout-raw', 'courgette-raw', 'mushroom-white-raw'
+  ] },
+  'veg-mixed': { axis: 'veg', members: [
+    'bell-pepper-red-raw', 'carrot-raw', 'cauliflower-raw', 'tomato-raw',
+    'onion-raw', 'peas-frozen', 'edamame-frozen'
+  ] }
+};
+
+// ── FLAVOUR SETS ───────────────────────────────────────────────────────────
+// Flavour is a mini-recipe of one or more ingredients at fixed grams, grouped
+// by cuisine. costed:false means negligible macros (swapped at zero cost in
+// the solver); costed:true means real macros that the solver sums in.
+const FLAVOUR_SETS = {
+  'flavour-asian': { axis: 'flavour', members: [
+    { id: 'soy-garlic',  name: 'Soy & Garlic', costed: false,
+      ingredients: [ { ingredientId: 'soy-sauce', grams: 15 }, { ingredientId: 'garlic-raw', grams: 8 }, { ingredientId: 'rice-vinegar', grams: 5 } ] },
+    { id: 'teriyaki',    name: 'Teriyaki', costed: true,
+      ingredients: [ { ingredientId: 'soy-sauce', grams: 20 }, { ingredientId: 'honey', grams: 12 }, { ingredientId: 'ginger-raw', grams: 6 } ] },
+    { id: 'kung-pao',    name: 'Kung Pao', costed: true,
+      ingredients: [ { ingredientId: 'hoisin-sauce', grams: 18 }, { ingredientId: 'soy-sauce', grams: 10 }, { ingredientId: 'chili-bean-sauce', grams: 10 } ] },
+    { id: 'black-bean',  name: 'Black Bean', costed: true,
+      ingredients: [ { ingredientId: 'oyster-sauce', grams: 15 }, { ingredientId: 'chili-bean-sauce', grams: 12 } ] }
+  ] },
+  'flavour-mediterranean': { axis: 'flavour', members: [
+    { id: 'lemon-herb', name: 'Lemon & Herb', costed: false,
+      ingredients: [ { ingredientId: 'lemon-raw', grams: 20 }, { ingredientId: 'oregano-dried', grams: 2 }, { ingredientId: 'garlic-raw', grams: 6 } ] },
+    { id: 'pesto',      name: 'Basil Pesto', costed: true,
+      ingredients: [ { ingredientId: 'pesto-basil', grams: 25 } ] },
+    { id: 'tomato-olive', name: 'Tomato & Olive', costed: true,
+      ingredients: [ { ingredientId: 'tomato-canned-chopped', grams: 60 }, { ingredientId: 'olives-kalamata', grams: 20 } ] },
+    { id: 'harissa',    name: 'Harissa', costed: true,
+      ingredients: [ { ingredientId: 'harissa-paste', grams: 28 }, { ingredientId: 'garlic-raw', grams: 6 } ] }
+  ] },
+  'flavour-mexican': { axis: 'flavour', members: [
+    { id: 'fajita-spice', name: 'Fajita Spice', costed: false,
+      ingredients: [ { ingredientId: 'cumin-ground', grams: 3 }, { ingredientId: 'ancho-chili-powder', grams: 3 }, { ingredientId: 'lime-raw', grams: 15 } ] },
+    { id: 'smoky-bbq',    name: 'Smoky BBQ', costed: true,
+      ingredients: [ { ingredientId: 'bbq-sauce-light', grams: 30 } ] }
+  ] },
+  'flavour-indian': { axis: 'flavour', members: [
+    { id: 'curry',       name: 'Curry', costed: false,
+      ingredients: [ { ingredientId: 'curry-powder', grams: 5 }, { ingredientId: 'garlic-raw', grams: 6 }, { ingredientId: 'ginger-raw', grams: 6 } ] },
+    { id: 'tikka-masala', name: 'Tikka Masala', costed: true,
+      ingredients: [ { ingredientId: 'garam-masala', grams: 5 }, { ingredientId: 'coconut-milk-light', grams: 50 }, { ingredientId: 'tomato-canned-chopped', grams: 50 } ] }
+  ] },
+  'flavour-western': { axis: 'flavour', members: [
+    { id: 'honey-mustard', name: 'Honey Mustard', costed: true,
+      ingredients: [ { ingredientId: 'dijon-mustard', grams: 12 }, { ingredientId: 'honey', grams: 10 } ] },
+    { id: 'herb-garlic',   name: 'Herb & Garlic', costed: false,
+      ingredients: [ { ingredientId: 'garlic-raw', grams: 8 }, { ingredientId: 'oregano-dried', grams: 2 }, { ingredientId: 'balsamic-vinegar', grams: 8 } ] }
+  ] }
+};
+
+// ── INGREDIENT MACRO LOOKUP ────────────────────────────────────────────────
+// Returns a per-100g macro record for an ingredient id, or null if unknown.
+function mealEngineIngredientMacros(id) {
+  if (typeof INGREDIENT_DATABASE === 'undefined') return null;
+  var rec = INGREDIENT_DATABASE[id];
+  return (rec && rec.per100g) ? rec.per100g : null;
+}
+
+// Sums the macros of a list of { ingredientId, grams } entries.
+function mealEngineSumIngredients(list) {
+  var total = { kcal: 0, protein: 0, carbs: 0, fat: 0 };
+  if (!list) return total;
+  for (var i = 0; i < list.length; i++) {
+    var per = mealEngineIngredientMacros(list[i].ingredientId);
+    if (!per) continue;
+    var g = list[i].grams || 0;
+    total.kcal    += per.kcal    * g / 100;
+    total.protein += per.protein * g / 100;
+    total.carbs   += per.carbs   * g / 100;
+    total.fat     += per.fat     * g / 100;
+  }
+  return total;
+}
+
+// ── GOAL SCALING ───────────────────────────────────────────────────────────
+// The single calculation path: daily macro targets in, per-meal targets out.
+// daily is { kcal, protein, carbs, fat } in grams. dayType is 'training' or
+// 'rest'. Each macro is shared across the active slots weighted by that
+// slot's kcal share times its macro character, so the per-meal targets sum
+// back to the daily target exactly while still respecting slot emphasis.
+function computeDayPlanTargets(daily, dayType) {
+  var slots = Object.keys(SLOT_PROFILES);
+  var active = [];
+  for (var i = 0; i < slots.length; i++) {
+    if (SLOT_PROFILES[slots[i]].dayPct[dayType] > 0) active.push(slots[i]);
+  }
+  var macros = [ 'protein', 'carbs', 'fat' ];
+  var charKey = { protein: 'p', carbs: 'c', fat: 'f' };
+  var out = {};
+  for (var s = 0; s < active.length; s++) out[active[s]] = { kcal: 0, protein: 0, carbs: 0, fat: 0 };
+  for (var m = 0; m < macros.length; m++) {
+    var macro = macros[m];
+    var weights = [];
+    var weightSum = 0;
+    for (var a = 0; a < active.length; a++) {
+      var prof = SLOT_PROFILES[active[a]];
+      var w = prof.dayPct[dayType] * prof.macroChar[charKey[macro]];
+      weights.push(w);
+      weightSum += w;
+    }
+    for (var b = 0; b < active.length; b++) {
+      var share = weightSum > 0 ? (weights[b] / weightSum) : 0;
+      out[active[b]][macro] = daily[macro] * share;
+    }
+  }
+  for (var c = 0; c < active.length; c++) {
+    var t = out[active[c]];
+    t.kcal = t.protein * 4 + t.carbs * 4 + t.fat * 9;
+  }
+  return out;
+}
+
+// Protein-gap helper. Given the protein already planned across the day's
+// meals and the day's protein target, returns a shortfall and a suggested
+// whey top-up in grams of powder. Returns null when there is no shortfall.
+// It only suggests; it never adds anything.
+function proteinGapSuggestion(plannedProteinG, proteinTargetG) {
+  var shortfall = proteinTargetG - plannedProteinG;
+  if (shortfall <= 1) return null;
+  var per = mealEngineIngredientMacros('whey-protein-isolate');
+  var wheyGrams = per ? (shortfall / (per.protein / 100)) : null;
+  return {
+    shortfallG: Math.round(shortfall * 10) / 10,
+    wheyGrams: wheyGrams != null ? Math.round(wheyGrams) : null
+  };
+}
+
+// ── MACRO SOLVER ───────────────────────────────────────────────────────────
+// Resolves an anchored template against a slot target. Scales the chosen
+// protein to the protein target and the chosen carb to the carb target,
+// solved together with one refinement pass to account for the trace protein
+// in carbs and trace carbs in some proteins. Veg sits at a fixed template
+// portion. A costed flavour has its macros summed in; a free flavour is zero.
+// Fat is never targeted: it is the residual and is reported honestly.
+//
+// template: { type:'anchored', base:[{ingredientId,grams}],
+//             swaps:{ protein:{group,default}, carb:{group,default},
+//                     veg:{group,default,grams}, flavour:{group,default} } }
+// selections: { protein, carb, veg, flavour } ids, any omitted falls back to
+//             the template default.
+// slotTarget: { kcal, protein, carbs, fat }.
+function solveMealCore(template, selections, slotTarget) {
+  var sel = selections || {};
+  var pick = function (axis) {
+    var sw = template.swaps[axis];
+    if (!sw) return null;
+    return sel[axis] || sw.default;
+  };
+  var proteinId = pick('protein');
+  var carbId    = pick('carb');
+  var vegId     = pick('veg');
+  var flavourId = sel.flavour || (template.swaps.flavour ? template.swaps.flavour.default : null);
+
+  // Fixed contributions: base, veg, and any costed flavour.
+  var fixed = mealEngineSumIngredients(template.base);
+  var ingredients = [];
+  var i;
+  if (template.base) {
+    for (i = 0; i < template.base.length; i++) ingredients.push({ ingredientId: template.base[i].ingredientId, grams: template.base[i].grams });
+  }
+
+  var vegGrams = (template.swaps.veg && template.swaps.veg.grams) ? template.swaps.veg.grams : 0;
+  if (vegId && vegGrams > 0) {
+    var vegSum = mealEngineSumIngredients([ { ingredientId: vegId, grams: vegGrams } ]);
+    fixed.kcal += vegSum.kcal; fixed.protein += vegSum.protein; fixed.carbs += vegSum.carbs; fixed.fat += vegSum.fat;
+    ingredients.push({ ingredientId: vegId, grams: vegGrams });
+  }
+
+  var flavourGroup = template.swaps.flavour ? FLAVOUR_SETS[template.swaps.flavour.group] : null;
+  var flavourMember = null;
+  if (flavourGroup) {
+    for (i = 0; i < flavourGroup.members.length; i++) {
+      if (flavourGroup.members[i].id === flavourId) { flavourMember = flavourGroup.members[i]; break; }
+    }
+  }
+  if (flavourMember && flavourMember.costed) {
+    var flavSum = mealEngineSumIngredients(flavourMember.ingredients);
+    fixed.kcal += flavSum.kcal; fixed.protein += flavSum.protein; fixed.carbs += flavSum.carbs; fixed.fat += flavSum.fat;
+    for (i = 0; i < flavourMember.ingredients.length; i++) {
+      ingredients.push({ ingredientId: flavourMember.ingredients[i].ingredientId, grams: flavourMember.ingredients[i].grams });
+    }
+  } else if (flavourMember) {
+    for (i = 0; i < flavourMember.ingredients.length; i++) {
+      ingredients.push({ ingredientId: flavourMember.ingredients[i].ingredientId, grams: flavourMember.ingredients[i].grams });
+    }
+  }
+
+  // Solve protein and carb together. pp/pc are the protein ingredient's
+  // protein and carbs per 100 g; cp/cc the carb ingredient's.
+  var pPer = mealEngineIngredientMacros(proteinId) || { protein: 0, carbs: 0, fat: 0, kcal: 0 };
+  var cPer = mealEngineIngredientMacros(carbId)    || { protein: 0, carbs: 0, fat: 0, kcal: 0 };
+  var pp = pPer.protein / 100, pc = pPer.carbs / 100;
+  var cp = cPer.protein / 100, cc = cPer.carbs / 100;
+
+  // Pass 1: independent.
+  var proteinGrams = pp > 0 ? (slotTarget.protein - fixed.protein) / pp : 0;
+  var carbGrams    = cc > 0 ? (slotTarget.carbs   - fixed.carbs)   / cc : 0;
+  // Pass 2: refine, each axis accounting for the other's cross contribution.
+  if (pp > 0) proteinGrams = (slotTarget.protein - fixed.protein - carbGrams * cp) / pp;
+  if (cc > 0) carbGrams    = (slotTarget.carbs   - fixed.carbs   - proteinGrams * pc) / cc;
+  if (proteinGrams < 0) proteinGrams = 0;
+  if (carbGrams < 0) carbGrams = 0;
+  proteinGrams = Math.round(proteinGrams);
+  carbGrams = Math.round(carbGrams);
+
+  if (proteinId) ingredients.push({ ingredientId: proteinId, grams: proteinGrams });
+  if (carbId)    ingredients.push({ ingredientId: carbId,    grams: carbGrams });
+
+  var macros = mealEngineSumIngredients(ingredients);
+  macros.kcal    = Math.round(macros.kcal);
+  macros.protein = Math.round(macros.protein * 10) / 10;
+  macros.carbs   = Math.round(macros.carbs * 10) / 10;
+  macros.fat     = Math.round(macros.fat * 10) / 10;
+  return { ingredients: ingredients, macros: macros };
+}
+
+// Public solver. Wraps solveMealCore, computes the baseline from the
+// template defaults, and returns the drift figures and band.
+function solveMeal(template, selections, slotTarget) {
+  if (!template || template.type !== 'anchored') return null;
+  var solved   = solveMealCore(template, selections, slotTarget);
+  var baseline = solveMealCore(template, {}, slotTarget);
+
+  var deltaKcal = solved.macros.kcal - baseline.macros.kcal;
+  var deltas = {
+    protein: Math.round((solved.macros.protein - baseline.macros.protein) * 10) / 10,
+    carbs:   Math.round((solved.macros.carbs   - baseline.macros.carbs) * 10) / 10,
+    fat:     Math.round((solved.macros.fat     - baseline.macros.fat) * 10) / 10
+  };
+  var band = Math.abs(deltaKcal) <= 100 ? 'green' : 'amber';
+
+  var message = null;
+  if (band === 'amber') {
+    // Lead with the macro whose drift carries the most calories.
+    var contrib = { protein: Math.abs(deltas.protein) * 4, carbs: Math.abs(deltas.carbs) * 4, fat: Math.abs(deltas.fat) * 9 };
+    var dom = 'fat';
+    if (contrib.protein >= contrib.carbs && contrib.protein >= contrib.fat) dom = 'protein';
+    else if (contrib.carbs >= contrib.protein && contrib.carbs >= contrib.fat) dom = 'carbs';
+    var domDelta = deltas[dom];
+    var sign = domDelta >= 0 ? '+' : '';
+    var dir = deltaKcal >= 0 ? 'over' : 'under';
+    message = sign + domDelta + 'g ' + dom + ', ' + (deltaKcal >= 0 ? '+' : '') + deltaKcal +
+      ' kcal versus the baseline. This puts the meal ' + dir +
+      ' its slot target; you would balance it by easing ' + dom + ' the other way in another meal.';
+  }
+
+  return {
+    ingredients: solved.ingredients,
+    macros: solved.macros,
+    baselineKcal: baseline.macros.kcal,
+    deltaKcal: deltaKcal,
+    deltas: deltas,
+    band: band,
+    message: message
+  };
+}
+
+// Combo templates bypass the solver entirely. Macros are the direct sum of
+// the base plus the chosen combo, with the drift measured against the
+// template's designated baseline combo.
+function resolveComboMeal(template, comboId) {
+  if (!template || template.type !== 'combo') return null;
+  var findCombo = function (id) {
+    for (var i = 0; i < template.combos.length; i++) {
+      if (template.combos[i].id === id) return template.combos[i];
+    }
+    return null;
+  };
+  var chosen   = findCombo(comboId) || findCombo(template.baselineCombo);
+  var baseline = findCombo(template.baselineCombo);
+  var sumCombo = function (combo) {
+    var list = (template.base || []).slice();
+    if (combo && combo.add) list = list.concat(combo.add);
+    var m = mealEngineSumIngredients(list);
+    m.kcal = Math.round(m.kcal);
+    m.protein = Math.round(m.protein * 10) / 10;
+    m.carbs = Math.round(m.carbs * 10) / 10;
+    m.fat = Math.round(m.fat * 10) / 10;
+    return { list: list, macros: m };
+  };
+  var resolvedChosen   = sumCombo(chosen);
+  var resolvedBaseline = sumCombo(baseline);
+  var deltaKcal = resolvedChosen.macros.kcal - resolvedBaseline.macros.kcal;
+  return {
+    ingredients: resolvedChosen.list,
+    macros: resolvedChosen.macros,
+    baselineKcal: resolvedBaseline.macros.kcal,
+    deltaKcal: deltaKcal,
+    band: Math.abs(deltaKcal) <= 100 ? 'green' : 'amber'
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MEAL ENGINE V2 END
+// ═══════════════════════════════════════════════════════════════════════════
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TEMPLATE DATABASE V2 START
+//
+// Session 3 content build. The meal templates that the engine resolves. Two
+// types: 'anchored' (solved by solveMeal) and 'combo' (resolved by
+// resolveComboMeal). Templates are multi-slot via the slots array. recovery
+// is left empty here; Session 1C's recovery layer is not built yet. No macro
+// figure is ever stored: macros are always computed from ingredients.
+// Extracted verbatim by template_database_v2_test.js.
+// ═══════════════════════════════════════════════════════════════════════════
+const TEMPLATE_DATABASE = [
+
+  // ── ANCHORED MAINS (shared across Lunch, Dinner, Post-Workout Dinner) ─────
+  {
+    id: 'tpl-stir-fry', name: 'Stir-Fry', type: 'anchored', emoji: '\uD83C\uDF72',
+    slots: ['Lunch', 'Dinner', 'Post-Workout Dinner'],
+    description: 'Fast wok dish: a protein and green veg over a grain, finished with an Asian sauce. Absorbs lighter kung pao chicken and salmon teriyaki via swaps.',
+    base: [
+      { ingredientId: 'sesame-oil', grams: 5 },
+      { ingredientId: 'garlic-raw', grams: 8 },
+      { ingredientId: 'ginger-raw', grams: 6 }
+    ],
+    swaps: {
+      protein: { group: 'protein-core', default: 'chicken-breast-raw' },
+      carb:    { group: 'carb-grain',   default: 'brown-rice-raw' },
+      veg:     { group: 'veg-green',    default: 'broccoli-raw', grams: 120 },
+      flavour: { group: 'flavour-asian', default: 'soy-garlic' }
+    },
+    instructions: [
+      'Cook the grain and keep it warm.',
+      'Heat the sesame oil and fry the garlic and ginger for thirty seconds.',
+      'Add the protein, cook through, then add the veg and stir-fry until just tender.',
+      'Stir the flavour sauce through and serve over the grain.'
+    ],
+    prepMinutes: 10, cookMinutes: 12, equipment: ['wok'],
+    dietFlags: { vegetarian: false, glutenFree: false, dairyFree: true },
+    portability: { style: 'hot', prepAhead: true, container: 'leakproof', note: 'Holds well; reheat the protein gently.' },
+    recovery: {}
+  },
+  {
+    id: 'tpl-grain-bowl', name: 'Grain Bowl', type: 'anchored', emoji: '\uD83E\uDD57',
+    slots: ['Lunch', 'Dinner', 'Post-Workout Dinner'],
+    description: 'A protein and veg over a seasoned grain. Absorbs the tuna rice bowl and chicken fajita bowl via swaps.',
+    base: [ { ingredientId: 'olive-oil', grams: 6 } ],
+    swaps: {
+      protein: { group: 'protein-core', default: 'chicken-breast-raw' },
+      carb:    { group: 'carb-grain',   default: 'basmati-rice-raw' },
+      veg:     { group: 'veg-mixed',    default: 'bell-pepper-red-raw', grams: 120 },
+      flavour: { group: 'flavour-mexican', default: 'fajita-spice' }
+    },
+    instructions: [
+      'Cook the grain and keep it warm.',
+      'Season and cook the protein in the olive oil.',
+      'Add the veg and cook until just tender, stirring the flavour through.',
+      'Serve over the grain in a bowl.'
+    ],
+    prepMinutes: 8, cookMinutes: 14, equipment: ['pan'],
+    dietFlags: { vegetarian: false, glutenFree: true, dairyFree: true },
+    portability: { style: 'hot', prepAhead: true, container: 'leakproof', note: 'A strong meal-prep option; eats well cold too.' },
+    recovery: {}
+  },
+  {
+    id: 'tpl-protein-pasta', name: 'Protein Pasta', type: 'anchored', emoji: '\uD83C\uDF5D',
+    slots: ['Lunch', 'Dinner', 'Post-Workout Dinner'],
+    description: 'A protein and veg through pasta with a sauce. Absorbs pesto chicken pasta via swaps.',
+    base: [
+      { ingredientId: 'olive-oil', grams: 8 },
+      { ingredientId: 'garlic-raw', grams: 6 }
+    ],
+    swaps: {
+      protein: { group: 'protein-core', default: 'chicken-breast-raw' },
+      carb:    { group: 'carb-pasta',   default: 'wholewheat-pasta-dry' },
+      veg:     { group: 'veg-green',    default: 'spinach-raw', grams: 80 },
+      flavour: { group: 'flavour-mediterranean', default: 'pesto' }
+    },
+    instructions: [
+      'Cook the pasta until al dente and reserve a little of the water.',
+      'Cook the protein in the olive oil with the garlic.',
+      'Wilt the veg through, then fold the pasta and flavour together with a splash of pasta water.',
+      'Serve straight away.'
+    ],
+    prepMinutes: 8, cookMinutes: 15, equipment: ['pan', 'pot'],
+    dietFlags: { vegetarian: false, glutenFree: false, dairyFree: true },
+    portability: { style: 'hot', prepAhead: true, container: 'leakproof', note: 'Reheats well; loosen with a splash of water.' },
+    recovery: {}
+  },
+  {
+    id: 'tpl-curry-rice', name: 'Curry & Rice', type: 'anchored', emoji: '\uD83C\uDF5B',
+    slots: ['Lunch', 'Dinner', 'Post-Workout Dinner'],
+    description: 'A simmered protein and veg curry over rice. Absorbs chicken curry via swaps.',
+    base: [
+      { ingredientId: 'olive-oil', grams: 6 },
+      { ingredientId: 'garlic-raw', grams: 6 },
+      { ingredientId: 'ginger-raw', grams: 6 }
+    ],
+    swaps: {
+      protein: { group: 'protein-core', default: 'chicken-breast-raw' },
+      carb:    { group: 'carb-grain',   default: 'basmati-rice-raw' },
+      veg:     { group: 'veg-mixed',    default: 'cauliflower-raw', grams: 120 },
+      flavour: { group: 'flavour-indian', default: 'curry' }
+    },
+    instructions: [
+      'Cook the rice and keep it warm.',
+      'Fry the garlic and ginger in the oil, then add the flavour base.',
+      'Add the protein and veg, then simmer until cooked through and thickened.',
+      'Serve over the rice.'
+    ],
+    prepMinutes: 10, cookMinutes: 20, equipment: ['pan'],
+    dietFlags: { vegetarian: false, glutenFree: true, dairyFree: true },
+    portability: { style: 'hot', prepAhead: true, container: 'leakproof', note: 'Improves overnight; a reliable batch-cook.' },
+    recovery: {}
+  },
+  {
+    id: 'tpl-sheet-pan', name: 'Sheet-Pan Protein & Veg', type: 'anchored', emoji: '\uD83C\uDF57',
+    slots: ['Lunch', 'Dinner', 'Post-Workout Dinner'],
+    description: 'A protein roasted with veg and a starchy side. Absorbs sheet-pan honey mustard chicken via swaps.',
+    base: [ { ingredientId: 'olive-oil', grams: 8 } ],
+    swaps: {
+      protein: { group: 'protein-core', default: 'chicken-breast-raw' },
+      carb:    { group: 'carb-starchy-veg', default: 'potato-white-raw' },
+      veg:     { group: 'veg-mixed',    default: 'carrot-raw', grams: 120 },
+      flavour: { group: 'flavour-western', default: 'honey-mustard' }
+    },
+    instructions: [
+      'Heat the oven and cut the starchy carb into even pieces.',
+      'Toss the carb and veg in the olive oil and start them roasting.',
+      'Add the protein coated in the flavour partway through.',
+      'Roast until the protein is cooked and the veg is golden.'
+    ],
+    prepMinutes: 12, cookMinutes: 30, equipment: ['oven', 'sheet pan'],
+    dietFlags: { vegetarian: false, glutenFree: true, dairyFree: true },
+    portability: { style: 'hot', prepAhead: true, container: 'leakproof', note: 'Roast veg holds well; reheat in a hot oven.' },
+    recovery: {}
+  },
+  {
+    id: 'tpl-pan-fish', name: 'Pan-Seared Fish & Sides', type: 'anchored', emoji: '\uD83D\uDC1F',
+    slots: ['Lunch', 'Dinner', 'Post-Workout Dinner'],
+    description: 'A fish fillet seared and served with a carb and green veg. Absorbs salmon piccata with linguine via swaps.',
+    base: [ { ingredientId: 'olive-oil', grams: 8 } ],
+    swaps: {
+      protein: { group: 'protein-rich', default: 'salmon-atlantic-raw' },
+      carb:    { group: 'carb-pasta',   default: 'wholewheat-pasta-dry' },
+      veg:     { group: 'veg-green',    default: 'mangetout-raw', grams: 100 },
+      flavour: { group: 'flavour-mediterranean', default: 'lemon-herb' }
+    },
+    instructions: [
+      'Cook the carb and keep it warm.',
+      'Sear the fish in the olive oil, skin-side first, until just cooked.',
+      'Steam or wilt the veg.',
+      'Plate the fish and veg over the carb and finish with the flavour.'
+    ],
+    prepMinutes: 8, cookMinutes: 14, equipment: ['pan'],
+    dietFlags: { vegetarian: false, glutenFree: false, dairyFree: true },
+    portability: { style: 'hot', prepAhead: false, container: 'leakproof', note: 'Best fresh; fish is poor reheated.' },
+    recovery: {}
+  },
+  {
+    id: 'tpl-bolognese', name: 'Bolognese & Pasta', type: 'anchored', emoji: '\uD83C\uDF5D',
+    slots: ['Lunch', 'Dinner', 'Post-Workout Dinner'],
+    description: 'A rich mince and tomato sauce over pasta. Absorbs beef bolognese and turkey meatballs via swaps.',
+    base: [
+      { ingredientId: 'olive-oil', grams: 8 },
+      { ingredientId: 'garlic-raw', grams: 6 }
+    ],
+    swaps: {
+      protein: { group: 'protein-rich', default: 'beef-mince-lean-raw' },
+      carb:    { group: 'carb-pasta',   default: 'pasta-spaghetti-dry' },
+      veg:     { group: 'veg-mixed',    default: 'onion-raw', grams: 60 },
+      flavour: { group: 'flavour-mediterranean', default: 'tomato-olive' }
+    },
+    instructions: [
+      'Cook the pasta until al dente.',
+      'Brown the mince in the oil with the garlic and onion.',
+      'Add the flavour base and simmer until thick.',
+      'Fold the pasta through and serve.'
+    ],
+    prepMinutes: 10, cookMinutes: 25, equipment: ['pan', 'pot'],
+    dietFlags: { vegetarian: false, glutenFree: false, dairyFree: true },
+    portability: { style: 'hot', prepAhead: true, container: 'leakproof', note: 'Excellent batch-cook; the sauce freezes well.' },
+    recovery: {}
+  },
+  {
+    id: 'tpl-harissa-tray', name: 'Harissa Spiced Tray', type: 'anchored', emoji: '\uD83C\uDF36',
+    slots: ['Lunch', 'Dinner', 'Post-Workout Dinner'],
+    description: 'A North African spiced protein with veg over couscous. Absorbs harissa chicken via swaps.',
+    base: [ { ingredientId: 'olive-oil', grams: 8 } ],
+    swaps: {
+      protein: { group: 'protein-core', default: 'chicken-breast-raw' },
+      carb:    { group: 'carb-grain',   default: 'couscous-dry' },
+      veg:     { group: 'veg-mixed',    default: 'bell-pepper-red-raw', grams: 120 },
+      flavour: { group: 'flavour-mediterranean', default: 'harissa' }
+    },
+    instructions: [
+      'Prepare the couscous and keep it covered.',
+      'Coat the protein in the harissa flavour and roast or pan-cook with the veg.',
+      'Cook until the protein is done and the veg is tender.',
+      'Serve over the couscous.'
+    ],
+    prepMinutes: 10, cookMinutes: 22, equipment: ['oven', 'pan'],
+    dietFlags: { vegetarian: false, glutenFree: false, dairyFree: true },
+    portability: { style: 'hot', prepAhead: true, container: 'leakproof', note: 'Travels and reheats well.' },
+    recovery: {}
+  },
+
+  // ── ANCHORED BREAKFASTS ──────────────────────────────────────────────────
+  {
+    id: 'tpl-egg-scramble', name: 'Savoury Egg Scramble', type: 'anchored', emoji: '\uD83C\uDF73',
+    slots: ['Breakfast'],
+    description: 'Soft scrambled eggs with an added protein, greens and toast. Absorbs the feta-spinach scramble and egg muffins via swaps.',
+    base: [
+      { ingredientId: 'egg-whole-raw', grams: 100 },
+      { ingredientId: 'egg-white-raw', grams: 66 },
+      { ingredientId: 'olive-oil', grams: 5 }
+    ],
+    swaps: {
+      protein: { group: 'protein-core', default: 'chicken-breast-raw' },
+      carb:    { group: 'carb-bread',   default: 'wholemeal-bread' },
+      veg:     { group: 'veg-green',    default: 'spinach-raw', grams: 60 },
+      flavour: { group: 'flavour-western', default: 'herb-garlic' }
+    },
+    instructions: [
+      'Toast the bread.',
+      'Cook the added protein in the olive oil, then wilt the greens.',
+      'Add the beaten eggs and scramble softly with the flavour.',
+      'Serve on the toast.'
+    ],
+    prepMinutes: 5, cookMinutes: 8, equipment: ['pan'],
+    dietFlags: { vegetarian: false, glutenFree: false, dairyFree: true },
+    portability: { style: 'hot', prepAhead: false, container: 'leakproof', note: 'Best fresh; eggs do not reheat well.' },
+    recovery: {}
+  },
+  {
+    id: 'tpl-chicken-hash', name: 'Chicken & Sweet Potato Hash', type: 'anchored', emoji: '\uD83C\uDF60',
+    slots: ['Breakfast'],
+    description: 'A skillet hash of protein and sweet potato topped with an egg. Maps the chicken and sweet potato hash favourite.',
+    base: [
+      { ingredientId: 'egg-whole-raw', grams: 100 },
+      { ingredientId: 'olive-oil', grams: 5 }
+    ],
+    swaps: {
+      protein: { group: 'protein-core', default: 'chicken-breast-raw' },
+      carb:    { group: 'carb-starchy-veg', default: 'sweet-potato-raw' },
+      veg:     { group: 'veg-mixed',    default: 'bell-pepper-red-raw', grams: 80 },
+      flavour: { group: 'flavour-western', default: 'herb-garlic' }
+    },
+    instructions: [
+      'Dice and par-cook the sweet potato.',
+      'Crisp the sweet potato in the oil, then add the protein and veg.',
+      'Cook through with the flavour.',
+      'Top with a fried or poached egg.'
+    ],
+    prepMinutes: 10, cookMinutes: 18, equipment: ['pan'],
+    dietFlags: { vegetarian: false, glutenFree: true, dairyFree: true },
+    portability: { style: 'hot', prepAhead: true, container: 'leakproof', note: 'The hash holds; add a fresh egg on the day.' },
+    recovery: {}
+  },
+  {
+    id: 'tpl-shakshuka', name: 'Shakshuka Baked Eggs', type: 'anchored', emoji: '\uD83C\uDF5F',
+    slots: ['Breakfast'],
+    description: 'Eggs baked in a spiced tomato and pepper sauce with bread to dip.',
+    base: [
+      { ingredientId: 'egg-whole-raw', grams: 150 },
+      { ingredientId: 'olive-oil', grams: 8 },
+      { ingredientId: 'tomato-canned-chopped', grams: 120 }
+    ],
+    swaps: {
+      protein: { group: 'protein-core', default: 'chicken-breast-raw' },
+      carb:    { group: 'carb-bread',   default: 'sourdough-bread' },
+      veg:     { group: 'veg-mixed',    default: 'bell-pepper-red-raw', grams: 80 },
+      flavour: { group: 'flavour-mediterranean', default: 'harissa' }
+    },
+    instructions: [
+      'Soften the veg in the oil, then add the tomato and flavour and simmer.',
+      'Stir the cooked protein through the sauce.',
+      'Make wells and crack in the eggs, then cover and cook until set.',
+      'Serve with the bread.'
+    ],
+    prepMinutes: 8, cookMinutes: 18, equipment: ['pan'],
+    dietFlags: { vegetarian: false, glutenFree: false, dairyFree: true },
+    portability: { style: 'hot', prepAhead: false, container: 'leakproof', note: 'Best fresh from the pan.' },
+    recovery: {}
+  },
+
+  // ── COMBO TEMPLATES ──────────────────────────────────────────────────────
+  {
+    id: 'tpl-yoghurt-bowl', name: 'Greek Yoghurt Bowl', type: 'combo', emoji: '\uD83E\uDD63',
+    slots: ['Breakfast', 'Snack'],
+    description: 'A high-protein yoghurt base with a fixed topping combo. Maps the Greek yoghurt bowl favourite and all its variants.',
+    base: [ { ingredientId: 'greek-yogurt-nonfat', grams: 200 } ],
+    baselineCombo: 'berries-granola',
+    combos: [
+      { id: 'berries-granola',      name: 'Berries & Granola',      add: [ { ingredientId: 'blueberries-raw', grams: 80 }, { ingredientId: 'granola-plain', grams: 30 } ] },
+      { id: 'strawberries-walnuts', name: 'Strawberries & Walnuts', add: [ { ingredientId: 'strawberries-raw', grams: 100 }, { ingredientId: 'walnuts-raw', grams: 20 } ] },
+      { id: 'blueberries-almonds',  name: 'Blueberries & Almonds',  add: [ { ingredientId: 'blueberries-raw', grams: 80 }, { ingredientId: 'almonds-raw', grams: 20 } ] },
+      { id: 'berries-mixed-nuts',   name: 'Berries & Mixed Nuts',   add: [ { ingredientId: 'strawberries-raw', grams: 60 }, { ingredientId: 'blueberries-raw', grams: 40 }, { ingredientId: 'almonds-raw', grams: 12 }, { ingredientId: 'walnuts-raw', grams: 10 } ] },
+      { id: 'banana-honey',         name: 'Banana & Honey',         add: [ { ingredientId: 'banana-raw', grams: 100 }, { ingredientId: 'honey', grams: 12 } ] }
+    ],
+    instructions: [ 'Spoon the yoghurt into a bowl or jar.', 'Add the chosen combo on top.' ],
+    prepMinutes: 3, cookMinutes: 0, equipment: [],
+    dietFlags: { vegetarian: true, glutenFree: false, dairyFree: false },
+    portability: { style: 'cold', prepAhead: true, container: 'leakproof', note: 'Keep nuts and granola separate until eating to stay crunchy.' },
+    recovery: {}
+  },
+  {
+    id: 'tpl-protein-oats', name: 'Protein Oats', type: 'combo', emoji: '\uD83E\uDD63',
+    slots: ['Breakfast'],
+    description: 'Oats blended with whey and a fixed fruit combo. Maps the protein oats favourite.',
+    base: [ { ingredientId: 'rolled-oats-dry', grams: 60 }, { ingredientId: 'whey-protein-isolate', grams: 25 } ],
+    baselineCombo: 'blueberry',
+    combos: [
+      { id: 'blueberry',          name: 'Blueberry',           add: [ { ingredientId: 'blueberries-raw', grams: 80 } ] },
+      { id: 'banana-peanut',      name: 'Banana & Peanut',     add: [ { ingredientId: 'banana-raw', grams: 80 }, { ingredientId: 'peanut-butter-natural', grams: 15 } ] },
+      { id: 'apple-cinnamon',     name: 'Apple & Cinnamon',    add: [ { ingredientId: 'apple-raw', grams: 100 }, { ingredientId: 'cinnamon-ground', grams: 2 } ] },
+      { id: 'mixed-berry-almond', name: 'Mixed Berry & Almond', add: [ { ingredientId: 'strawberries-raw', grams: 60 }, { ingredientId: 'blueberries-raw', grams: 40 }, { ingredientId: 'almonds-raw', grams: 12 } ] }
+    ],
+    instructions: [ 'Cook the oats with water or milk.', 'Stir the whey through off the heat.', 'Top with the chosen combo.' ],
+    prepMinutes: 3, cookMinutes: 5, equipment: ['pot'],
+    dietFlags: { vegetarian: true, glutenFree: false, dairyFree: false },
+    portability: { style: 'cold', prepAhead: true, container: 'leakproof', note: 'Works as overnight oats; add fruit in the morning.' },
+    recovery: {}
+  },
+  {
+    id: 'tpl-fuel-bowl', name: 'Greek Yoghurt Fuel Bowl', type: 'combo', emoji: '\uD83E\uDD63',
+    slots: ['Breakfast'],
+    description: 'A loaded yoghurt bowl with added whey for a bigger breakfast. Maps the Greek yoghurt fuel bowl favourite.',
+    base: [ { ingredientId: 'greek-yogurt-nonfat', grams: 200 }, { ingredientId: 'whey-protein-isolate', grams: 15 } ],
+    baselineCombo: 'granola-berry',
+    combos: [
+      { id: 'granola-berry', name: 'Granola & Berry', add: [ { ingredientId: 'granola-plain', grams: 40 }, { ingredientId: 'blueberries-raw', grams: 60 } ] },
+      { id: 'banana-pb',     name: 'Banana & Peanut', add: [ { ingredientId: 'banana-raw', grams: 100 }, { ingredientId: 'peanut-butter-natural', grams: 15 } ] },
+      { id: 'nut-honey',     name: 'Nut & Honey',     add: [ { ingredientId: 'almonds-raw', grams: 20 }, { ingredientId: 'walnuts-raw', grams: 10 }, { ingredientId: 'honey', grams: 10 } ] },
+      { id: 'berry-chia',    name: 'Berry & Chia',    add: [ { ingredientId: 'strawberries-raw', grams: 80 }, { ingredientId: 'chia-seeds', grams: 15 } ] }
+    ],
+    instructions: [ 'Stir the whey through the yoghurt until smooth.', 'Top with the chosen combo.' ],
+    prepMinutes: 3, cookMinutes: 0, equipment: [],
+    dietFlags: { vegetarian: true, glutenFree: false, dairyFree: false },
+    portability: { style: 'cold', prepAhead: true, container: 'leakproof', note: 'Keep crunchy toppings separate until eating.' },
+    recovery: {}
+  },
+  {
+    id: 'tpl-chia-pudding', name: 'Chia Pudding', type: 'combo', emoji: '\uD83C\uDF6E',
+    slots: ['Breakfast', 'Snack'],
+    description: 'Chia seeds set in milk with a fixed fruit combo.',
+    base: [ { ingredientId: 'chia-seeds', grams: 30 }, { ingredientId: 'milk-skim', grams: 150 } ],
+    baselineCombo: 'berry',
+    combos: [
+      { id: 'berry',         name: 'Berry',           add: [ { ingredientId: 'blueberries-raw', grams: 70 }, { ingredientId: 'strawberries-raw', grams: 40 } ] },
+      { id: 'banana-pb',     name: 'Banana & Peanut', add: [ { ingredientId: 'banana-raw', grams: 80 }, { ingredientId: 'peanut-butter-natural', grams: 12 } ] },
+      { id: 'apple-cinnamon', name: 'Apple & Cinnamon', add: [ { ingredientId: 'apple-raw', grams: 90 }, { ingredientId: 'cinnamon-ground', grams: 2 } ] },
+      { id: 'honey-almond',  name: 'Honey & Almond',  add: [ { ingredientId: 'honey', grams: 10 }, { ingredientId: 'almonds-raw', grams: 15 } ] }
+    ],
+    instructions: [ 'Stir the chia into the milk and rest until set, ideally overnight.', 'Top with the chosen combo.' ],
+    prepMinutes: 4, cookMinutes: 0, equipment: [],
+    dietFlags: { vegetarian: true, glutenFree: true, dairyFree: false },
+    portability: { style: 'cold', prepAhead: true, container: 'leakproof', note: 'Sets ahead well; a strong prep option.' },
+    recovery: {}
+  },
+  {
+    id: 'tpl-protein-shake', name: 'Protein Shake', type: 'combo', emoji: '\uD83E\uDD64',
+    slots: ['Breakfast', 'Snack', 'Pre-Workout'],
+    description: 'Whey blended with milk and a fixed fruit combo.',
+    base: [ { ingredientId: 'whey-protein-isolate', grams: 30 }, { ingredientId: 'milk-skim', grams: 200 } ],
+    baselineCombo: 'berry',
+    combos: [
+      { id: 'berry',       name: 'Berry',       add: [ { ingredientId: 'blueberries-raw', grams: 80 } ] },
+      { id: 'banana',      name: 'Banana',      add: [ { ingredientId: 'banana-raw', grams: 100 } ] },
+      { id: 'peanut',      name: 'Peanut',      add: [ { ingredientId: 'peanut-butter-natural', grams: 15 } ] },
+      { id: 'mixed-berry', name: 'Mixed Berry', add: [ { ingredientId: 'strawberries-raw', grams: 60 }, { ingredientId: 'blueberries-raw', grams: 40 } ] }
+    ],
+    instructions: [ 'Blend the whey, milk and chosen combo until smooth.' ],
+    prepMinutes: 3, cookMinutes: 0, equipment: ['blender'],
+    dietFlags: { vegetarian: true, glutenFree: true, dairyFree: false },
+    portability: { style: 'cold', prepAhead: false, container: 'leakproof', note: 'Best blended fresh; shake before drinking if made ahead.' },
+    recovery: {}
+  },
+  {
+    id: 'tpl-rice-cakes', name: 'Rice Cakes & Topping', type: 'combo', emoji: '\uD83C\uDF58',
+    slots: ['Snack', 'Pre-Workout'],
+    description: 'Plain rice cakes with a fixed topping combo. Maps the rice cakes with banana and almond butter favourite.',
+    base: [ { ingredientId: 'rice-cakes-plain', grams: 27 } ],
+    baselineCombo: 'banana-almond-butter',
+    combos: [
+      { id: 'banana-almond-butter', name: 'Banana & Almond Butter', add: [ { ingredientId: 'banana-raw', grams: 60 }, { ingredientId: 'almond-butter-natural', grams: 16 } ] },
+      { id: 'honey',                name: 'Honey',                  add: [ { ingredientId: 'honey', grams: 15 } ] },
+      { id: 'peanut-banana',        name: 'Peanut & Banana',        add: [ { ingredientId: 'banana-raw', grams: 60 }, { ingredientId: 'peanut-butter-natural', grams: 16 } ] },
+      { id: 'apple-almond',         name: 'Apple & Almond Butter',  add: [ { ingredientId: 'apple-raw', grams: 80 }, { ingredientId: 'almond-butter-natural', grams: 12 } ] }
+    ],
+    instructions: [ 'Lay out the rice cakes.', 'Spread or arrange the chosen combo on top.' ],
+    prepMinutes: 3, cookMinutes: 0, equipment: [],
+    dietFlags: { vegetarian: true, glutenFree: true, dairyFree: true },
+    portability: { style: 'cold', prepAhead: false, container: 'rigid', note: 'Assemble fresh so the cakes stay crisp.' },
+    recovery: {}
+  },
+  {
+    id: 'tpl-apple-nut-butter', name: 'Apple & Nut Butter', type: 'combo', emoji: '\uD83C\uDF4E',
+    slots: ['Snack'],
+    description: 'Sliced apple with a fixed nut butter combo. Maps the apple with almond butter favourite.',
+    base: [ { ingredientId: 'apple-raw', grams: 150 } ],
+    baselineCombo: 'almond-butter',
+    combos: [
+      { id: 'almond-butter',   name: 'Almond Butter',          add: [ { ingredientId: 'almond-butter-natural', grams: 20 } ] },
+      { id: 'peanut-butter',   name: 'Peanut Butter',          add: [ { ingredientId: 'peanut-butter-natural', grams: 20 } ] },
+      { id: 'almond-cinnamon', name: 'Almond Butter & Cinnamon', add: [ { ingredientId: 'almond-butter-natural', grams: 18 }, { ingredientId: 'cinnamon-ground', grams: 1 } ] },
+      { id: 'walnut',          name: 'Walnut',                 add: [ { ingredientId: 'walnuts-raw', grams: 20 } ] }
+    ],
+    instructions: [ 'Slice the apple.', 'Serve with the chosen combo to dip or spread.' ],
+    prepMinutes: 3, cookMinutes: 0, equipment: [],
+    dietFlags: { vegetarian: true, glutenFree: true, dairyFree: true },
+    portability: { style: 'cold', prepAhead: false, container: 'rigid', note: 'Slice fresh or toss apple in lemon to stop browning.' },
+    recovery: {}
+  },
+  {
+    id: 'tpl-casein-pudding', name: 'Casein Recovery Pudding', type: 'combo', emoji: '\uD83C\uDF6E',
+    slots: ['Wind Down'],
+    description: 'A thick casein pudding for a slow overnight protein release. Maps the casein recovery pudding favourite.',
+    base: [ { ingredientId: 'casein-protein', grams: 30 }, { ingredientId: 'milk-skim', grams: 150 } ],
+    baselineCombo: 'banana-cinnamon',
+    combos: [
+      { id: 'banana-cinnamon', name: 'Banana & Cinnamon', add: [ { ingredientId: 'banana-raw', grams: 80 }, { ingredientId: 'cinnamon-ground', grams: 2 } ] },
+      { id: 'berry',           name: 'Berry',             add: [ { ingredientId: 'blueberries-raw', grams: 70 } ] },
+      { id: 'peanut',          name: 'Peanut',            add: [ { ingredientId: 'peanut-butter-natural', grams: 14 } ] },
+      { id: 'almond-honey',    name: 'Almond & Honey',    add: [ { ingredientId: 'almond-butter-natural', grams: 12 }, { ingredientId: 'honey', grams: 8 } ] }
+    ],
+    instructions: [ 'Whisk the casein into the milk until thick.', 'Stir or top with the chosen combo.', 'Chill briefly before eating.' ],
+    prepMinutes: 4, cookMinutes: 0, equipment: [],
+    dietFlags: { vegetarian: true, glutenFree: true, dairyFree: false },
+    portability: { style: 'cold', prepAhead: true, container: 'leakproof', note: 'Thickens as it sits; a good prep-ahead option.' },
+    recovery: {}
+  },
+  {
+    id: 'tpl-slow-protein-yoghurt', name: 'Slow-Protein Yoghurt', type: 'combo', emoji: '\uD83E\uDD63',
+    slots: ['Wind Down'],
+    description: 'A simple Greek yoghurt bowl for an easy evening protein hit.',
+    base: [ { ingredientId: 'greek-yogurt-nonfat', grams: 200 } ],
+    baselineCombo: 'cinnamon-walnut',
+    combos: [
+      { id: 'cinnamon-walnut', name: 'Cinnamon & Walnut', add: [ { ingredientId: 'walnuts-raw', grams: 18 }, { ingredientId: 'cinnamon-ground', grams: 2 } ] },
+      { id: 'berry',           name: 'Berry',             add: [ { ingredientId: 'blueberries-raw', grams: 80 } ] },
+      { id: 'almond-honey',    name: 'Almond & Honey',    add: [ { ingredientId: 'almonds-raw', grams: 18 }, { ingredientId: 'honey', grams: 8 } ] },
+      { id: 'chia-berry',      name: 'Chia & Berry',      add: [ { ingredientId: 'chia-seeds', grams: 12 }, { ingredientId: 'strawberries-raw', grams: 60 } ] }
+    ],
+    instructions: [ 'Spoon the yoghurt into a bowl.', 'Add the chosen combo.' ],
+    prepMinutes: 2, cookMinutes: 0, equipment: [],
+    dietFlags: { vegetarian: true, glutenFree: true, dairyFree: false },
+    portability: { style: 'cold', prepAhead: true, container: 'leakproof', note: 'Keep toppings separate until eating.' },
+    recovery: {}
+  },
+  {
+    id: 'tpl-golden-milk', name: 'Golden Milk', type: 'combo', emoji: '\uD83E\uDD5B',
+    slots: ['Wind Down'],
+    description: 'A warm turmeric milk to wind down the evening.',
+    base: [ { ingredientId: 'milk-skim', grams: 250 }, { ingredientId: 'turmeric-ground', grams: 2 } ],
+    baselineCombo: 'honey',
+    combos: [
+      { id: 'honey',          name: 'Honey',            add: [ { ingredientId: 'honey', grams: 12 } ] },
+      { id: 'cinnamon-honey', name: 'Cinnamon & Honey', add: [ { ingredientId: 'honey', grams: 10 }, { ingredientId: 'cinnamon-ground', grams: 2 } ] },
+      { id: 'maple',          name: 'Maple',            add: [ { ingredientId: 'maple-syrup', grams: 15 } ] },
+      { id: 'ginger-honey',   name: 'Ginger & Honey',   add: [ { ingredientId: 'honey', grams: 10 }, { ingredientId: 'ginger-raw', grams: 4 } ] }
+    ],
+    instructions: [ 'Warm the milk with the turmeric, not letting it boil.', 'Stir the chosen combo through and serve in a mug.' ],
+    prepMinutes: 2, cookMinutes: 5, equipment: ['pot'],
+    dietFlags: { vegetarian: true, glutenFree: true, dairyFree: false },
+    portability: { style: 'hot', prepAhead: false, container: 'rigid', note: 'Best made fresh and warm.' },
+    recovery: {}
+  },
+  {
+    id: 'tpl-warm-berry-casein', name: 'Warm Berry Casein', type: 'combo', emoji: '\uD83E\uDED6',
+    slots: ['Wind Down'],
+    description: 'A warm casein drink with berries for a slow evening protein release.',
+    base: [ { ingredientId: 'casein-protein', grams: 30 }, { ingredientId: 'milk-skim', grams: 200 } ],
+    baselineCombo: 'mixed-berry',
+    combos: [
+      { id: 'mixed-berry',      name: 'Mixed Berry',      add: [ { ingredientId: 'strawberries-raw', grams: 60 }, { ingredientId: 'blueberries-raw', grams: 50 } ] },
+      { id: 'blueberry',        name: 'Blueberry',        add: [ { ingredientId: 'blueberries-raw', grams: 90 } ] },
+      { id: 'strawberry-honey', name: 'Strawberry & Honey', add: [ { ingredientId: 'strawberries-raw', grams: 80 }, { ingredientId: 'honey', grams: 8 } ] },
+      { id: 'banana',           name: 'Banana',           add: [ { ingredientId: 'banana-raw', grams: 80 } ] }
+    ],
+    instructions: [ 'Warm the milk gently, not letting it boil.', 'Whisk the casein in off the heat until smooth.', 'Stir the chosen combo through.' ],
+    prepMinutes: 3, cookMinutes: 4, equipment: ['pot'],
+    dietFlags: { vegetarian: true, glutenFree: true, dairyFree: false },
+    portability: { style: 'hot', prepAhead: false, container: 'rigid', note: 'Best made fresh and warm.' },
+    recovery: {}
+  },
+  {
+    id: 'tpl-fruit-yoghurt', name: 'Fruit & Yoghurt Cup', type: 'combo', emoji: '\uD83C\uDF53',
+    slots: ['Pre-Workout', 'Snack'],
+    description: 'A light yoghurt cup with fruit, easy to digest before training.',
+    base: [ { ingredientId: 'greek-yogurt-nonfat', grams: 120 } ],
+    baselineCombo: 'banana',
+    combos: [
+      { id: 'banana',        name: 'Banana',          add: [ { ingredientId: 'banana-raw', grams: 100 } ] },
+      { id: 'berries',       name: 'Berries',         add: [ { ingredientId: 'blueberries-raw', grams: 80 }, { ingredientId: 'strawberries-raw', grams: 50 } ] },
+      { id: 'honey-granola', name: 'Honey & Granola', add: [ { ingredientId: 'granola-plain', grams: 25 }, { ingredientId: 'honey', grams: 8 } ] },
+      { id: 'apple',         name: 'Apple',           add: [ { ingredientId: 'apple-raw', grams: 110 } ] }
+    ],
+    instructions: [ 'Spoon the yoghurt into a cup.', 'Add the chosen combo.' ],
+    prepMinutes: 2, cookMinutes: 0, equipment: [],
+    dietFlags: { vegetarian: true, glutenFree: true, dairyFree: false },
+    portability: { style: 'cold', prepAhead: true, container: 'leakproof', note: 'Light and easy before a session.' },
+    recovery: {}
+  },
+  {
+    id: 'tpl-banana-oat-shake', name: 'Banana Oat Shake', type: 'combo', emoji: '\uD83C\uDF4C',
+    slots: ['Pre-Workout'],
+    description: 'A carb-led blended shake to fuel a session.',
+    base: [ { ingredientId: 'banana-raw', grams: 100 }, { ingredientId: 'rolled-oats-dry', grams: 30 }, { ingredientId: 'milk-skim', grams: 200 } ],
+    baselineCombo: 'plain-honey',
+    combos: [
+      { id: 'plain-honey', name: 'Honey',    add: [ { ingredientId: 'honey', grams: 10 } ] },
+      { id: 'berry',       name: 'Berry',    add: [ { ingredientId: 'blueberries-raw', grams: 60 } ] },
+      { id: 'peanut',      name: 'Peanut',   add: [ { ingredientId: 'peanut-butter-natural', grams: 12 } ] },
+      { id: 'cinnamon',    name: 'Cinnamon', add: [ { ingredientId: 'cinnamon-ground', grams: 2 }, { ingredientId: 'honey', grams: 8 } ] }
+    ],
+    instructions: [ 'Blend the banana, oats, milk and chosen combo until smooth.' ],
+    prepMinutes: 3, cookMinutes: 0, equipment: ['blender'],
+    dietFlags: { vegetarian: true, glutenFree: false, dairyFree: false },
+    portability: { style: 'cold', prepAhead: false, container: 'leakproof', note: 'Best blended fresh before training.' },
+    recovery: {}
+  }
+
+];
+// ═══════════════════════════════════════════════════════════════════════════
+// TEMPLATE DATABASE V2 END
+// ═══════════════════════════════════════════════════════════════════════════
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MEAL ENGINE UI V2 START
+//
+// Session 4. The first user-facing surface for the new meal engine: a
+// template browser and swap screen, opened as a slide-up sheet. Additive:
+// it does not replace the existing meal UI. Reads the engine and templates,
+// never modifies them.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Sheet state. slot -> chosen slot; templateId -> open template; selections ->
+// anchored swap picks; comboId -> chosen combo for a combo template.
+var _mealEngineState = { slot: null, templateId: null, selections: {}, comboId: null };
+
+var MEAL_ENGINE_SLOT_ORDER = ['Breakfast', 'Pre-Workout', 'Lunch', 'Post-Workout Dinner', 'Dinner', 'Snack', 'Wind Down'];
+
+// Per-meal macro target for a slot, derived from the user's goal via the
+// goal-scaling path. A slot is computed on whichever day type it is active.
+function _mealEngineSlotTarget(slotName) {
+  var t = (typeof calculateCalorieTarget === 'function') ? calculateCalorieTarget() : null;
+  if (!t || !t.targetKcal) return null;
+  var daily = { kcal: t.targetKcal, protein: t.proteinG, carbs: t.carbsG, fat: t.fatG };
+  var dts = ['training', 'rest'];
+  for (var i = 0; i < dts.length; i++) {
+    var plan = computeDayPlanTargets(daily, dts[i]);
+    if (plan[slotName]) return plan[slotName];
+  }
+  return null;
+}
+
+// Resolve a template's macros. selections and comboId are optional; when
+// omitted the template defaults are used (the baseline).
+function _mealEngineResolve(tpl, slotName, selections, comboId) {
+  if (tpl.type === 'combo') {
+    return resolveComboMeal(tpl, comboId || tpl.baselineCombo);
+  }
+  var target = _mealEngineSlotTarget(slotName);
+  if (!target) return null;
+  return solveMeal(tpl, selections || {}, target);
+}
+
+// Templates available in a slot.
+function _mealEngineTemplatesForSlot(slotName) {
+  return TEMPLATE_DATABASE.filter(function (t) { return t.slots.indexOf(slotName) > -1; });
+}
+
+// A small macro line, e.g. "520 kcal  P 42  C 55  F 16".
+function _mealEngineMacroLine(macros) {
+  return el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '12px', color: '#cfcfcf', letterSpacing: '0.02em'
+  } },
+    Math.round(macros.kcal) + ' kcal   P ' + Math.round(macros.protein) +
+    '   C ' + Math.round(macros.carbs) + '   F ' + Math.round(macros.fat));
+}
+
+// The green/amber calorie-distance badge.
+function _mealEngineBadge(res) {
+  var green = res.band === 'green';
+  var col = green ? '#6aff3b' : '#fbbf24';
+  var label = green ? 'On target' : ((res.deltaKcal > 0 ? '+' : '') + res.deltaKcal + ' kcal');
+  return el('span', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '11px', color: col,
+    border: '1px solid ' + col + '55', background: col + '14',
+    borderRadius: '999px', padding: '2px 9px', letterSpacing: '0.03em', whiteSpace: 'nowrap'
+  } }, label);
+}
+
+function openMealEngineSheet() {
+  _mealEngineState = { slot: null, templateId: null, selections: {}, comboId: null };
+  var sheet = renderMealEngineSheet();
+  document.body.appendChild(sheet);
+  requestAnimationFrame(function () {
+    var inner = sheet.querySelector('[data-sheet-inner]');
+    if (inner) inner.style.transform = 'translateY(0)';
+    sheet.style.opacity = '1';
+  });
+}
+
+function closeMealEngineSheet() {
+  var sheet = document.getElementById('meal-engine-sheet');
+  if (!sheet) return;
+  var inner = sheet.querySelector('[data-sheet-inner]');
+  if (inner) inner.style.transform = 'translateY(100%)';
+  sheet.style.opacity = '0';
+  setTimeout(function () { sheet.remove(); }, 220);
+}
+
+function renderMealEngineSheet() {
+  var sheet = el('div', { id: 'meal-engine-sheet', style: {
+    position: 'fixed', top: '0', left: '0', right: '0', bottom: '0', zIndex: '6000',
+    background: 'rgba(0,0,0,0.7)', opacity: '0',
+    transition: 'opacity 0.22s cubic-bezier(0.32,0.72,0,1)',
+    display: 'flex', flexDirection: 'column', justifyContent: 'flex-end'
+  } });
+  sheet.onclick = function (e) { if (e.target === sheet) closeMealEngineSheet(); };
+
+  var inner = el('div', { 'data-sheet-inner': 'true', style: {
+    background: '#080808', borderTop: '1px solid #1a1a1a', borderRadius: '20px 20px 0 0',
+    maxHeight: '88vh', overflowY: 'auto', WebkitOverflowScrolling: 'touch',
+    transform: 'translateY(100%)', transition: 'transform 0.28s cubic-bezier(0.32,0.72,0,1)',
+    paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 24px)'
+  } });
+  inner.appendChild(div({ width: '40px', height: '4px', background: '#3a3a3a', borderRadius: '2px', margin: '10px auto' }));
+
+  var content = el('div', { id: 'meal-engine-content', style: { padding: '4px 16px 0' } });
+  inner.appendChild(content);
+  sheet.appendChild(inner);
+  _mealEngineRenderContent(content);
+  return sheet;
+}
+
+// Re-render the sheet content in place after a state change.
+function _mealEngineRerender() {
+  var content = document.getElementById('meal-engine-content');
+  if (content) _mealEngineRenderContent(content);
+}
+
+function _mealEngineRenderContent(host) {
+  host.innerHTML = '';
+  if (!_mealEngineState.slot) { _mealEngineRenderSlotPicker(host); return; }
+  if (!_mealEngineState.templateId) { _mealEngineRenderTemplateList(host); return; }
+  _mealEngineRenderDetail(host);
+}
+
+// Small header row with an optional back action.
+function _mealEngineHeader(host, title, backFn) {
+  var row = el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '4px 0 14px' } });
+  if (backFn) {
+    row.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '13px', color: '#ff6b3b', cursor: 'pointer', padding: '4px 6px'
+    }, onclick: backFn }, '\u2039 Back'));
+  }
+  row.appendChild(el('div', { style: {
+    fontFamily: "'Bebas Neue', sans-serif", fontSize: '24px', color: '#ebebeb',
+    letterSpacing: '0.04em', flex: '1'
+  } }, title));
+  row.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '13px', color: '#777', cursor: 'pointer', padding: '4px 6px'
+  }, onclick: closeMealEngineSheet }, 'Close'));
+  host.appendChild(row);
+}
+
+function _mealEngineRenderSlotPicker(host) {
+  _mealEngineHeader(host, 'Meal Templates', null);
+  host.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '12px', color: '#888', marginBottom: '14px', lineHeight: '1.5'
+  } }, 'Pick a meal slot to see its templates. Macros scale to your current goal.'));
+  MEAL_ENGINE_SLOT_ORDER.forEach(function (slot) {
+    var count = _mealEngineTemplatesForSlot(slot).length;
+    var card = el('div', { style: {
+      background: '#0e0e0e', border: '1px solid #1a1a1a', borderRadius: '10px',
+      padding: '14px 16px', marginBottom: '8px', cursor: 'pointer',
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+    }, onclick: function () { _mealEngineState.slot = slot; _mealEngineRerender(); } });
+    card.appendChild(el('div', { style: {
+      fontFamily: "'Bebas Neue', sans-serif", fontSize: '20px', color: '#ebebeb', letterSpacing: '0.04em'
+    } }, slot));
+    card.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '11px', color: '#777'
+    } }, count + ' templates \u203a'));
+    host.appendChild(card);
+  });
+}
+
+function _mealEngineRenderTemplateList(host) {
+  var slot = _mealEngineState.slot;
+  _mealEngineHeader(host, slot, function () { _mealEngineState.slot = null; _mealEngineRerender(); });
+  var templates = _mealEngineTemplatesForSlot(slot);
+  templates.forEach(function (tpl) {
+    var res = _mealEngineResolve(tpl, slot);
+    var card = el('div', { style: {
+      background: '#0e0e0e', border: '1px solid #1a1a1a', borderRadius: '10px',
+      padding: '14px 16px', marginBottom: '8px', cursor: 'pointer'
+    }, onclick: function () {
+      _mealEngineState.templateId = tpl.id;
+      _mealEngineState.selections = {};
+      _mealEngineState.comboId = (tpl.type === 'combo') ? tpl.baselineCombo : null;
+      _mealEngineRerender();
+    } });
+    var titleRow = el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' } });
+    titleRow.appendChild(el('span', { style: { fontSize: '18px' } }, tpl.emoji || ''));
+    titleRow.appendChild(el('div', { style: {
+      fontFamily: "'Bebas Neue', sans-serif", fontSize: '19px', color: '#ebebeb', letterSpacing: '0.04em', flex: '1'
+    } }, tpl.name));
+    titleRow.appendChild(el('span', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '10px', color: '#777',
+      border: '1px solid #2a2a2a', borderRadius: '4px', padding: '1px 6px'
+    } }, tpl.type === 'combo' ? 'COMBO' : 'SWAPPABLE'));
+    card.appendChild(titleRow);
+    card.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '11px', color: '#999', marginBottom: '8px', lineHeight: '1.5'
+    } }, tpl.description));
+    if (res && res.macros) card.appendChild(_mealEngineMacroLine(res.macros));
+    host.appendChild(card);
+  });
+}
+
+function _mealEngineRenderDetail(host) {
+  var slot = _mealEngineState.slot;
+  var tpl = TEMPLATE_DATABASE.filter(function (t) { return t.id === _mealEngineState.templateId; })[0];
+  if (!tpl) { _mealEngineState.templateId = null; _mealEngineRerender(); return; }
+  _mealEngineHeader(host, tpl.name, function () {
+    _mealEngineState.templateId = null; _mealEngineRerender();
+  });
+
+  var res = _mealEngineResolve(tpl, slot, _mealEngineState.selections, _mealEngineState.comboId);
+
+  // Live macro panel.
+  var panel = el('div', { style: {
+    background: '#0e0e0e', border: '1px solid #1a1a1a', borderRadius: '10px',
+    padding: '14px 16px', marginBottom: '14px'
+  } });
+  var macroRow = el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' } });
+  if (res && res.macros) macroRow.appendChild(_mealEngineMacroLine(res.macros));
+  if (res) macroRow.appendChild(_mealEngineBadge(res));
+  panel.appendChild(macroRow);
+  if (res && res.band === 'amber' && res.message) {
+    panel.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '11px', color: '#fbbf24',
+      marginTop: '8px', lineHeight: '1.5'
+    } }, res.message));
+  }
+  host.appendChild(panel);
+
+  if (tpl.type === 'combo') {
+    _mealEngineRenderComboChoices(host, tpl);
+  } else {
+    _mealEngineRenderSwapAxes(host, tpl);
+  }
+
+  // Instructions.
+  var instr = el('div', { style: { marginTop: '14px' } });
+  instr.appendChild(el('div', { style: {
+    fontFamily: "'Bebas Neue', sans-serif", fontSize: '16px', color: '#999', letterSpacing: '0.05em', marginBottom: '6px'
+  } }, 'Method'));
+  (tpl.instructions || []).forEach(function (step, i) {
+    instr.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '11px', color: '#999', lineHeight: '1.6', marginBottom: '4px'
+    } }, (i + 1) + '. ' + step));
+  });
+  host.appendChild(instr);
+}
+
+// One row of selectable options, shared by swap axes and combo choices.
+function _mealEngineOptionRow(label, options, selectedId, onPick) {
+  var wrap = el('div', { style: { marginBottom: '12px' } });
+  wrap.appendChild(el('div', { style: {
+    fontFamily: "'Bebas Neue', sans-serif", fontSize: '15px', color: '#999', letterSpacing: '0.05em', marginBottom: '6px'
+  } }, label));
+  var row = el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px' } });
+  options.forEach(function (opt) {
+    var on = opt.id === selectedId;
+    row.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '11px', cursor: 'pointer',
+      color: on ? '#080808' : '#cfcfcf',
+      background: on ? '#ff6b3b' : '#141414',
+      border: '1px solid ' + (on ? '#ff6b3b' : '#2a2a2a'),
+      borderRadius: '999px', padding: '5px 11px', letterSpacing: '0.02em'
+    }, onclick: function () { onPick(opt.id); } }, opt.label));
+  });
+  wrap.appendChild(row);
+  return wrap;
+}
+
+function _mealEngineRenderSwapAxes(host, tpl) {
+  var axes = [
+    { key: 'protein', label: 'Protein' },
+    { key: 'carb', label: 'Carb' },
+    { key: 'veg', label: 'Veg' },
+    { key: 'flavour', label: 'Flavour' }
+  ];
+  axes.forEach(function (axis) {
+    var sw = tpl.swaps[axis.key];
+    if (!sw) return;
+    var options, selected;
+    if (axis.key === 'flavour') {
+      var fset = FLAVOUR_SETS[sw.group];
+      options = (fset ? fset.members : []).map(function (m) { return { id: m.id, label: m.name }; });
+      selected = _mealEngineState.selections.flavour || sw.default;
+    } else {
+      var grp = SWAP_GROUPS[sw.group];
+      options = (grp ? grp.members : []).map(function (id) {
+        var rec = (typeof INGREDIENT_DATABASE !== 'undefined') ? INGREDIENT_DATABASE[id] : null;
+        return { id: id, label: rec ? rec.name.split(',')[0] : id };
+      });
+      selected = _mealEngineState.selections[axis.key] || sw.default;
+    }
+    host.appendChild(_mealEngineOptionRow(axis.label, options, selected, function (pickId) {
+      _mealEngineState.selections[axis.key] = pickId;
+      _mealEngineRerender();
+    }));
+  });
+}
+
+function _mealEngineRenderComboChoices(host, tpl) {
+  var options = tpl.combos.map(function (c) { return { id: c.id, label: c.name }; });
+  var selected = _mealEngineState.comboId || tpl.baselineCombo;
+  host.appendChild(_mealEngineOptionRow('Combo', options, selected, function (pickId) {
+    _mealEngineState.comboId = pickId;
+    _mealEngineRerender();
+  }));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MEAL ENGINE UI V2 END
+// ═══════════════════════════════════════════════════════════════════════════
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MEAL ENGINE NUTRITION WIRING V2 START
+//
+// Session 5. Surfaces the goal-scaling per-slot targets on the nutrition
+// screen and wires the protein-gap helper. Additive: it produces card
+// elements that renderNutrition appends. It does not change the existing
+// nutrition computations.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// The 7-slot model uses 'training' or 'rest'. The nutrition screen's day
+// nutriType is 'high' / 'mod' / 'low' / 'rest'. Anything that is not a rest
+// day is a training day for slot purposes.
+function _mealEngineDayType(nutriType) {
+  return nutriType === 'rest' ? 'rest' : 'training';
+}
+
+// ── Protein-gap top-up store ──
+// A small per-day store for an accepted whey top-up, in grams of powder. It is
+// deliberately separate from the meal log: nothing is ever added silently, the
+// user accepts or removes it explicitly, and it is easy to reason about.
+function _proteinGapKey(dayNum) { return 'flow.proteingap.' + weekOffset + '.' + dayNum; }
+function getProteinGapTopup(dayNum) {
+  var v = parseFloat(localStorage.getItem(_proteinGapKey(dayNum)));
+  return isNaN(v) ? 0 : v;
+}
+function setProteinGapTopup(dayNum, grams) {
+  localStorage.setItem(_proteinGapKey(dayNum), String(grams));
+}
+function clearProteinGapTopup(dayNum) {
+  localStorage.removeItem(_proteinGapKey(dayNum));
+}
+// Protein grams contributed by a given weight of whey powder, computed from
+// the ingredient database, never hardcoded.
+function _wheyProteinFromGrams(grams) {
+  var rec = (typeof INGREDIENT_DATABASE !== 'undefined') ? INGREDIENT_DATABASE['whey-protein-isolate'] : null;
+  if (!rec || !rec.per100g) return 0;
+  return grams * rec.per100g.protein / 100;
+}
+
+// The day's planned protein: the sum of the displayed meals plus any accepted
+// whey top-up. Reads the nutrition screen's own meal list, computed live.
+function _mealEnginePlannedProtein(np, day) {
+  var planned = 0;
+  try {
+    var meals = getDisplayMealsForDay(np.meals, day.nutriType, day.day);
+    meals.forEach(function (m) { if (!m._optional) planned += (m.protein || 0); });
+  } catch (e) { planned = 0; }
+  planned += _wheyProteinFromGrams(getProteinGapTopup(day.day));
+  return Math.round(planned);
+}
+
+// Per-slot target card. daily is { kcal, protein, carbs, fat }.
+function renderMealEngineSlotTargets(daily, dayType) {
+  if (!daily || !daily.kcal) return null;
+  var plan;
+  try { plan = computeDayPlanTargets(daily, dayType); } catch (e) { return null; }
+  var card = div({
+    background: '#0e0e0e', border: '1px solid #1a1a1a', borderRadius: '10px',
+    padding: '12px 14px', marginBottom: '10px'
+  });
+  card.appendChild(el('div', { style: {
+    fontSize: '8px', color: '#888', letterSpacing: '0.22em', textTransform: 'uppercase',
+    fontWeight: '700', marginBottom: '10px'
+  } }, 'Per-Slot Targets (' + (dayType === 'rest' ? 'Rest Day' : 'Training Day') + ')'));
+  MEAL_ENGINE_SLOT_ORDER.forEach(function (slot) {
+    var t = plan[slot];
+    if (!t) return;
+    var row = el('div', { style: {
+      display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+      padding: '4px 0', borderBottom: '1px solid #141414',
+      fontFamily: "'DM Mono', monospace", fontSize: '10px'
+    } });
+    row.appendChild(el('span', { style: { color: '#cfcfcf', letterSpacing: '0.03em' } }, slot));
+    row.appendChild(el('span', { style: { color: '#888' } },
+      Math.round(t.kcal) + ' kcal   P' + Math.round(t.protein) +
+      ' C' + Math.round(t.carbs) + ' F' + Math.round(t.fat)));
+    card.appendChild(row);
+  });
+  return card;
+}
+
+// Protein-gap card. Shows an accepted top-up with a Remove action, or, when
+// the day is short on protein, a suggestion with a one-tap Add. Returns null
+// when the day is on target and nothing is stored.
+function renderProteinGapCard(dayNum, plannedProteinG, proteinTargetG) {
+  var stored = getProteinGapTopup(dayNum);
+
+  if (stored > 0) {
+    var addedProtein = Math.round(_wheyProteinFromGrams(stored));
+    var doneCard = div({
+      background: '#0e1a10', border: '1px solid #6aff3b44', borderRadius: '10px',
+      padding: '12px 14px', marginBottom: '10px'
+    });
+    var dTop = el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' } });
+    var dLeft = el('div', {});
+    dLeft.appendChild(el('div', { style: {
+      fontFamily: "'Bebas Neue', sans-serif", fontSize: '15px', color: '#6aff3b', letterSpacing: '0.04em'
+    } }, 'Whey Top-Up Added'));
+    dLeft.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '10px', color: '#9fcf9f', marginTop: '2px'
+    } }, Math.round(stored) + ' g whey powder, about ' + addedProtein + ' g protein'));
+    dTop.appendChild(dLeft);
+    dTop.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '10px', color: '#888', cursor: 'pointer',
+      border: '1px solid #2a2a2a', borderRadius: '999px', padding: '4px 11px'
+    }, onclick: function () { clearProteinGapTopup(dayNum); renderNutrition(); } }, 'Remove'));
+    doneCard.appendChild(dTop);
+    return doneCard;
+  }
+
+  var sug = (typeof proteinGapSuggestion === 'function')
+    ? proteinGapSuggestion(plannedProteinG, proteinTargetG) : null;
+  if (!sug || !sug.wheyGrams) return null;
+
+  var card = div({
+    background: '#0e0e0e', border: '1px solid #ff6b3b44', borderRadius: '10px',
+    padding: '12px 14px', marginBottom: '10px'
+  });
+  var top = el('div', {});
+  top.appendChild(el('div', { style: {
+    fontFamily: "'Bebas Neue', sans-serif", fontSize: '15px', color: '#ff6b3b', letterSpacing: '0.04em'
+  } }, 'Protein Gap'));
+  top.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '10px', color: '#aaa', marginTop: '3px', lineHeight: '1.5'
+  } }, "You are about " + sug.shortfallG + ' g protein short of your daily target. A whey shake of about ' +
+       sug.wheyGrams + ' g powder would close it.'));
+  card.appendChild(top);
+  var addBtn = el('div', { style: {
+    marginTop: '10px', textAlign: 'center', cursor: 'pointer',
+    fontFamily: "'DM Mono', monospace", fontSize: '11px', color: '#080808',
+    background: '#ff6b3b', borderRadius: '8px', padding: '8px', letterSpacing: '0.04em'
+  }, onclick: function () { setProteinGapTopup(dayNum, sug.wheyGrams); renderNutrition(); } },
+    'Add ' + sug.wheyGrams + ' g whey top-up');
+  card.appendChild(addBtn);
+  return card;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MEAL ENGINE NUTRITION WIRING V2 END
+// ═══════════════════════════════════════════════════════════════════════════
+
+
 // ─── RECIPE LOOKUP HELPERS ────────────────────────────────────────────────
 
 function getRecipeById(id) {
@@ -29339,6 +30710,28 @@ function renderNutrition() {
   }, useMetric ? 'Metric' : 'Imperial'));
   list.appendChild(unitsToggle);
 
+  // ── MEAL TEMPLATES ENTRY (Session 4, promoted to primary in Session 6) ──
+  // Opens the new meal-engine template browser. A settled, primary feature
+  // carrying the accent-primary treatment. Sits alongside the existing meal
+  // UI; nothing below is replaced.
+  var mealEngineEntry = el('div', { style: {
+    background: 'var(--accent-primary-soft)', border: '1px solid var(--accent-primary-border)',
+    borderRadius: '10px', padding: '14px 16px', marginBottom: '12px', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px'
+  }, onclick: function () { openMealEngineSheet(); } });
+  var meLeft = el('div', {});
+  meLeft.appendChild(el('div', { style: {
+    fontFamily: "'Bebas Neue', sans-serif", fontSize: '19px', color: '#ebebeb', letterSpacing: '0.04em'
+  } }, 'Meal Templates'));
+  meLeft.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '11px', color: '#9a9a9a', marginTop: '2px'
+  } }, 'Browse templates, swap ingredients, see live macros'));
+  mealEngineEntry.appendChild(meLeft);
+  mealEngineEntry.appendChild(el('span', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '16px', color: 'var(--accent-primary)', flexShrink: '0'
+  } }, '\u203a'));
+  list.appendChild(mealEngineEntry);
+
   // ── DAILY CALORIE TARGET CARD ──
   // Shows the calculated target for TODAY (day-type-specific) or the weekly
   // average, via the nutritionTargetMode toggle. Default is 'today' so users
@@ -29477,6 +30870,19 @@ function renderNutrition() {
     }
 
     list.appendChild(targetCard);
+
+    // ── MEAL ENGINE: per-slot targets and protein-gap helper (Session 5) ──
+    // Surfaces the goal-scaling per-slot targets and the protein-gap
+    // suggestion. Additive; sits below the existing target card.
+    var _meDaily = _ntDayMacros
+      ? { kcal: _ntDayMacros.targetKcal, protein: _ntDayMacros.proteinG, carbs: _ntDayMacros.carbsG, fat: _ntDayMacros.fatG }
+      : { kcal: target.targetKcal, protein: target.proteinG, carbs: target.carbsG, fat: target.fatG };
+    var _meDayType = _mealEngineDayType(day.nutriType);
+    var _meSlotCard = renderMealEngineSlotTargets(_meDaily, _meDayType);
+    if (_meSlotCard) list.appendChild(_meSlotCard);
+    var _mePlannedProtein = _mealEnginePlannedProtein(np, day);
+    var _meGapCard = renderProteinGapCard(day.day, _mePlannedProtein, _meDaily.protein);
+    if (_meGapCard) list.appendChild(_meGapCard);
   } else {
     // No body comp data yet — prompt the user to log
     const promptCard = div({
@@ -30813,8 +32219,13 @@ function formatTimeMin(mins) {
 
 function formatDuration(mins) {
   if (mins == null || isNaN(mins)) return '—';
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
+  // Work in tenths of a minute so an averaged value (e.g. 477.142857...)
+  // shows at most one decimal place. Whole minutes stay whole ("7h 50m"),
+  // fractional ones round to 1dp ("7h 57.1m"). Rounding can tip the minutes
+  // up to a full 60, so carry that into the hours.
+  const tenths = Math.round(mins * 10);
+  const h = Math.floor(tenths / 600);
+  const m = (tenths - h * 600) / 10;
   return h + 'h ' + (m < 10 ? '0' : '') + m + 'm';
 }
 
@@ -31146,6 +32557,7 @@ function _sleepClockRenderDial(night, accentColor, bandInfo) {
   // behind the ticks and the purple sleep arc. A warm arc spans sunrise to
   // sunset, a cool arc covers the night. Skipped on polar day / night.
   let _polarNote = null;
+  let _sunCaption = null;
   if (bandInfo) {
     const R_BAND = R_DIAL + 5;
     const BAND_W = 7;
@@ -31155,6 +32567,8 @@ function _sleepClockRenderDial(night, accentColor, bandInfo) {
     } else if (sun && sun.sunrise && sun.sunset) {
       const riseMin = sun.sunrise.getHours() * 60 + sun.sunrise.getMinutes();
       const setMin = sun.sunset.getHours() * 60 + sun.sunset.getMinutes();
+      // Exact times for the small caption beneath the dial.
+      _sunCaption = { rise: _sleepClockFmtTime(riseMin), set: _sleepClockFmtTime(setMin) };
       // Cool night ring underneath, warm day arc over it.
       svgHtml += '<circle cx="' + CX + '" cy="' + CY + '" r="' + R_BAND + '" fill="none" stroke="#3b4668" stroke-width="' + BAND_W + '" opacity="0.5"/>';
       const dayD = _sleepClockArcPath(riseMin, setMin, CX, CY, R_BAND);
@@ -31261,6 +32675,18 @@ function _sleepClockRenderDial(night, accentColor, bandInfo) {
 
   const wrap = el('div', {style:{textAlign:'center'}});
   wrap.innerHTML = svgHtml;
+
+  // Small caption with the exact sunrise / sunset times, colour-matched to
+  // the day-night band. Only shown when a band was drawn.
+  if (_sunCaption) {
+    const cap = el('div', {style:{fontSize:'9px',fontFamily:"'DM Mono',monospace",letterSpacing:'0.05em',marginTop:'4px'}});
+    cap.appendChild(el('span', {style:{color:'#e0a23c'}}, 'Sunrise '));
+    cap.appendChild(el('span', {style:{color:'var(--text-secondary)'}}, _sunCaption.rise));
+    cap.appendChild(el('span', {style:{color:'var(--text-footnote)'}}, '   \u00b7   '));
+    cap.appendChild(el('span', {style:{color:'#9aa6c8'}}, 'Sunset '));
+    cap.appendChild(el('span', {style:{color:'var(--text-secondary)'}}, _sunCaption.set));
+    wrap.appendChild(cap);
+  }
   return wrap;
 }
 
