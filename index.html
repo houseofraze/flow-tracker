@@ -708,7 +708,7 @@
 //   1. Bump APP_VERSION here
 //   2. Bump CACHE_VERSION in service-worker.js to match
 //   3. mv fraser-final-complete.html index.html; git commit; git push
-const APP_VERSION = '2026.05.19.6';
+const APP_VERSION = '2026.05.19.7';
 
 let activeTab = 'overview';
 let activeDay = 0; // will be set to today on init
@@ -14162,13 +14162,34 @@ function renderOverview() {
   const hero = div({background:'#0c0c0c',border:'1px solid #1a1a1a',borderRadius:'12px',padding:'16px 16px 14px',marginBottom:'12px'});
   hero.appendChild(el('div',{style:{fontSize:'8px',color:'#6a6a6a',letterSpacing:'0.22em',textTransform:'uppercase',marginBottom:'10px'}},'Body Composition'));
 
+  // Derive the target bands from the locked goal profile when one exists, so
+  // the card follows what the user actually set. Band widths match the
+  // existing BODY_GOAL convention: bodyFat plus or minus 0.5 percent, weight
+  // plus or minus 1 kg. Falls back to BODY_GOAL when no goal is locked or
+  // when a target field is absent on the profile.
+  const _bcGoalProfile = (typeof getGoalProfile === 'function') ? getGoalProfile() : null;
+  const _bg = {
+    bodyFatTargetMin: BODY_GOAL.bodyFatTargetMin,
+    bodyFatTargetMax: BODY_GOAL.bodyFatTargetMax,
+    weightTargetMin:  BODY_GOAL.weightTargetMin,
+    weightTargetMax:  BODY_GOAL.weightTargetMax
+  };
+  if (_bcGoalProfile && _bcGoalProfile.targetBodyFat != null) {
+    _bg.bodyFatTargetMin = +(_bcGoalProfile.targetBodyFat - 0.5).toFixed(1);
+    _bg.bodyFatTargetMax = +(_bcGoalProfile.targetBodyFat + 0.5).toFixed(1);
+  }
+  if (_bcGoalProfile && _bcGoalProfile.targetWeight != null) {
+    _bg.weightTargetMin = +(_bcGoalProfile.targetWeight - 1).toFixed(1);
+    _bg.weightTargetMax = +(_bcGoalProfile.targetWeight + 1).toFixed(1);
+  }
+
   const heroGrid = div({display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',marginBottom:'10px'});
 
   // Body Fat box
   const bfBox = div({background:'#080808',borderRadius:'8px',padding:'12px',border:'1px solid #161616'});
   bfBox.appendChild(el('div',{style:{fontSize:'7px',color:'#6a6a6a',letterSpacing:'0.18em',textTransform:'uppercase',marginBottom:'6px'}},'Body Fat'));
   if (latest && latest.bodyFat) {
-    const onTarget = latest.bodyFat <= BODY_GOAL.bodyFatTargetMax;
+    const onTarget = latest.bodyFat <= _bg.bodyFatTargetMax;
     const bfColor = onTarget ? '#06d6a0' : '#ff7b3b';
     bfBox.appendChild(bebas(38, bfColor, latest.bodyFat + '%'));
     if (prev && prev.bodyFat) {
@@ -14176,10 +14197,10 @@ function renderOverview() {
       const dColor = delta < 0 ? '#06d6a0' : delta > 0 ? '#ff5b5b' : '#666';
       bfBox.appendChild(el('div',{style:{fontSize:'9px',color:dColor,marginTop:'4px',fontFamily:"'DM Mono',monospace"}}, (delta > 0 ? '+' : '') + delta + '% vs last'));
     }
-    bfBox.appendChild(el('div',{style:{fontSize:'8px',color:'#6a6a6a',marginTop:'5px',letterSpacing:'0.05em'}},'Target: ' + BODY_GOAL.bodyFatTargetMin + '–' + BODY_GOAL.bodyFatTargetMax + '%'));
+    bfBox.appendChild(el('div',{style:{fontSize:'8px',color:'#6a6a6a',marginTop:'5px',letterSpacing:'0.05em'}},'Target: ' + _bg.bodyFatTargetMin + '–' + _bg.bodyFatTargetMax + '%'));
     // Progress bar
     const total = 18; // scale 0-18% body fat
-    const targetFill = (BODY_GOAL.bodyFatTargetMax / total) * 100;
+    const targetFill = (_bg.bodyFatTargetMax / total) * 100;
     const currentFill = Math.min((latest.bodyFat / total) * 100, 100);
     const barWrap = div({position:'relative',height:'4px',background:'#1a1a1a',borderRadius:'2px',marginTop:'8px',overflow:'hidden'});
     barWrap.appendChild(div({position:'absolute',left:'0',top:'0',height:'100%',width:targetFill+'%',background:'#06d6a022'}));
@@ -14187,7 +14208,7 @@ function renderOverview() {
     bfBox.appendChild(barWrap);
   } else {
     bfBox.appendChild(bebas(28, '#333', '—'));
-    bfBox.appendChild(el('div',{style:{fontSize:'8px',color:'#6a6a6a',marginTop:'5px'}},'Target: ' + BODY_GOAL.bodyFatTargetMin + '–' + BODY_GOAL.bodyFatTargetMax + '%'));
+    bfBox.appendChild(el('div',{style:{fontSize:'8px',color:'#6a6a6a',marginTop:'5px'}},'Target: ' + _bg.bodyFatTargetMin + '–' + _bg.bodyFatTargetMax + '%'));
   }
 
   // Weight box
@@ -14203,10 +14224,10 @@ function renderOverview() {
       const dColor = delta < 0 ? '#06d6a0' : delta > 0 ? '#ff7b3b' : '#666';
       wBox.appendChild(el('div',{style:{fontSize:'9px',color:dColor,marginTop:'4px',fontFamily:"'DM Mono',monospace"}}, (delta > 0 ? '+' : '') + delta + ' kg vs last'));
     }
-    wBox.appendChild(el('div',{style:{fontSize:'8px',color:'#6a6a6a',marginTop:'5px',letterSpacing:'0.05em'}},'Target: ' + BODY_GOAL.weightTargetMin + '–' + BODY_GOAL.weightTargetMax + ' kg'));
+    wBox.appendChild(el('div',{style:{fontSize:'8px',color:'#6a6a6a',marginTop:'5px',letterSpacing:'0.05em'}},'Target: ' + _bg.weightTargetMin + '–' + _bg.weightTargetMax + ' kg'));
   } else {
     wBox.appendChild(bebas(28, '#333', '—'));
-    wBox.appendChild(el('div',{style:{fontSize:'8px',color:'#6a6a6a',marginTop:'5px'}},'Target: ' + BODY_GOAL.weightTargetMin + '–' + BODY_GOAL.weightTargetMax + ' kg'));
+    wBox.appendChild(el('div',{style:{fontSize:'8px',color:'#6a6a6a',marginTop:'5px'}},'Target: ' + _bg.weightTargetMin + '–' + _bg.weightTargetMax + ' kg'));
   }
 
   heroGrid.appendChild(bfBox);
