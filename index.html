@@ -192,6 +192,7 @@
     --text-muted:      #7a7a7a;     /* small labels, optional indicators */
     --text-footnote:   #5a5a5a;     /* source attributions, footnotes */
     --text-disabled:   #333;        /* dot indicators, separators */
+    --text-on-accent:  #000;        /* CTA labels sitting on accent-primary bg */
 
     /* Borders */
     --border-subtle:  #1a1a1a;      /* card outlines, inset boundaries */
@@ -609,7 +610,7 @@
   <div class="header">
     <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:6px;padding-top:8px">
       <div>
-        <div id="header-program-label" style="font-size:9px;letter-spacing:0.25em;color:#333;text-transform:uppercase;margin-bottom:2px">Fraser — 7-Day Program</div>
+        <div id="header-program-label" style="font-size:9px;letter-spacing:0.25em;color:#333;text-transform:uppercase;margin-bottom:2px">FLOW Tracker</div>
         <div class="bebas" style="font-size:28px;letter-spacing:0.05em;line-height:1">TRAIN + FUEL</div>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
@@ -642,13 +643,15 @@
   <div id="day-banner" style="margin:10px 18px;padding:14px 16px;background:#0e0e0e;border-radius:10px;display:flex;justify-content:space-between;align-items:center"></div>
 
   <!-- TAB CONTENTS -->
-  <div id="tab-overview" class="tab-content"><div style="padding:8px 18px 32px" id="overview-content"></div></div>
+  <!-- Reorganisation R1: four-tab structure. Today and Body are new mounts;
+       tab-train and tab-fuel keep their existing mount ids so the existing
+       renderWorkout/renderNutrition functions need no change. The retired
+       water/sleep/shopping/history tab divs are removed from the DOM; their
+       former render functions now feed sheet overlays mounted to body. -->
+  <div id="tab-today" class="tab-content"><div style="padding:8px 18px 32px" id="today-content"></div></div>
   <div id="tab-train" class="tab-content"><div style="padding:8px 18px" id="exercise-list"></div></div>
   <div id="tab-fuel" class="tab-content"><div style="padding:8px 18px" id="meal-list"></div></div>
-  <div id="tab-water" class="tab-content"><div style="padding:8px 18px 28px" id="water-content"></div></div>
-  <div id="tab-sleep" class="tab-content"><div style="padding:8px 18px 32px" id="sleep-content"></div></div>
-  <div id="tab-shopping" class="tab-content"><div style="padding:16px 18px" id="shopping-content"></div></div>
-  <div id="tab-history" class="tab-content"><div style="padding:16px 18px" id="history-content"></div></div>
+  <div id="tab-body" class="tab-content"><div style="padding:8px 18px 32px" id="body-content"></div></div>
 
 </div>
 
@@ -708,9 +711,9 @@
 //   1. Bump APP_VERSION here
 //   2. Bump CACHE_VERSION in service-worker.js to match
 //   3. mv fraser-final-complete.html index.html; git commit; git push
-const APP_VERSION = '2026.05.19.7';
+const APP_VERSION = '2026.05.19.20';
 
-let activeTab = 'overview';
+let activeTab = 'today';
 let activeDay = 0; // will be set to today on init
 let weekOffset = 0;
 let expandedEx = null;
@@ -755,12 +758,15 @@ const WEEKDAY_LABELS_LONG = ['Sunday','Monday','Tuesday','Wednesday','Thursday',
 // Each tab has a signature colour for ambient context. Workout inherits the
 // active day's accent (so Push day = yellow, Pull = cyan, etc.).
 const TAB_ACCENTS = {
-  overview: '#06d6a0',  // teal-green — control center
+  // Reorganisation R1: four-tab structure. Today inherits the old Overview
+  // teal-green (the control-center accent), Body inherits the old Sleep
+  // indigo (now the home of body composition, sleep, and history surfaces).
+  // The old water/shopping/history accents are retired with their tabs;
+  // their content is now reached via sheets and carries the parent tab's
+  // accent.
+  today:    '#06d6a0',  // teal-green — control center
   fuel:     '#5fd463',  // fresh green — nutrition
-  water:    '#3b9eff',  // clear blue
-  sleep:    '#7c5cff',  // indigo — night
-  shopping: '#ff9f3b',  // warm amber — groceries
-  history:  '#888888'   // neutral grey — record
+  body:     '#7c5cff',  // indigo — body composition + sleep
   // 'cycle': '#e85d9c' will go here when menstrual tracking lands
 };
 
@@ -5456,6 +5462,91 @@ const PROGRAM = [
   ]}
 ];
 
+// ═══════════════════════════════════════════════════════════════════════════
+// EXTRA WORKOUTS V1 START
+//
+// Off-program calisthenic sessions that sit alongside PROGRAM. No nutritional
+// weight; completing one does not shift daily macros. Format: sets and reps
+// with self-paced advance, no timer. Each workout has blocks (warmup, one or
+// more work blocks, cooldown), each block carries movements with either reps
+// or durationSeconds, never both.
+// ═══════════════════════════════════════════════════════════════════════════
+const EXTRA_WORKOUTS = [
+  {
+    id: 'core-compression',
+    name: 'Core Compression',
+    durationMinutes: 20,
+    targetArea: 'Core Compression',
+    equipment: 'None (mat optional)',
+    description: 'Active core flexion under tension. Pike sits, V-ups, hollow holds, dragon flag work. The antigravity, lever-control side of core training.',
+    blocks: [
+      { name: 'Warmup', movements: [
+        { name: 'Cat-cow', sets: 1, reps: '10 slow', cues: ['Move with breath, do not rush', 'Full spinal range'] },
+        { name: 'Glute bridge', sets: 1, reps: '10', cues: ['Squeeze glutes at the top', 'Ribs down, do not flare'] },
+        { name: 'Dead bug', sets: 1, reps: '6 each side', cues: ['Lower back pinned to the floor', 'Slow opposite arm and leg'] },
+        { name: 'Hollow body rocks', sets: 1, reps: '10', cues: ['Rock from shoulders to glutes as one piece', 'Stay tight, do not pike'] }
+      ]},
+      { name: 'Work Block 1 - Compression Intro', movements: [
+        { name: 'Pike compression sits', sets: 4, reps: '8', cues: ['Sit with legs straight in front', 'Lift legs an inch off the floor', 'Reach for toes while keeping legs straight', 'Lower under control'] },
+        { name: 'Butterfly compression hold', sets: 4, durationSeconds: 10, cues: ['Soles together, knees out', 'Lean forward, lift feet off the floor', 'Hold actively, do not relax into it'] }
+      ]},
+      { name: 'Work Block 2 - Active Compression', movements: [
+        { name: 'Tuck-L hold', sets: 3, durationSeconds: 18, cues: ['Sit, hands on floor beside hips', 'Tuck knees to chest and lift hips off the floor', 'Keep shoulders pressed down', 'Parallettes make this easier if you have them'] },
+        { name: 'V-up to tuck', sets: 4, reps: '8', cues: ['From flat back, simultaneously lift legs and torso into a V', 'Lower under control, do not slam down'] },
+        { name: 'Jackknife pulses', sets: 3, reps: '12', cues: ['Lying on back, arms overhead', 'Sit up while reaching hands to feet', 'Short controlled pulses, not full sit-ups'] }
+      ]},
+      { name: 'Work Block 3 - Strength Compression', movements: [
+        { name: 'Tuck dragon flag negatives', sets: 3, reps: '4 with 3s lowering', cues: ['Lie back on a mat with hands gripping a fixed object behind your head', 'Tuck knees, lift hips into a tuck dragon flag', 'Lower the whole body in one piece over 3 seconds', 'Progression target is the full dragon flag with straight legs'] },
+        { name: 'Hollow body hold', sets: 3, durationSeconds: 30, cues: ['Lower back pressed into the floor', 'Legs straight, arms overhead', 'Find the position where the lower back stays pinned, hold there'] }
+      ]},
+      { name: 'Cooldown', movements: [
+        { name: 'Cobra stretch', sets: 1, durationSeconds: 30, cues: ['Press chest up, hips on the floor', 'Breathe into the front of the body'] },
+        { name: "Child's pose", sets: 1, durationSeconds: 30, cues: ['Knees wide, hips back to heels', 'Reach the arms forward, let the spine lengthen'] },
+        { name: 'Spinal twist', sets: 1, durationSeconds: 30, cues: ['30 seconds each side', 'Lying on back, drop knees to one side, opposite arm extended'] }
+      ]}
+    ]
+  },
+  {
+    id: 'core-foundations',
+    name: 'Core Foundations',
+    durationMinutes: 20,
+    targetArea: 'Core Foundations',
+    equipment: 'None (mat optional)',
+    description: 'Anti-extension, anti-rotation, anti-lateral-flexion, and light posterior chain work. The functional core stability that compression work deliberately skips.',
+    blocks: [
+      { name: 'Warmup', movements: [
+        { name: 'Cat-cow', sets: 1, reps: '10 slow', cues: ['Move with breath, do not rush', 'Full spinal range'] },
+        { name: 'Glute bridge', sets: 1, reps: '10', cues: ['Squeeze glutes at the top', 'Ribs down, do not flare'] },
+        { name: 'Bird dog', sets: 1, reps: '6 each side', cues: ['Slow, brief pause at extension', 'No hip rotation'] },
+        { name: "World's greatest stretch", sets: 1, reps: '4 each side', cues: ['Step into a deep lunge', 'Rotate the trailing arm to the ceiling'] }
+      ]},
+      { name: 'Work Block 1 - Anti-Extension', movements: [
+        { name: 'Forearm plank', sets: 3, durationSeconds: 38, cues: ['Elbows under shoulders', 'Squeeze glutes, tuck pelvis', 'Lower back flat, not arched', 'If the hips sag, stop the set'] },
+        { name: 'Dead bug', sets: 3, reps: '8 each side with 3s eccentric', cues: ['Lower back pinned to the floor throughout', 'Extend opposite arm and leg slowly', 'If the lower back lifts, shorten the range'] },
+        { name: 'Hollow body hold', sets: 3, durationSeconds: 25, cues: ['Lower back pressed into the floor', 'Legs and arms extended above', 'Find the position where the lower back stays pinned'] }
+      ]},
+      { name: 'Work Block 2 - Anti-Rotation', movements: [
+        { name: 'Side plank', sets: 3, durationSeconds: 25, cues: ['Each side', 'Elbow under shoulder, body in a straight line', 'Hips lifted, do not let them sag', 'Stack feet, or stagger if stacking is too hard'] },
+        { name: 'Bird dog with pause', sets: 3, reps: '8 each side with 3s hold', cues: ['From hands and knees, extend opposite arm and leg', 'Pause for 3 seconds at full extension without any hip rotation', 'Slow return'] },
+        { name: 'Plank with shoulder taps', sets: 3, reps: '10 each side', cues: ['From a high plank, tap opposite hand to shoulder', 'Do not let the hips rock', 'Wide feet make this easier'] }
+      ]},
+      { name: 'Work Block 3 - Obliques and Posterior', movements: [
+        { name: 'Russian twist', sets: 3, reps: '20 total', cues: ['Sit with knees bent, feet hover off the floor', 'Twist torso side to side, controlled', 'A book or water bottle adds resistance'] },
+        { name: 'Glute bridge with march', sets: 3, reps: '8 each side', cues: ['From a glute bridge, lift one knee toward chest without dropping the hips', 'Alternate slowly'] },
+        { name: 'Superman hold', sets: 3, durationSeconds: 15, cues: ['Lying face down, arms extended ahead', 'Lift arms, chest, and legs off the floor', 'Hold without straining the neck'] }
+      ]},
+      { name: 'Cooldown', movements: [
+        { name: 'Knees to chest', sets: 1, durationSeconds: 30, cues: ['Lying on back, hug knees to chest', 'Let the lower back release'] },
+        { name: 'Cobra stretch', sets: 1, durationSeconds: 30, cues: ['Press chest up, hips on the floor', 'Breathe into the front of the body'] },
+        { name: "Child's pose", sets: 1, durationSeconds: 30, cues: ['Knees wide, hips back to heels', 'Reach the arms forward, let the spine lengthen'] }
+      ]}
+    ]
+  }
+];
+// ═══════════════════════════════════════════════════════════════════════════
+// EXTRA WORKOUTS V1 END
+// ═══════════════════════════════════════════════════════════════════════════
+
 // Capture the default PROGRAM templates for restoration (deep clone).
 // PROGRAM may be mutated in-place by the training-frequency system; this
 // snapshot lets us rebuild the original 5-day template structure when the
@@ -9459,24 +9550,31 @@ function wmNavControls() {
 function wmRenderEntryBanner() {
   const day = PROGRAM[activeDay];
   if (!day.exercises || day.exercises.length === 0) return null;
-  // On rest days, suppress Workout Mode entirely — return null so the workout
+  // On rest days, suppress Workout Mode entirely. Return null so the workout
   // tab just shows the (light) leisure walk exercise card without a Mode banner.
   if (day.isRestDay) return null;
   const hasSaved = wmHasSavedSession();
+  // Reorganisation R3: hero treatment for the Train tab's primary action.
+  // Single caller (renderWorkout), so the promotion is unconditional. The
+  // per-day accent stays as the color signal (it is intentional design),
+  // but the structural hero pattern from R2/R5 is applied: stronger border,
+  // inset accent-soft shadow, larger padding, Bebas Neue headline replacing
+  // the small uppercase label.
   const wrap = div({
     background: 'linear-gradient(135deg, ' + day.accent + '22, ' + day.accent + '08)',
-    border: '1px solid ' + day.accent + '44',
+    border: '1px solid ' + day.accent + '88',
+    boxShadow: '0 0 0 1px ' + day.accent + '22 inset',
     borderRadius: '12px',
-    padding: '14px',
+    padding: '16px 18px',
     marginBottom: '14px',
-    display:'flex', justifyContent:'space-between', alignItems:'center', gap:'10px'
+    display:'flex', justifyContent:'space-between', alignItems:'center', gap:'12px'
   });
-  const left = div({});
+  const left = div({ flex: '1', minWidth: '0' });
   left.appendChild(el('div', {
-    style:{fontSize:'8px',color:day.accent,letterSpacing:'0.28em',textTransform:'uppercase',fontWeight:'700',marginBottom:'3px'}
-  }, hasSaved ? 'Resume Session' : 'Workout Mode'));
+    style:{fontFamily:"'Bebas Neue', sans-serif",fontSize:'22px',color: day.accent,letterSpacing:'0.04em',lineHeight:'1.05',marginBottom:'4px'}
+  }, hasSaved ? 'RESUME SESSION' : 'WORKOUT MODE'));
   left.appendChild(el('div', {
-    style:{fontSize:'10px',color:'#aaa',lineHeight:'1.4'}
+    style:{fontSize:'11px',color:'#aaa',lineHeight:'1.45',fontFamily:"'DM Mono', monospace"}
   }, hasSaved ? 'Pick up where you left off.' : 'Guided session: countdown, sets, rest, all timed.'));
   wrap.appendChild(left);
 
@@ -10702,9 +10800,13 @@ function render() {
   renderTabs();
   applyTabHeaderConfig();
   renderActiveTab();
-  // Backup reminder banner — checks freshness + snooze state inside, so
-  // calling it on every render is cheap and self-hiding.
-  renderBackupReminderBanner();
+  // Reorganisation R2: the backup reminder banner is noise on the Today
+  // landing surface. Suppress it on Today; the banner still appears on
+  // the other three tabs when stale, so the nag is not lost, just kept
+  // out of the day-start glance.
+  if (activeTab !== 'today') {
+    renderBackupReminderBanner();
+  }
 }
 
 // ─── HALO NAV ─────────────────────────────────────────────────────────────
@@ -10768,23 +10870,17 @@ const HALO_ICONS = {
 };
 
 const HALO_TABS = [
-  {id:'overview', label:'Stats'},
-  {id:'train',    label:'Workout'},
-  {id:'fuel',     label:'Nutrition'},
-  {id:'water',    label:'Water'},
-  {id:'sleep',    label:'Sleep'},
-  {id:'shopping', label:'Shop'},
-  {id:'history',  label:'History'}
+  {id:'today', label:'Today'},
+  {id:'train', label:'Train'},
+  {id:'fuel',  label:'Fuel'},
+  {id:'body',  label:'Body'}
 ];
 
 const SECTION_LABELS = {
-  overview:'Stats Overview',
+  today:'Today',
   train:'Workout',
   fuel:'Nutrition',
-  water:'Hydration',
-  sleep:'Sleep',
-  shopping:'Shopping List',
-  history:'History'
+  body:'Body'
 };
 
 // ── HALO NAV STATE ───────────────────────────────────────────────────────
@@ -12264,16 +12360,553 @@ function renderReorderHint() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ─── REORGANISATION R1: Four-tab tabs + sheet wrappers ─────────────────────
+// renderToday and renderBody are thin wrappers around the parameterized
+// renderOverview (which now accepts a mountId and an opts.skip list). The
+// retired Water, Sleep, Shopping, and History tabs become sheets reached
+// from Body and Fuel; their existing render functions are reused with a
+// mount-element parameter swap.
+//
+// Today (R1A scope): goal CTA card + a small placeholder "more coming"
+// card. The three new summary cards (training / nutrition / water+sleep)
+// are deferred to R1B.
+//
+// Body: every Overview section EXCEPT goal CTA, nutrition adherence, and
+// water (audit retirements), PLUS a sleep summary card that opens the
+// sleep sheet, PLUS the history content (progression panels + 6-week
+// grid) folded in.
+// ═══════════════════════════════════════════════════════════════════════════
+
+function renderToday() {
+  // Reorganisation R2: visual hierarchy on the Today tab.
+  //   - Goal CTA at TOP only when no goal is locked (the wizard CTA needs
+  //     to be discoverable). Uses the existing renderOverview goal section.
+  //   - Training card is the HERO (accent border, larger headline).
+  //   - Nutrition + Recovery stay in SUPPORTING treatment from R1B.
+  //   - When a goal IS locked, a compact UTILITY-treatment goal card sits
+  //     at the BOTTOM as a quiet reminder. The big "Goal Locked" treatment
+  //     is redundant once the user has set their goal.
+  const profile = (typeof getGoalProfile === 'function') ? getGoalProfile() : null;
+  const isLocked = !!(profile && profile.lockedAt);
+
+  if (!isLocked) {
+    // Unlocked path: full Goal CTA at top via renderOverview's existing
+    // goal section. Renders only the goal card; everything else is skipped.
+    renderOverview('today-content', { skip: [
+      'hero','trends','training','figure','sleep','strength',
+      'nutrition','water','bia','meas','photos','modal'
+    ]});
+  } else {
+    // Locked path: do not render the goal here; the compact card lives
+    // at the bottom. Wipe the mount so the appends below build cleanly.
+    const _root = document.getElementById('today-content');
+    if (_root) _root.innerHTML = '';
+  }
+
+  const root = document.getElementById('today-content');
+  if (!root) return;
+  // Hero: Training. The day's primary action.
+  try { root.appendChild(_r1TodayTrainingHeroCard()); } catch (e) { /* non-fatal */ }
+  // Supporting cards: Nutrition + Recovery, unchanged from R1B.
+  try { root.appendChild(_r1TodayNutritionCard()); } catch (e) { /* non-fatal */ }
+  try { root.appendChild(_r1TodayStatusCard()); } catch (e) { /* non-fatal */ }
+  // Compact goal CTA at the bottom when locked.
+  if (isLocked) {
+    try {
+      var _compactGoal = _r1TodayGoalCardCompact();
+      if (_compactGoal) root.appendChild(_compactGoal);
+    } catch (e) { /* non-fatal */ }
+  }
+}
+
+function renderBody() {
+  // Body absorbs the body composition, sleep, history, BIA, measurements,
+  // and photos surfaces from the old Overview, plus folds in the History
+  // tab content (6-week grid + progression panels). Goal CTA stays on
+  // Today; Nutrition Adherence and Water are retired per the R0 audit.
+  // Reorganisation R5: pass bodyCompHero (promote body comp to the Body
+  // tab's single hero) and utilityCollapsibles (BIA/Measurements/Photos
+  // collapsed in utility treatment so they read as detail surfaces, not
+  // primary content).
+  renderOverview('body-content', {
+    skip: ['goal','nutrition','water'],
+    bodyCompHero: true,
+    utilityCollapsibles: true
+  });
+  // After renderOverview has done its work, append the history content.
+  const root = document.getElementById('body-content');
+  if (!root) return;
+  // Progression panels (deload banner + volume charts).
+  if (typeof renderProgressionPanels === 'function') {
+    try { renderProgressionPanels(root); } catch (e) { /* non-fatal */ }
+  }
+  // 6-week training + nutrition + water grid (copied from renderHistory).
+  try {
+    root.appendChild(_r1RenderRecentWeeksGrid());
+  } catch (e) { /* non-fatal */ }
+  // A small Sleep-sheet entry. Sleep moved off as a sheet; this card is
+  // the trigger. Sits at the bottom of Body where the old History grid lived.
+  try {
+    root.appendChild(_r1RenderSleepSheetEntry());
+  } catch (e) { /* non-fatal */ }
+}
+
+// ─── R1 helpers ────────────────────────────────────────────────────────────
+
+// 6-week training + nutrition + water grid, lifted from renderHistory.
+// Returns a wrapper element.
+function _r1RenderRecentWeeksGrid() {
+  var wrap = div({ marginTop: '12px' });
+  wrap.appendChild(el('div', { style: {
+    fontSize: '8px', letterSpacing: '0.22em', color: '#333',
+    textTransform: 'uppercase', marginBottom: '16px', marginTop: '8px'
+  } }, '6-Week Training + Nutrition + Water'));
+  for (var i = 0; i < 6; i++) {
+    var w = weekOffset - i;
+    var wLabel = w === 0 ? 'This Week' : w === -1 ? 'Last Week' : Math.abs(w) + 'w ago';
+    var section = div({ marginBottom: '20px' });
+    section.appendChild(el('div', { style: {
+      fontSize: '8px', letterSpacing: '0.15em', color: '#2a2a2a',
+      textTransform: 'uppercase', borderBottom: '1px solid #141414',
+      paddingBottom: '6px', marginBottom: '8px'
+    } }, wLabel));
+    var row = div({ display: 'flex', gap: '4px', flexWrap: 'wrap' });
+    PROGRAM.forEach(function (d) {
+      var wLog = loadData('workout', w, d.day);
+      var nLog = loadData('nutri', w, d.day);
+      var wtrLog = loadData('water', w, d.day);
+      var hasW = wLog && Object.keys(wLog).length > 0;
+      var hasN = nLog && Object.values(nLog).some(Boolean);
+      var hasWtr = wtrLog && wtrLog.total > 0;
+      var np = NUTRITION[d.nutriType];
+      var card = div({
+        flex: '1', minWidth: '50px',
+        background: hasW || hasN ? '#0e0e0e' : '#090909',
+        border: '1px solid ' + (hasW ? d.accent + '44' : '#141414'),
+        borderRadius: '6px', padding: '6px'
+      });
+      card.appendChild(bebas(12, hasW ? d.accent : '#222', d.title));
+      card.appendChild(el('div', { style: { fontSize: '6px', color: hasW ? '#555' : '#1a1a1a', marginTop: '2px' } }, hasW ? Object.keys(wLog).length + ' ex' : '—'));
+      card.appendChild(el('div', { style: { fontSize: '6px', color: hasN ? np.color : '#1a1a1a', marginTop: '1px' } }, hasN ? Object.values(nLog).filter(Boolean).length + ' meals' : 'no food'));
+      card.appendChild(el('div', { style: { fontSize: '6px', color: hasWtr ? '#3bdfff' : '#1a1a1a', marginTop: '1px' } }, hasWtr ? (wtrLog.total / 1000).toFixed(1) + 'L' : 'no H\u2082O'));
+      row.appendChild(card);
+    });
+    section.appendChild(row);
+    wrap.appendChild(section);
+  }
+  return wrap;
+}
+
+// Sleep-sheet entry card on Body. Tap opens the sleep sheet.
+function _r1RenderSleepSheetEntry() {
+  var card = el('div', { style: {
+    background: 'var(--bg-card-nested)', border: '1px solid var(--border-default)',
+    borderRadius: '10px', padding: '12px 14px', marginTop: '14px', marginBottom: '12px',
+    display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer'
+  }, onclick: function () { try { openSleepSheet(); } catch (e) { /* non-fatal */ } } });
+  card.appendChild(el('div', { style: { fontSize: '20px', flexShrink: '0' } }, '\ud83c\udf19'));
+  var body = el('div', { style: { flex: '1', minWidth: '0' } });
+  body.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '10px', color: '#888',
+    letterSpacing: '0.22em', textTransform: 'uppercase', fontWeight: '700'
+  } }, 'Sleep'));
+  body.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '11px', color: 'var(--text-tertiary)',
+    marginTop: '3px', lineHeight: '1.4'
+  } }, 'Plan tonight, log last night, see your sleep history.'));
+  card.appendChild(body);
+  card.appendChild(el('span', { style: { color: '#444', fontSize: '18px', flexShrink: '0' } }, '\u203a'));
+  return card;
+}
+
+// ─── Reorganisation R1B: Today summary cards ──────────────────────────────
+// Three small supporting cards built for the Today tab so it becomes a real
+// landing surface rather than just Goal CTA. Each uses the standard
+// supporting-card treatment (bg-card-nested + border-default). No hero
+// treatment, no accent-primary. R2 will apply visual hierarchy.
+
+// Shared scaffold for the Today summary cards. Builds an icon-label-body-
+// chevron row matching the visual rhythm of _r1RenderSleepSheetEntry.
+function _r1TodaySummaryCard(icon, label, line1, line2, onTap) {
+  var card = el('div', { style: {
+    background: 'var(--bg-card-nested)', border: '1px solid var(--border-default)',
+    borderRadius: '10px', padding: '12px 14px', marginBottom: '12px',
+    display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer'
+  }, onclick: onTap || function () {} });
+  card.appendChild(el('div', { style: { fontSize: '20px', flexShrink: '0' } }, icon));
+  var body = el('div', { style: { flex: '1', minWidth: '0' } });
+  body.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '10px', color: '#888',
+    letterSpacing: '0.22em', textTransform: 'uppercase', fontWeight: '700'
+  } }, label));
+  if (line1) {
+    body.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '11px', color: 'var(--text-tertiary)',
+      marginTop: '3px', lineHeight: '1.4'
+    } }, line1));
+  }
+  if (line2) {
+    body.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '10px', color: 'var(--text-muted)',
+      marginTop: '2px', lineHeight: '1.4'
+    } }, line2));
+  }
+  card.appendChild(body);
+  card.appendChild(el('span', { style: { color: '#444', fontSize: '18px', flexShrink: '0' } }, '\u203a'));
+  return card;
+}
+
+// Training summary: today's day title + exercise count, tap routes to Train.
+function _r1TodayTrainingCard() {
+  var day = (typeof PROGRAM !== 'undefined' && PROGRAM[activeDay]) ? PROGRAM[activeDay] : null;
+  var line;
+  if (!day) {
+    line = 'No program loaded';
+  } else if (day.isRestDay) {
+    line = 'Today is a rest day. Enjoy the recovery.';
+  } else {
+    var exCount = Array.isArray(day.exercises) ? day.exercises.length : 0;
+    line = 'Today is ' + day.title + ' day. ' + exCount + (exCount === 1 ? ' exercise' : ' exercises') + '.';
+  }
+  return _r1TodaySummaryCard('\ud83c\udfcb\ufe0f', 'Train', line, null, function () {
+    try { setTab('train'); } catch (e) { activeTab = 'train'; render(); }
+  });
+}
+
+// Nutrition summary: today's kcal + protein target, tap routes to Fuel.
+// Reads from the locked goal profile when one exists; otherwise prompts.
+function _r1TodayNutritionCard() {
+  var profile = (typeof getGoalProfile === 'function') ? getGoalProfile() : null;
+  var line, sub = null;
+  if (profile && profile.lockedAt && profile.targetKcal && profile.proteinG) {
+    line = profile.targetKcal + ' kcal · ' + profile.proteinG + 'g protein.';
+    if (profile.goalTypeLabel) sub = profile.goalTypeLabel;
+  } else {
+    line = 'Lock a goal to see your daily target.';
+  }
+  return _r1TodaySummaryCard('\ud83c\udf7d\ufe0f', 'Fuel', line, sub, function () {
+    try { setTab('fuel'); } catch (e) { activeTab = 'fuel'; render(); }
+  });
+}
+
+// Status summary: today's water log + last night's sleep, tap routes to Body.
+function _r1TodayStatusCard() {
+  // Water: read today's log via the shared loadData helper.
+  var dayKey = (typeof getTodayActiveDay === 'function') ? getTodayActiveDay() : activeDay;
+  var wLog = null;
+  try { wLog = loadData('water', weekOffset, dayKey); } catch (e) { wLog = null; }
+  var wTotalMl = (wLog && typeof wLog.total === 'number') ? wLog.total : 0;
+  var waterLine = (wTotalMl / 1000).toFixed(1) + 'L of 3.5L logged today.';
+
+  // Sleep: read last night via the established yesterday-key convention.
+  var sleepLine;
+  try {
+    var ynKey = (typeof getYesterdayKey === 'function') ? getYesterdayKey() : null;
+    var lastNight = ynKey && typeof getSleepLog === 'function' ? getSleepLog(ynKey) : null;
+    if (lastNight && lastNight.durationMin && typeof formatDuration === 'function') {
+      sleepLine = 'Last night: ' + formatDuration(lastNight.durationMin) + '.';
+    } else {
+      sleepLine = 'No sleep logged for last night.';
+    }
+  } catch (e) {
+    sleepLine = 'No sleep logged for last night.';
+  }
+
+  return _r1TodaySummaryCard('\ud83d\udecf\ufe0f', 'Recovery', waterLine, sleepLine, function () {
+    try { setTab('body'); } catch (e) { activeTab = 'body'; render(); }
+  });
+}
+
+// ─── Reorganisation R2: Today tab visual hierarchy ─────────────────────────
+// Three-tier system applied to the Today tab:
+//   HERO        - one card per tab carries the accent-primary signal. On
+//                 Today the hero is Training. Larger padding, accent border,
+//                 Bebas Neue headline.
+//   SUPPORTING  - bg-card-nested + border-default. The default treatment for
+//                 the nutrition + recovery cards.
+//   UTILITY     - bg-card-nested but smaller padding, smaller type, muted
+//                 color. Used for the locked-goal Goal CTA at the bottom.
+//
+// The unlocked Goal CTA stays at the TOP and uses supporting treatment with
+// the existing locked-goal-tint variation (the wizard CTA needs to be
+// discoverable). Once a goal is locked, the Goal CTA moves to the BOTTOM and
+// quiets down to utility treatment.
+
+// renderHeroCard: same shape as _r1TodaySummaryCard but applies the hero
+// treatment. The headline replaces the small uppercase label with a larger
+// Bebas Neue heading; the line1/line2 body matches the supporting card body.
+function renderHeroCard(icon, headline, line1, line2, onTap) {
+  var card = el('div', { style: {
+    background: 'var(--bg-card)', border: '1px solid var(--accent-primary-border)',
+    borderRadius: '12px', padding: '16px 18px', marginBottom: '14px',
+    display: 'flex', alignItems: 'center', gap: '14px', cursor: 'pointer',
+    boxShadow: '0 0 0 1px var(--accent-primary-soft) inset'
+  }, onclick: onTap || function () {} });
+  card.appendChild(el('div', { style: { fontSize: '26px', flexShrink: '0' } }, icon));
+  var body = el('div', { style: { flex: '1', minWidth: '0' } });
+  body.appendChild(el('div', { style: {
+    fontFamily: "'Bebas Neue', sans-serif", fontSize: '22px', color: 'var(--text-primary)',
+    letterSpacing: '0.04em', lineHeight: '1.05', marginBottom: '4px'
+  } }, headline));
+  if (line1) {
+    body.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '11px', color: 'var(--text-tertiary)',
+      lineHeight: '1.45'
+    } }, line1));
+  }
+  if (line2) {
+    body.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '10px', color: 'var(--text-muted)',
+      marginTop: '2px', lineHeight: '1.45'
+    } }, line2));
+  }
+  card.appendChild(body);
+  card.appendChild(el('span', { style: { color: 'var(--accent-primary)', fontSize: '20px', flexShrink: '0' } }, '\u203a'));
+  return card;
+}
+
+// Today hero: Training card. Reads PROGRAM[activeDay]. Headline is the day
+// name (e.g. "PUSH"); line1 is exercise count + call to action.
+function _r1TodayTrainingHeroCard() {
+  var day = (typeof PROGRAM !== 'undefined' && PROGRAM[activeDay]) ? PROGRAM[activeDay] : null;
+  var headline, line1;
+  if (!day) {
+    headline = 'Train';
+    line1 = 'No program loaded.';
+  } else if (day.isRestDay) {
+    headline = 'Rest Day';
+    line1 = 'Enjoy the recovery. The work earlier in the week paid for this.';
+  } else {
+    headline = (day.title || 'Train').toUpperCase() + ' DAY';
+    var exCount = Array.isArray(day.exercises) ? day.exercises.length : 0;
+    line1 = exCount + (exCount === 1 ? ' exercise' : ' exercises') + '. Tap to start.';
+  }
+  return renderHeroCard('\ud83c\udfcb\ufe0f', headline, line1, null, function () {
+    try { setTab('train'); } catch (e) { activeTab = 'train'; render(); }
+  });
+}
+
+// Compact Goal CTA for the bottom of Today when a goal is locked. Smaller
+// padding, smaller type, muted colors. The full CTA-when-unlocked variant
+// still uses the existing renderOverview goal path (no change for that
+// case). This helper is the locked-goal utility variant only.
+function _r1TodayGoalCardCompact() {
+  var profile = (typeof getGoalProfile === 'function') ? getGoalProfile() : null;
+  if (!profile || !profile.lockedAt) return null;
+  var card = el('div', { style: {
+    background: 'var(--bg-card-nested)', border: '1px solid var(--border-default)',
+    borderRadius: '8px', padding: '8px 12px', marginTop: '6px', marginBottom: '8px',
+    display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer'
+  }, onclick: function () { try { openSettings('goals'); } catch (e) { /* non-fatal */ } } });
+  card.appendChild(el('span', { style: { fontSize: '13px', flexShrink: '0', color: '#666' } }, '\ud83c\udfaf'));
+  var body = el('div', { style: { flex: '1', minWidth: '0' } });
+  body.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '9px', color: '#777',
+    letterSpacing: '0.18em', textTransform: 'uppercase', fontWeight: '700'
+  } }, 'Goal'));
+  body.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '10px', color: 'var(--text-tertiary)',
+    marginTop: '1px', lineHeight: '1.3'
+  } }, (profile.goalTypeLabel || 'Goal') +
+       (profile.targetKcal ? ' \u00b7 ' + profile.targetKcal + ' kcal' : '') +
+       (profile.proteinG ? ' \u00b7 ' + profile.proteinG + 'g P' : '')));
+  card.appendChild(body);
+  card.appendChild(el('span', { style: { color: '#444', fontSize: '14px', flexShrink: '0' } }, '\u203a'));
+  return card;
+}
+
+// ─── R1 sheets ─────────────────────────────────────────────────────────────
+// Each sheet is a fullscreen overlay containing the existing render function's
+// output. The render functions are called with an explicit mount element so
+// they bypass their default tab-content lookup.
+
+var _r1SleepSheetOpen = false;
+function openSleepSheet() {
+  if (_r1SleepSheetOpen) return;
+  _r1SleepSheetOpen = true;
+  var overlay = _r1BuildSheetOverlay('Sleep', null);
+  overlay.id = 'r1-sleep-sheet';
+  overlay.onclick = function (e) { if (e.target === overlay) closeSleepSheet(); };
+  var closeBtn = overlay.querySelector('[data-r1-sheet-close]');
+  if (closeBtn) closeBtn.onclick = function (e) { e.stopPropagation(); closeSleepSheet(); };
+  document.body.appendChild(overlay);
+  var mount = overlay.querySelector('[data-r1-sheet-body]');
+  if (mount) {
+    mount.id = 'sleep-content';
+    try { renderSleep(); } catch (e) { /* non-fatal */ }
+  }
+}
+function closeSleepSheet() {
+  _r1SleepSheetOpen = false;
+  var ov = document.getElementById('r1-sleep-sheet');
+  if (ov && ov.parentNode) ov.parentNode.removeChild(ov);
+}
+
+var _r1WaterSheetOpen = false;
+function openWaterSheet() {
+  if (_r1WaterSheetOpen) return;
+  _r1WaterSheetOpen = true;
+  var overlay = _r1BuildSheetOverlay('Water', null);
+  overlay.id = 'r1-water-sheet';
+  // Bind close-button + outside-tap handlers to the water-specific closer.
+  overlay.onclick = function (e) { if (e.target === overlay) closeWaterSheet(); };
+  var closeBtn = overlay.querySelector('[data-r1-sheet-close]');
+  if (closeBtn) closeBtn.onclick = function (e) { e.stopPropagation(); closeWaterSheet(); };
+  document.body.appendChild(overlay);
+  var mount = overlay.querySelector('[data-r1-sheet-body]');
+  if (mount) {
+    mount.id = 'water-content';
+    try { renderWater(); } catch (e) { /* non-fatal */ }
+  }
+}
+function closeWaterSheet() {
+  _r1WaterSheetOpen = false;
+  var ov = document.getElementById('r1-water-sheet');
+  if (ov && ov.parentNode) ov.parentNode.removeChild(ov);
+}
+
+var _r1ShoppingSheetOpen = false;
+function openShoppingSheet() {
+  if (_r1ShoppingSheetOpen) return;
+  _r1ShoppingSheetOpen = true;
+  var overlay = _r1BuildSheetOverlay('Shopping List', null);
+  overlay.id = 'r1-shopping-sheet';
+  overlay.onclick = function (e) { if (e.target === overlay) closeShoppingSheet(); };
+  var closeBtn = overlay.querySelector('[data-r1-sheet-close]');
+  if (closeBtn) closeBtn.onclick = function (e) { e.stopPropagation(); closeShoppingSheet(); };
+  document.body.appendChild(overlay);
+  var mount = overlay.querySelector('[data-r1-sheet-body]');
+  if (mount) {
+    mount.id = 'shopping-content';
+    try { renderShopping(); } catch (e) { /* non-fatal */ }
+  }
+}
+function closeShoppingSheet() {
+  _r1ShoppingSheetOpen = false;
+  var ov = document.getElementById('r1-shopping-sheet');
+  if (ov && ov.parentNode) ov.parentNode.removeChild(ov);
+}
+
+// Shared overlay scaffold.
+function _r1BuildSheetOverlay(title, _unused) {
+  var overlay = el('div', { style: {
+    position: 'fixed', top: '0', left: '0', right: '0', bottom: '0',
+    background: 'rgba(0,0,0,0.85)', zIndex: '6000',
+    display: 'flex', flexDirection: 'column'
+  } });
+  var hdr = el('div', { style: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '14px 18px', background: 'var(--bg-card)',
+    borderBottom: '1px solid var(--border-default)'
+  } });
+  hdr.appendChild(el('div', { style: {
+    fontFamily: "'Bebas Neue', sans-serif", fontSize: '20px', color: '#ebebeb',
+    letterSpacing: '0.04em'
+  } }, title));
+  hdr.appendChild(el('div', {
+    'data-r1-sheet-close': '1',
+    style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '14px', color: '#888',
+      cursor: 'pointer', padding: '4px 10px', borderRadius: '6px',
+      border: '1px solid var(--border-default)'
+    }
+  }, '\u2715'));
+  overlay.appendChild(hdr);
+  var bodyWrap = el('div', { style: { flex: '1', overflowY: 'auto' } });
+  var bodyInner = el('div', {
+    'data-r1-sheet-body': '1',
+    style: { padding: '16px 18px 80px' }
+  });
+  bodyWrap.appendChild(bodyInner);
+  overlay.appendChild(bodyWrap);
+  return overlay;
+}
+
+// ─── R1: Fuel-tab entries for water + shopping ─────────────────────────────
+// Compact water card with quick-add buttons; tap header to open the full
+// Water sheet.
+function renderWaterCompactCard() {
+  var wLog = loadData('water', weekOffset, getTodayActiveDay()) || { total: 0, log: [] };
+  var target = 3500;  // mid-range default; the full sheet shows day-type-specific targets
+  var card = el('div', { style: {
+    background: 'var(--bg-card-nested)', border: '1px solid var(--border-default)',
+    borderRadius: '10px', padding: '12px 14px', marginBottom: '12px'
+  } });
+  var hdr = el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }, onclick: function () { try { openWaterSheet(); } catch (e) {} } });
+  var hdrLeft = div({});
+  hdrLeft.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '10px', color: '#888',
+    letterSpacing: '0.22em', textTransform: 'uppercase', fontWeight: '700'
+  } }, 'Water'));
+  hdrLeft.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '11px', color: '#9a9a9a', marginTop: '3px'
+  } }, (wLog.total / 1000).toFixed(1) + 'L of ' + (target / 1000) + 'L'));
+  hdr.appendChild(hdrLeft);
+  hdr.appendChild(el('span', { style: { color: '#444', fontSize: '16px' } }, '\u203a'));
+  card.appendChild(hdr);
+  // Quick-add row
+  var quickRow = el('div', { style: { display: 'flex', gap: '6px', marginTop: '10px' } });
+  [250, 500, 750, 1000].forEach(function (ml) {
+    var btn = el('button', {
+      class: 'btn',
+      style: {
+        flex: '1', padding: '8px 0', background: 'var(--bg-card)',
+        color: '#bbb', border: '1px solid var(--border-default)', borderRadius: '6px',
+        fontFamily: "'DM Mono', monospace", fontSize: '10px', cursor: 'pointer',
+        letterSpacing: '0.04em'
+      },
+      onclick: function (e) {
+        e.stopPropagation();
+        var dayKey = getTodayActiveDay();
+        var cur = loadData('water', weekOffset, dayKey) || { total: 0, log: [] };
+        cur.total = (cur.total || 0) + ml;
+        cur.log = cur.log || [];
+        cur.log.push({ amount: ml, time: Date.now() });
+        saveData('water', dayKey, cur);
+        renderNutrition();
+      }
+    }, '+' + (ml >= 1000 ? '1L' : ml + 'ml'));
+    quickRow.appendChild(btn);
+  });
+  card.appendChild(quickRow);
+  return card;
+}
+
+// Shopping-list entry card on Fuel. Tap opens the full Shopping sheet.
+function renderShoppingListEntry() {
+  var card = el('div', { style: {
+    background: 'var(--bg-card-nested)', border: '1px solid var(--border-default)',
+    borderRadius: '10px', padding: '12px 14px', marginBottom: '12px',
+    display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer'
+  }, onclick: function () { try { openShoppingSheet(); } catch (e) {} } });
+  card.appendChild(el('div', { style: { fontSize: '20px', flexShrink: '0' } }, '\ud83d\uded2'));
+  var body = el('div', { style: { flex: '1', minWidth: '0' } });
+  body.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '10px', color: '#888',
+    letterSpacing: '0.22em', textTransform: 'uppercase', fontWeight: '700'
+  } }, 'Shopping List'));
+  body.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '11px', color: '#9a9a9a',
+    marginTop: '3px', lineHeight: '1.4'
+  } }, 'Auto-built from this week\'s meal plan.'));
+  card.appendChild(body);
+  card.appendChild(el('span', { style: { color: '#444', fontSize: '18px', flexShrink: '0' } }, '\u203a'));
+  return card;
+}
+
 function renderActiveTab() {
-  // Phase F — reset body-figure selected anchor when navigating away from
-  // the Stats/Overview tab. Keeps the resting visual clean every time the
-  // user comes back to Stats, while still letting them explore mid-session.
-  if (activeTab !== 'overview' && _figureSelectedAnchor != null) {
+  // Reorganisation R1: four-tab dispatch. The body-figure anchor reset
+  // now keys on 'body' (the figure's new home), not 'overview'. Keeps the
+  // resting visual clean every time the user returns to Body, while still
+  // letting them explore mid-session.
+  if (activeTab !== 'body' && _figureSelectedAnchor != null) {
     _figureSelectedAnchor = null;
   }
   const tabAccent = getTabAccent(activeTab);
-  ['overview','train','fuel','water','sleep','shopping','history'].forEach(t => {
+  ['today','train','fuel','body'].forEach(t => {
     const wrap = document.getElementById('tab-'+t);
+    if (!wrap) return;
     wrap.style.display = t===activeTab?'block':'none';
     if (t === activeTab) {
       // Faint top-edge ambient gradient + very subtle full-tab tint
@@ -12282,13 +12915,10 @@ function renderActiveTab() {
       wrap.style.transition = 'background 0.3s';
     }
   });
-  if(activeTab==='overview')  renderOverview();
-  if(activeTab==='train')     renderWorkout();
-  if(activeTab==='fuel')      renderNutrition();
-  if(activeTab==='water')     renderWater();
-  if(activeTab==='sleep')     renderSleep();
-  if(activeTab==='shopping')  renderShopping();
-  if(activeTab==='history')   renderHistory();
+  if(activeTab==='today')  renderToday();
+  if(activeTab==='train')  renderWorkout();
+  if(activeTab==='fuel')   renderNutrition();
+  if(activeTab==='body')   renderBody();
 
   // Week label — shows actual date range so the user can SEE when a new week
   // has started. Previously this just read "This Week" forever, which made
@@ -14108,9 +14738,22 @@ function renderTrendsSection() {
   return card;
 }
 
-function renderOverview() {
+function renderOverview(mountId, opts) {
+  // Reorganisation R1: this function now accepts an optional mount id and
+  // options bag. Defaults preserve the legacy behavior — calling
+  // renderOverview() with no arguments still mounts to overview-content
+  // and renders all 14 cards. renderToday and renderBody call this with
+  // a different mountId and a skip list so they can reuse the same card
+  // build code without code duplication. R6 retires renderOverview once
+  // the reorganisation has settled. opts.skip is an array of section
+  // names: 'goal', 'hero', 'trends', 'training', 'figure', 'sleep',
+  // 'strength', 'nutrition', 'water', 'bia', 'meas', 'photos', 'modal'.
+  opts = opts || {};
+  var _r1skip = opts.skip || [];
+  var _r1shouldRender = function (section) { return _r1skip.indexOf(section) === -1; };
   seedBaselineIfEmpty();
-  const root = document.getElementById('overview-content');
+  const root = document.getElementById(mountId || 'overview-content');
+  if (!root) return;
   root.innerHTML = '';
   const accent = '#06d6a0';
 
@@ -14121,28 +14764,53 @@ function renderOverview() {
   // ── ADJUST GOAL CTA — direct path to the goal wizard ──
   // Shows the locked goal summary if present, else invites setup. Tapping
   // either takes the user to Settings → Goals, deep-linked.
+  if (_r1shouldRender('goal')) {
   const profile = getGoalProfile();
+  // Reorganisation R2: when opts.compactGoal is true AND a goal is locked,
+  // render a smaller utility variant of the goal CTA. The unlocked CTA path
+  // (no goal yet) is unaffected because the wizard call-to-action needs to
+  // stay discoverable. renderToday uses its own helper for compact placement
+  // at the bottom of Today; this option exists for any caller that wants the
+  // compact variant emitted inline in renderOverview's normal flow.
+  const _r2CompactGoal = !!(opts.compactGoal) && !!(profile && profile.lockedAt);
   const goalCard = div({
-    background: profile && profile.lockedAt ? 'linear-gradient(135deg, rgba(6,214,160,0.08), rgba(6,214,160,0.02))' : '#0c0c0c',
-    border: profile && profile.lockedAt ? '1px solid #06d6a044' : '1px solid #1a1a1a',
-    borderRadius:'12px', padding:'14px 16px', marginBottom:'12px',
-    display:'flex', alignItems:'center', gap:'12px', cursor:'pointer'
+    background: profile && profile.lockedAt
+      ? (_r2CompactGoal ? 'var(--bg-card-nested)' : 'linear-gradient(135deg, rgba(6,214,160,0.08), rgba(6,214,160,0.02))')
+      : '#0c0c0c',
+    border: profile && profile.lockedAt
+      ? (_r2CompactGoal ? '1px solid var(--border-default)' : '1px solid #06d6a044')
+      : '1px solid #1a1a1a',
+    borderRadius: _r2CompactGoal ? '8px' : '12px',
+    padding: _r2CompactGoal ? '8px 12px' : '14px 16px',
+    marginBottom: _r2CompactGoal ? '8px' : '12px',
+    display:'flex', alignItems:'center', gap: _r2CompactGoal ? '10px' : '12px', cursor:'pointer'
   });
   goalCard.onclick = () => openSettings('goals');
-  goalCard.appendChild(el('span',{style:{fontSize:'24px',flexShrink:'0'}}, '🎯'));
+  goalCard.appendChild(el('span',{style:{fontSize: _r2CompactGoal ? '13px' : '24px',flexShrink:'0', color: _r2CompactGoal ? '#666' : null}}, '🎯'));
   const goalText = div({flex:'1',minWidth:'0'});
   if (profile && profile.lockedAt) {
-    goalText.appendChild(el('div',{
-      style:{fontSize:'8px',color:'#06d6a0',letterSpacing:'0.28em',textTransform:'uppercase',fontWeight:'700',marginBottom:'2px'}
-    }, '🔒 Goal Locked'));
-    goalText.appendChild(el('div',{
-      style:{fontSize:'13px',color:'#e0e0e0',lineHeight:'1.3',fontWeight:'600'}
-    }, profile.goalTypeLabel + ' · ' + profile.targetKcal + ' kcal/day · ' + profile.proteinG + 'g P'));
-    goalText.appendChild(el('div',{
-      style:{fontSize:'10px',color:'#888',marginTop:'2px',lineHeight:'1.4'}
-    }, profile.weeksToGoal != null
-      ? profile.weeksToGoal + ' weeks @ ' + profile.ratePctBw + '% bw/wk'
-      : 'Tap to adjust'));
+    if (_r2CompactGoal) {
+      goalText.appendChild(el('div',{
+        style:{fontSize:'9px',color:'#777',letterSpacing:'0.18em',textTransform:'uppercase',fontWeight:'700'}
+      }, 'Goal'));
+      goalText.appendChild(el('div',{
+        style:{fontSize:'10px',color:'#9a9a9a',marginTop:'1px',lineHeight:'1.3',fontFamily:"'DM Mono',monospace"}
+      }, (profile.goalTypeLabel || 'Locked') +
+         (profile.targetKcal ? ' \u00b7 ' + profile.targetKcal + ' kcal' : '') +
+         (profile.proteinG ? ' \u00b7 ' + profile.proteinG + 'g P' : '')));
+    } else {
+      goalText.appendChild(el('div',{
+        style:{fontSize:'8px',color:'#06d6a0',letterSpacing:'0.28em',textTransform:'uppercase',fontWeight:'700',marginBottom:'2px'}
+      }, '🔒 Goal Locked'));
+      goalText.appendChild(el('div',{
+        style:{fontSize:'13px',color:'#e0e0e0',lineHeight:'1.3',fontWeight:'600'}
+      }, profile.goalTypeLabel + ' · ' + profile.targetKcal + ' kcal/day · ' + profile.proteinG + 'g P'));
+      goalText.appendChild(el('div',{
+        style:{fontSize:'10px',color:'#888',marginTop:'2px',lineHeight:'1.4'}
+      }, profile.weeksToGoal != null
+        ? profile.weeksToGoal + ' weeks @ ' + profile.ratePctBw + '% bw/wk'
+        : 'Tap to adjust'));
+    }
   } else {
     goalText.appendChild(el('div',{
       style:{fontSize:'8px',color:'#888',letterSpacing:'0.28em',textTransform:'uppercase',fontWeight:'700',marginBottom:'2px'}
@@ -14155,11 +14823,45 @@ function renderOverview() {
     }, 'Tap to start the goal wizard'));
   }
   goalCard.appendChild(goalText);
-  goalCard.appendChild(el('span',{style:{color:'#444',fontSize:'18px',flexShrink:'0'}}, '›'));
+  goalCard.appendChild(el('span',{style:{color: _r2CompactGoal ? '#444' : '#444',fontSize: _r2CompactGoal ? '14px' : '18px',flexShrink:'0'}}, '›'));
   root.appendChild(goalCard);
+  }  // end if shouldRender('goal')
 
   // ── 1. BODY METRICS HERO ──
-  const hero = div({background:'#0c0c0c',border:'1px solid #1a1a1a',borderRadius:'12px',padding:'16px 16px 14px',marginBottom:'12px'});
+  if (_r1shouldRender('hero')) {
+  // Reorganisation R5: when opts.bodyCompHero is true, the outer card is
+  // promoted to hero treatment (accent border, inset accent-soft shadow,
+  // larger padding) and a Bebas Neue body-fat headline is prepended above
+  // the existing "Body Composition" small label. The inner grid (BF tile,
+  // weight tile, sparklines, log button) is unchanged. Default behavior
+  // when opts.bodyCompHero is absent or false matches pre-R5 visuals.
+  const _r5HeroOn = !!(opts.bodyCompHero);
+  const hero = div(_r5HeroOn ? {
+    background: 'var(--bg-card)',
+    border: '1px solid var(--accent-primary-border)',
+    boxShadow: '0 0 0 1px var(--accent-primary-soft) inset',
+    borderRadius: '12px', padding: '18px 18px 14px', marginBottom: '14px'
+  } : {
+    background:'#0c0c0c', border:'1px solid #1a1a1a',
+    borderRadius:'12px', padding:'16px 16px 14px', marginBottom:'12px'
+  });
+  if (_r5HeroOn) {
+    // Bebas Neue headline: current body fat percent if present, else weight,
+    // else a generic "Body" placeholder. Sized to lead the card.
+    var _r5LatestForHead = (typeof getAllMetrics === 'function') ? (getAllMetrics().slice(-1)[0] || null) : null;
+    var _r5Headline;
+    if (_r5LatestForHead && _r5LatestForHead.bodyFat != null) {
+      _r5Headline = _r5LatestForHead.bodyFat + '%';
+    } else if (_r5LatestForHead && _r5LatestForHead.weight != null) {
+      _r5Headline = _r5LatestForHead.weight + ' kg';
+    } else {
+      _r5Headline = 'Body';
+    }
+    hero.appendChild(el('div', { style: {
+      fontFamily: "'Bebas Neue', sans-serif", fontSize: '34px', color: 'var(--text-primary)',
+      letterSpacing: '0.04em', lineHeight: '1', marginBottom: '4px'
+    } }, _r5Headline));
+  }
   hero.appendChild(el('div',{style:{fontSize:'8px',color:'#6a6a6a',letterSpacing:'0.22em',textTransform:'uppercase',marginBottom:'10px'}},'Body Composition'));
 
   // Derive the target bands from the locked goal profile when one exists, so
@@ -14268,13 +14970,17 @@ function renderOverview() {
     hero.appendChild(el('div',{style:{fontSize:'8px',color:'#333',marginTop:'8px',textAlign:'center',letterSpacing:'0.08em'}},'Last logged: ' + latest.date));
   }
   root.appendChild(hero);
+  }  // end if shouldRender('hero')
 
   // ── 1. TRENDS (Phase C1) — bodyweight / body fat / lean mass / macros / PRs ──
   // Collapsible card containing five SVG charts. The line charts and program
   // coherence are the headline of the Stats tab, so they come first (Phase J).
-  root.appendChild(renderTrendsSection());
+  if (_r1shouldRender('trends')) {
+    root.appendChild(renderTrendsSection());
+  }
 
   // ── 2. TRAINING CONSISTENCY ──
+  if (_r1shouldRender('training')) {
   const tc = calcTrainingConsistency();
   const trainCard = div({background:'#0c0c0c',border:'1px solid #1a1a1a',borderRadius:'12px',padding:'14px',marginBottom:'12px'});
   trainCard.appendChild(el('div',{style:{fontSize:'8px',color:'#6a6a6a',letterSpacing:'0.22em',textTransform:'uppercase',marginBottom:'10px'}},'Training Consistency'));
@@ -14296,6 +15002,7 @@ function renderOverview() {
   pbWrap.appendChild(div({height:'100%',width:tc.completionPct+'%',background:tc.completionPct >= 80 ? '#06d6a0' : '#ff7b3b',transition:'width 0.4s'}));
   trainCard.appendChild(pbWrap);
   root.appendChild(trainCard);
+  }  // end if shouldRender('training')
 
   // ── 2a. BODY FIGURE (Phase J / F3) — tappable measurement anchors on a
   // proportionate silhouette. Moved below the trends and training-consistency
@@ -14304,6 +15011,7 @@ function renderOverview() {
   // device/data shape, that must NOT take down the rest of the Stats tab
   // (or, via a cascading render() exception, the halo nav). A failure here
   // degrades to a small inline notice instead.
+  if (_r1shouldRender('figure')) {
   try {
     root.appendChild(renderBodyFigureSection());
   } catch (figErr) {
@@ -14317,8 +15025,10 @@ function renderOverview() {
     }, 'Body figure could not be drawn. Your measurements are safe and still editable below.'));
     root.appendChild(fallback);
   }
+  }  // end if shouldRender('figure')
 
   // ── 2b. SLEEP ──
+  if (_r1shouldRender('sleep')) {
   const allSleep = getAllSleepLogs();
   // "Last night" = the night that just ended (started yesterday). Reading by
   // explicit key avoids showing a stale older entry if you missed yesterday.
@@ -14379,8 +15089,10 @@ function renderOverview() {
   }
 
   root.appendChild(sleepCard);
+  }  // end if shouldRender('sleep')
 
   // ── 3. STRENGTH PROGRESSION ──
+  if (_r1shouldRender('strength')) {
   const progressList = calcStrengthProgression();
   const stCard = div({background:'#0c0c0c',border:'1px solid #1a1a1a',borderRadius:'12px',padding:'14px',marginBottom:'12px'});
 
@@ -14419,8 +15131,10 @@ function renderOverview() {
     }
   }
   root.appendChild(stCard);
+  }  // end if shouldRender('strength')
 
   // ── 4. NUTRITION ADHERENCE ──
+  if (_r1shouldRender('nutrition')) {
   const na = calcNutritionAdherence();
   const nutCard = div({background:'#0c0c0c',border:'1px solid #1a1a1a',borderRadius:'12px',padding:'14px',marginBottom:'12px'});
   nutCard.appendChild(el('div',{style:{fontSize:'8px',color:'#6a6a6a',letterSpacing:'0.22em',textTransform:'uppercase',marginBottom:'10px'}},'Weekly Nutrition Adherence'));
@@ -14454,8 +15168,10 @@ function renderOverview() {
   nGrid.appendChild(protBox);
   nutCard.appendChild(nGrid);
   root.appendChild(nutCard);
+  }  // end if shouldRender('nutrition')
 
   // ── 5. WATER ──
+  if (_r1shouldRender('water')) {
   const wa = calcWaterAdherence();
   const waterCard = div({background:'#0c0c0c',border:'1px solid #1a1a1a',borderRadius:'12px',padding:'14px',marginBottom:'12px',display:'flex',justifyContent:'space-between',alignItems:'center'});
   const wL = div({});
@@ -14465,10 +15181,22 @@ function renderOverview() {
   const wColor = wa.totalDays === 0 ? '#333' : wa.daysHit >= 5 ? '#06d6a0' : wa.daysHit >= 3 ? '#3bffe8' : '#ff7b3b';
   waterCard.appendChild(bebas(28, wColor, wa.totalDays === 0 ? '—' : wa.daysHit + '/' + wa.totalDays));
   root.appendChild(waterCard);
+  }  // end if shouldRender('water')
 
   // ── 5b. BODY COMPOSITION (BIA) — collapsible ──
-  const biaCard = div({background:'#0c0c0c',border:'1px solid #1a1a1a',borderRadius:'12px',marginBottom:'12px',overflow:'hidden'});
-  const biaHdr = el('button',{class:'btn',style:{width:'100%',background:'transparent',border:'none',padding:'14px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'},onclick:()=>{openOverviewSections.bia = !openOverviewSections.bia; renderOverview();}});
+  if (_r1shouldRender('bia')) {
+  // Reorganisation R5: when opts.utilityCollapsibles is true the outer card
+  // and header get utility treatment (bg-card-nested + tighter padding +
+  // softer borders). The expanded body inside is unchanged.
+  const _r5UtilBia = !!(opts.utilityCollapsibles);
+  const biaCard = div(_r5UtilBia ? {
+    background:'var(--bg-card-nested)', border:'1px solid var(--border-default)',
+    borderRadius:'10px', marginBottom:'8px', overflow:'hidden'
+  } : {
+    background:'#0c0c0c', border:'1px solid #1a1a1a',
+    borderRadius:'12px', marginBottom:'12px', overflow:'hidden'
+  });
+  const biaHdr = el('button',{class:'btn',style:{width:'100%',background:'transparent',border:'none',padding: _r5UtilBia ? '10px 12px' : '14px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'},onclick:()=>{openOverviewSections.bia = !openOverviewSections.bia; renderOverview();}});
   const biaLeft = div({});
   biaLeft.appendChild(el('div',{style:{fontSize:'8px',color:'#6a6a6a',letterSpacing:'0.22em',textTransform:'uppercase'}},'Body Composition'));
   biaLeft.appendChild(el('div',{style:{fontSize:'9px',color:'#7a7a7a',marginTop:'3px',fontFamily:"'DM Mono',monospace"}},'Renpho / bioimpedance scale'));
@@ -14596,10 +15324,20 @@ function renderOverview() {
     biaCard.appendChild(biaBody);
   }
   root.appendChild(biaCard);
+  }  // end if shouldRender('bia')
 
   // ── 6. MEASUREMENTS (collapsible, interactable) ──
-  const measCard = div({background:'#0c0c0c',border:'1px solid #1a1a1a',borderRadius:'12px',marginBottom:'12px',overflow:'hidden'});
-  const measHdr = el('button',{class:'btn',style:{width:'100%',background:'transparent',border:'none',padding:'14px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'},onclick:()=>{openOverviewSections.measurements = !openOverviewSections.measurements; renderOverview();}});
+  if (_r1shouldRender('meas')) {
+  // Reorganisation R5: same utility-collapsible treatment as BIA above.
+  const _r5UtilMeas = !!(opts.utilityCollapsibles);
+  const measCard = div(_r5UtilMeas ? {
+    background:'var(--bg-card-nested)', border:'1px solid var(--border-default)',
+    borderRadius:'10px', marginBottom:'8px', overflow:'hidden'
+  } : {
+    background:'#0c0c0c', border:'1px solid #1a1a1a',
+    borderRadius:'12px', marginBottom:'12px', overflow:'hidden'
+  });
+  const measHdr = el('button',{class:'btn',style:{width:'100%',background:'transparent',border:'none',padding: _r5UtilMeas ? '10px 12px' : '14px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'},onclick:()=>{openOverviewSections.measurements = !openOverviewSections.measurements; renderOverview();}});
   const measHdrLeft = div({});
   measHdrLeft.appendChild(el('div',{style:{fontSize:'8px',color:'#6a6a6a',letterSpacing:'0.22em',textTransform:'uppercase'}},'Tape Measurements'));
   measHdrLeft.appendChild(el('div',{style:{fontSize:'9px',color:'#7a7a7a',marginTop:'3px',fontFamily:"'DM Mono',monospace"}},'Tap any row to edit'));
@@ -14665,11 +15403,21 @@ function renderOverview() {
     measCard.appendChild(measBody);
   }
   root.appendChild(measCard);
+  }  // end if shouldRender('meas')
 
   // ── 7. PROGRESS PHOTOS (collapsible) ──
-  const photosCard = div({background:'#0c0c0c',border:'1px solid #1a1a1a',borderRadius:'12px',marginBottom:'12px',overflow:'hidden'});
+  if (_r1shouldRender('photos')) {
+  // Reorganisation R5: same utility-collapsible treatment as BIA above.
+  const _r5UtilPhotos = !!(opts.utilityCollapsibles);
+  const photosCard = div(_r5UtilPhotos ? {
+    background:'var(--bg-card-nested)', border:'1px solid var(--border-default)',
+    borderRadius:'10px', marginBottom:'8px', overflow:'hidden'
+  } : {
+    background:'#0c0c0c', border:'1px solid #1a1a1a',
+    borderRadius:'12px', marginBottom:'12px', overflow:'hidden'
+  });
   const photos = getAllMetricPhotos();
-  const phHdr = el('button',{class:'btn',style:{width:'100%',background:'transparent',border:'none',padding:'14px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'},onclick:()=>{openOverviewSections.photos = !openOverviewSections.photos; renderOverview();}});
+  const phHdr = el('button',{class:'btn',style:{width:'100%',background:'transparent',border:'none',padding: _r5UtilPhotos ? '10px 12px' : '14px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'},onclick:()=>{openOverviewSections.photos = !openOverviewSections.photos; renderOverview();}});
   const phLeft = div({});
   phLeft.appendChild(el('div',{style:{fontSize:'8px',color:'#6a6a6a',letterSpacing:'0.22em',textTransform:'uppercase'}},'Progress Photos'));
   phLeft.appendChild(el('div',{style:{fontSize:'9px',color:'#7a7a7a',marginTop:'3px',fontFamily:"'DM Mono',monospace"}}, photos.length + ' photos'));
@@ -14707,9 +15455,10 @@ function renderOverview() {
     photosCard.appendChild(phBody);
   }
   root.appendChild(photosCard);
+  }  // end if shouldRender('photos')
 
   // ── Modal renders into a separate slot ──
-  if (metricsModalOpen) {
+  if (_r1shouldRender('modal') && metricsModalOpen) {
     root.appendChild(buildMetricsModal());
   }
 }
@@ -15128,25 +15877,30 @@ async function openReflectionMode() {
 }
 
 function renderRestDayTasksCard(day) {
+  // Reorganisation R3: rest-day hero. On rest days, the workout-mode banner
+  // is suppressed, so this card takes the hero slot. Same hero structural
+  // pattern as wmRenderEntryBanner above: stronger border, inset shadow,
+  // larger padding, Bebas Neue headline replacing the small uppercase label.
   const wrap = div({
     background: 'linear-gradient(135deg, ' + day.accent + '22, ' + day.accent + '08)',
-    border: '1px solid ' + day.accent + '44',
+    border: '1px solid ' + day.accent + '88',
+    boxShadow: '0 0 0 1px ' + day.accent + '22 inset',
     borderRadius: '12px',
-    padding: '16px 14px',
+    padding: '18px 18px 16px',
     marginBottom: '14px'
   });
   wrap.appendChild(el('div', {
-    style:{fontSize:'8px',color:day.accent,letterSpacing:'0.28em',textTransform:'uppercase',fontWeight:'700',marginBottom:'6px'}
-  }, 'Today Is A Rest Day'));
+    style:{fontFamily:"'Bebas Neue', sans-serif",fontSize:'22px',color:day.accent,letterSpacing:'0.04em',lineHeight:'1.05',marginBottom:'4px'}
+  }, 'REST DAY'));
   wrap.appendChild(el('div', {
-    style:{fontSize:'11px',color:'#aaa',lineHeight:'1.5',marginBottom:'12px'}
+    style:{fontSize:'11px',color:'#aaa',lineHeight:'1.5',marginBottom:'14px',fontFamily:"'DM Mono', monospace"}
   }, 'Recovery is when adaptation actually happens. Sleep deeper, eat well, and reflect.'));
 
   // Three task pointers, each tappable to switch tabs
   const tasks = [
-    {label:'Sleep target', sub:'Add an extra cycle tonight', target:'sleep', icon:'🌙'},
+    {label:'Sleep target', sub:'Add an extra cycle tonight', target:'body', sheet:'sleep', icon:'🌙'},
     {label:'Meal prep', sub:'Get the week ahead set up', target:'fuel', icon:'🍱', anchor:'meal-prep'},
-    {label:'Week reflection', sub:'Look back, plan ahead', target:'overview', icon:'📋', anchor:'reflection'}
+    {label:'Week reflection', sub:'Look back, plan ahead', target:'today', icon:'📋', anchor:'reflection'}
   ];
   tasks.forEach(t => {
     const row = el('button', {
@@ -15165,6 +15919,11 @@ function renderRestDayTasksCard(day) {
           if (t.anchor) sessionStorage.setItem('fraser_scrollto', t.anchor);
           activeTab = t.target;
           render();
+          // Reorganisation R1: if the task names a sheet, open it after the
+          // tab switch. The sheet field is optional on rest-day tasks.
+          if (t.sheet === 'sleep') {
+            try { openSleepSheet(); } catch (_e) { /* non-fatal */ }
+          }
         }
       }
     });
@@ -15178,6 +15937,296 @@ function renderRestDayTasksCard(day) {
   });
   return wrap;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EXTRA WORKOUTS UI V1 START
+//
+// The user-facing surface for EXTRA_WORKOUTS: a per-day completion store, an
+// entry card appended to the training tab, a list view sheet, and a workout-
+// running view with sets-and-reps self-paced advance. Mirrors the meal engine
+// sheet pattern. Does not touch PROGRAM, renderWorkout (only appends a card),
+// or any other system.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── Sheet state ──
+// view: 'list' or 'workout'
+// workoutId, blockIndex, movementIndex, setIndex track position when running.
+var _extraWorkoutsState = { view: 'list', workoutId: null, blockIndex: 0, movementIndex: 0, setIndex: 0 };
+
+// ── Completion store ──
+// Keyed by weekOffset, the day's calendar key, and the workout id. Records
+// completion only; nothing nutritional. Matches the protein-gap store pattern.
+function _extraWorkoutsTodayKey() {
+  // ISO date string for the day the user is currently viewing the training
+  // tab for, which is today in practice. Falls back to current date.
+  try {
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  } catch (e) { return 'unknown'; }
+}
+function _extraWorkoutsKey(workoutId, dayKey) {
+  return 'flow.extraworkouts.' + (typeof weekOffset !== 'undefined' ? weekOffset : 0) + '.' + dayKey + '.' + workoutId;
+}
+function getExtraWorkoutCompletion(workoutId, dayKey) {
+  var v = localStorage.getItem(_extraWorkoutsKey(workoutId, dayKey || _extraWorkoutsTodayKey()));
+  return v === 'true';
+}
+function setExtraWorkoutCompletion(workoutId, dayKey) {
+  localStorage.setItem(_extraWorkoutsKey(workoutId, dayKey || _extraWorkoutsTodayKey()), 'true');
+}
+function clearExtraWorkoutCompletion(workoutId, dayKey) {
+  localStorage.removeItem(_extraWorkoutsKey(workoutId, dayKey || _extraWorkoutsTodayKey()));
+}
+
+// ── Entry card appended to the training tab ──
+function renderExtraWorkoutsEntryCard() {
+  // Reorganisation R3: demoted from accent-primary to supporting treatment.
+  // Extra workouts are optional off-program work; visually competing with
+  // the workout-mode hero banner was a hierarchy problem on Train. Now
+  // reads as a sibling of the per-exercise cards.
+  var card = el('div', { style: {
+    background: 'var(--bg-card-nested)', border: '1px solid var(--border-default)',
+    borderRadius: '10px', padding: '12px 14px', marginTop: '14px', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px'
+  }, onclick: function () { openExtraWorkoutsSheet(); } });
+  var left = el('div', { style: { flex: '1', minWidth: '0' } });
+  left.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '10px', color: '#888',
+    letterSpacing: '0.22em', textTransform: 'uppercase', fontWeight: '700'
+  } }, 'Extra Workouts'));
+  left.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '11px', color: 'var(--text-tertiary)',
+    marginTop: '3px', lineHeight: '1.4'
+  } }, 'Optional off-program calisthenic sessions, around 20 minutes.'));
+  card.appendChild(left);
+  card.appendChild(el('span', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '16px', color: '#444', flexShrink: '0'
+  } }, '\u203a'));
+  return card;
+}
+
+// ── Sheet open/close ──
+function openExtraWorkoutsSheet() {
+  _extraWorkoutsState = { view: 'list', workoutId: null, blockIndex: 0, movementIndex: 0, setIndex: 0 };
+  var sheet = renderExtraWorkoutsSheet();
+  document.body.appendChild(sheet);
+  requestAnimationFrame(function () {
+    var inner = sheet.querySelector('[data-sheet-inner]');
+    if (inner) inner.style.transform = 'translateY(0)';
+    sheet.style.opacity = '1';
+  });
+}
+
+function closeExtraWorkoutsSheet() {
+  var sheet = document.getElementById('extra-workouts-sheet');
+  if (!sheet) return;
+  var inner = sheet.querySelector('[data-sheet-inner]');
+  if (inner) inner.style.transform = 'translateY(100%)';
+  sheet.style.opacity = '0';
+  setTimeout(function () { sheet.remove(); }, 220);
+}
+
+function renderExtraWorkoutsSheet() {
+  var sheet = el('div', { id: 'extra-workouts-sheet', style: {
+    position: 'fixed', top: '0', left: '0', right: '0', bottom: '0', zIndex: '6000',
+    background: 'rgba(0,0,0,0.7)', opacity: '0',
+    transition: 'opacity 0.22s cubic-bezier(0.32,0.72,0,1)',
+    display: 'flex', flexDirection: 'column', justifyContent: 'flex-end'
+  } });
+  sheet.onclick = function (e) { if (e.target === sheet) closeExtraWorkoutsSheet(); };
+
+  var inner = el('div', { 'data-sheet-inner': 'true', style: {
+    background: '#080808', borderTop: '1px solid var(--border-default)', borderRadius: '20px 20px 0 0',
+    maxHeight: '92vh', overflowY: 'auto', WebkitOverflowScrolling: 'touch',
+    transform: 'translateY(100%)', transition: 'transform 0.28s cubic-bezier(0.32,0.72,0,1)',
+    paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 24px)'
+  } });
+  inner.appendChild(div({ width: '40px', height: '4px', background: '#3a3a3a', borderRadius: '2px', margin: '10px auto' }));
+
+  var content = el('div', { id: 'extra-workouts-content', style: { padding: '4px 16px 0' } });
+  inner.appendChild(content);
+  sheet.appendChild(inner);
+  _extraWorkoutsRenderContent(content);
+  return sheet;
+}
+
+function _extraWorkoutsRerender() {
+  var content = document.getElementById('extra-workouts-content');
+  if (content) _extraWorkoutsRenderContent(content);
+}
+
+function _extraWorkoutsRenderContent(host) {
+  host.innerHTML = '';
+  if (_extraWorkoutsState.view === 'workout') { _extraWorkoutsRenderWorkout(host); return; }
+  _extraWorkoutsRenderList(host);
+}
+
+function _extraWorkoutsHeader(host, title, backFn) {
+  var row = el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '4px 0 14px' } });
+  if (backFn) {
+    row.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '13px', color: 'var(--accent-primary)', cursor: 'pointer', padding: '4px 6px'
+    }, onclick: backFn }, '\u2039 Back'));
+  }
+  row.appendChild(el('div', { style: {
+    fontFamily: "'Bebas Neue', sans-serif", fontSize: '24px', color: '#ebebeb',
+    letterSpacing: '0.04em', flex: '1'
+  } }, title));
+  row.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '13px', color: '#777', cursor: 'pointer', padding: '4px 6px'
+  }, onclick: closeExtraWorkoutsSheet }, 'Close'));
+  host.appendChild(row);
+}
+
+// ── List view ──
+function _extraWorkoutsRenderList(host) {
+  _extraWorkoutsHeader(host, 'Extra Workouts', null);
+  host.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '12px', color: '#888', marginBottom: '14px', lineHeight: '1.5'
+  } }, 'Optional, off-program. Completion is logged but does not change daily macros.'));
+
+  EXTRA_WORKOUTS.forEach(function (w) {
+    var done = getExtraWorkoutCompletion(w.id);
+    var card = el('div', { style: {
+      background: '#0e0e0e', border: '1px solid #1a1a1a', borderRadius: '10px',
+      padding: '14px 16px', marginBottom: '8px', cursor: 'pointer'
+    }, onclick: function () {
+      _extraWorkoutsState = { view: 'workout', workoutId: w.id, blockIndex: 0, movementIndex: 0, setIndex: 0 };
+      _extraWorkoutsRerender();
+    } });
+    var titleRow = el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' } });
+    titleRow.appendChild(el('div', { style: {
+      fontFamily: "'Bebas Neue', sans-serif", fontSize: '19px', color: '#ebebeb', letterSpacing: '0.04em', flex: '1'
+    } }, w.name));
+    if (done) {
+      titleRow.appendChild(el('span', { style: {
+        fontFamily: "'DM Mono', monospace", fontSize: '10px', color: 'var(--status-success)',
+        border: '1px solid #6aff3b55', borderRadius: '999px', padding: '2px 9px', letterSpacing: '0.04em'
+      } }, '\u2713 Completed today'));
+    }
+    card.appendChild(titleRow);
+    card.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '11px', color: '#777', marginBottom: '6px', letterSpacing: '0.04em'
+    } }, w.durationMinutes + ' min   \u00b7   ' + w.targetArea + '   \u00b7   ' + w.equipment));
+    card.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '11px', color: '#999', lineHeight: '1.5'
+    } }, w.description));
+    host.appendChild(card);
+  });
+}
+
+// ── Workout-running view ──
+function _extraWorkoutsRenderWorkout(host) {
+  var w = EXTRA_WORKOUTS.filter(function (x) { return x.id === _extraWorkoutsState.workoutId; })[0];
+  if (!w) { _extraWorkoutsState.view = 'list'; _extraWorkoutsRerender(); return; }
+  var block = w.blocks[_extraWorkoutsState.blockIndex];
+  var movement = block && block.movements[_extraWorkoutsState.movementIndex];
+  if (!block || !movement) { _extraWorkoutsState.view = 'list'; _extraWorkoutsRerender(); return; }
+
+  _extraWorkoutsHeader(host, w.name, function () {
+    _extraWorkoutsState = { view: 'list', workoutId: null, blockIndex: 0, movementIndex: 0, setIndex: 0 };
+    _extraWorkoutsRerender();
+  });
+
+  // Block label + position.
+  host.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '10px', color: 'var(--accent-primary)',
+    letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: '8px'
+  } }, block.name + '   \u00b7   movement ' + (_extraWorkoutsState.movementIndex + 1) + ' of ' + block.movements.length));
+
+  // Movement card.
+  var card = el('div', { style: {
+    background: '#0e0e0e', border: '1px solid #1a1a1a', borderRadius: '12px',
+    padding: '18px 16px', marginBottom: '14px'
+  } });
+  card.appendChild(el('div', { style: {
+    fontFamily: "'Bebas Neue', sans-serif", fontSize: '28px', color: '#ebebeb',
+    letterSpacing: '0.03em', marginBottom: '10px', lineHeight: '1.1'
+  } }, movement.name));
+
+  // Sets x reps OR sec line.
+  var unit = (movement.durationSeconds != null) ? (movement.durationSeconds + ' sec') : (movement.reps + ' reps');
+  card.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '14px', color: '#cfcfcf',
+    letterSpacing: '0.04em', marginBottom: '14px'
+  } }, movement.sets + ' \u00d7 ' + unit));
+
+  // Set progress dots.
+  var dotRow = el('div', { style: { display: 'flex', gap: '6px', marginBottom: '16px' } });
+  for (var i = 0; i < movement.sets; i++) {
+    var on = i < _extraWorkoutsState.setIndex;
+    dotRow.appendChild(div({
+      width: '12px', height: '12px', borderRadius: '50%',
+      background: on ? 'var(--status-success)' : '#1a1a1a',
+      border: '1px solid ' + (on ? '#6aff3b55' : '#2a2a2a')
+    }));
+  }
+  card.appendChild(dotRow);
+
+  // Cues.
+  if (movement.cues && movement.cues.length) {
+    var cuesWrap = el('div', { style: { marginTop: '8px' } });
+    cuesWrap.appendChild(el('div', { style: {
+      fontFamily: "'Bebas Neue', sans-serif", fontSize: '13px', color: '#777',
+      letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '6px'
+    } }, 'Cues'));
+    movement.cues.forEach(function (c) {
+      cuesWrap.appendChild(el('div', { style: {
+        fontFamily: "'DM Mono', monospace", fontSize: '11px', color: '#999',
+        lineHeight: '1.6', marginBottom: '3px', paddingLeft: '10px',
+        position: 'relative'
+      } }, '\u00b7 ' + c));
+    });
+    card.appendChild(cuesWrap);
+  }
+  host.appendChild(card);
+
+  // Primary action: Set Done OR Next Movement OR Workout Complete.
+  var allSetsDone = (_extraWorkoutsState.setIndex >= movement.sets);
+  var isLastMovementOfLastBlock = (_extraWorkoutsState.blockIndex === w.blocks.length - 1) &&
+                                  (_extraWorkoutsState.movementIndex === block.movements.length - 1);
+  var primaryLabel, primaryAction;
+  if (!allSetsDone) {
+    primaryLabel = 'Set Done   (' + (_extraWorkoutsState.setIndex + 1) + ' / ' + movement.sets + ')';
+    primaryAction = function () {
+      _extraWorkoutsState.setIndex++;
+      _extraWorkoutsRerender();
+    };
+  } else if (!isLastMovementOfLastBlock) {
+    primaryLabel = 'Next Movement   \u203a';
+    primaryAction = function () {
+      // Advance to next movement, or next block.
+      if (_extraWorkoutsState.movementIndex < block.movements.length - 1) {
+        _extraWorkoutsState.movementIndex++;
+        _extraWorkoutsState.setIndex = 0;
+      } else {
+        _extraWorkoutsState.blockIndex++;
+        _extraWorkoutsState.movementIndex = 0;
+        _extraWorkoutsState.setIndex = 0;
+      }
+      _extraWorkoutsRerender();
+    };
+  } else {
+    primaryLabel = '\u2713 Workout Complete';
+    primaryAction = function () {
+      setExtraWorkoutCompletion(w.id);
+      _extraWorkoutsState = { view: 'list', workoutId: null, blockIndex: 0, movementIndex: 0, setIndex: 0 };
+      _extraWorkoutsRerender();
+    };
+  }
+  host.appendChild(el('div', { style: {
+    textAlign: 'center', cursor: 'pointer',
+    fontFamily: "'DM Mono', monospace", fontSize: '13px',
+    color: isLastMovementOfLastBlock && allSetsDone ? '#080808' : '#080808',
+    background: isLastMovementOfLastBlock && allSetsDone ? 'var(--status-success)' : 'var(--accent-primary)',
+    borderRadius: '8px', padding: '14px', letterSpacing: '0.06em', fontWeight: '700'
+  }, onclick: primaryAction }, primaryLabel));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EXTRA WORKOUTS UI V1 END
+// ═══════════════════════════════════════════════════════════════════════════
+
 
 function renderWorkout() {
   const day = PROGRAM[activeDay];
@@ -15194,6 +16243,11 @@ function renderWorkout() {
   if (day.isRestDay) {
     list.appendChild(renderRestDayTasksCard(day));
   }
+
+  // Onboarding O3: quiet program-onboarding notice. Returns null when the
+  // user has dismissed it, so subsequent renders produce no card at all.
+  var _progNotice = renderProgramOnboardingNotice();
+  if (_progNotice) list.appendChild(_progNotice);
 
   day.exercises.forEach(originalEx => {
     // Apply any user swap for this week+day+exercise
@@ -15534,6 +16588,10 @@ function renderWorkout() {
     clearAllWrap.appendChild(clearAllBtn);
     list.appendChild(clearAllWrap);
   }
+
+  // Extra Workouts entry card. Off-program, optional, sits below the day's
+  // exercises and any clear-workout affordance. Visible on every day.
+  list.appendChild(renderExtraWorkoutsEntryCard());
 }
 
 // ─── NUTRITION TAB ────────────────────────────────────────────────────────────
@@ -25129,6 +26187,682 @@ function _mealEnginePlannedProtein(np, day) {
   return Math.round(planned);
 }
 
+// ── Onboarding O3: program-onboarding notice (training tab) ──
+// A small quiet card at the top of the training tab that reminds new users
+// the default program assumes lifting experience and that any exercise can
+// be swapped. Dismissed-forever per browser via a flow.* localStorage key.
+// Colocated with the protein-gap flow.* helpers above; sibling pattern.
+var PROGRAM_NOTICE_KEY = 'flow.onboarded.programNoticeDismissed';
+function getProgramNoticeDismissed() {
+  try { return localStorage.getItem(PROGRAM_NOTICE_KEY) === 'true'; } catch (e) { return false; }
+}
+function setProgramNoticeDismissed() {
+  try { localStorage.setItem(PROGRAM_NOTICE_KEY, 'true'); } catch (e) { /* non-fatal */ }
+}
+function clearProgramNoticeDismissed() {
+  try { localStorage.removeItem(PROGRAM_NOTICE_KEY); } catch (e) { /* non-fatal */ }
+}
+
+// Returns the notice card element, or null when the user has dismissed it.
+// Dismiss check is the first line so a dismissed user never gets a card.
+function renderProgramOnboardingNotice() {
+  if (getProgramNoticeDismissed()) return null;
+  var card = el('div', { style: {
+    background: 'var(--bg-card-nested)', border: '1px solid var(--border-default)',
+    borderRadius: '10px', padding: '11px 13px', marginBottom: '12px',
+    display: 'flex', alignItems: 'flex-start', gap: '10px'
+  } });
+  var body = el('div', { style: { flex: '1' } });
+  body.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '10px', color: '#888',
+    letterSpacing: '0.18em', textTransform: 'uppercase', fontWeight: '700', marginBottom: '4px'
+  } }, 'Heads up'));
+  body.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '11px', color: '#9a9a9a', lineHeight: '1.55'
+  } }, 'This program is tuned for intermediate to advanced lifters. Tap any exercise to swap it for an easier or harder variation.'));
+  card.appendChild(body);
+  var dismiss = el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '10px', color: '#777',
+    border: '1px solid var(--border-default)', borderRadius: '6px',
+    padding: '4px 9px', cursor: 'pointer', flexShrink: '0',
+    letterSpacing: '0.06em', fontWeight: '700', alignSelf: 'flex-start'
+  }, onclick: function () {
+    setProgramNoticeDismissed();
+    if (typeof renderWorkout === 'function') renderWorkout();
+  } }, 'Got it');
+  card.appendChild(dismiss);
+  return card;
+}
+
+// ── Onboarding O2: post-wizard walkthrough / tour ──
+// A one-time orientation overlay that introduces the main tabs of the app
+// after the user completes the goal wizard. Four callouts, advanced via
+// Next, dismissable via Skip or by tapping outside. Fires once per browser
+// via a flow.* localStorage flag; never re-fires after Done or Skip.
+var ONBOARDING_TOUR_KEY = 'flow.onboarded.tourSeen';
+var TOUR_STEPS = [
+  { tabId: 'tab-today', title: 'Today',  body: 'Your daily snapshot: goal, summary cards for training, fuel, and recovery. Open this first thing each morning to see where you stand.' },
+  { tabId: 'tab-train', title: 'Train',  body: 'Your training plan for the day, plus optional extra workouts. Tap any exercise to log sets, swap it, or see cues.' },
+  { tabId: 'tab-fuel',  title: 'Fuel',   body: 'Daily macro targets, per-slot meal planning, the template browser, water, and shopping. Everything you put in your body.' },
+  { tabId: 'tab-body',  title: 'Body',   body: 'Body composition, sleep, measurements, photos, and your training history over time. The record of what is actually changing.' }
+];
+function getOnboardingTourSeen() {
+  try { return localStorage.getItem(ONBOARDING_TOUR_KEY) === 'true'; } catch (e) { return false; }
+}
+function setOnboardingTourSeen() {
+  try { localStorage.setItem(ONBOARDING_TOUR_KEY, 'true'); } catch (e) { /* non-fatal */ }
+}
+function clearOnboardingTourSeen() {
+  try { localStorage.removeItem(ONBOARDING_TOUR_KEY); } catch (e) { /* non-fatal */ }
+}
+
+// ─── Onboarding O4: welcome screen ─────────────────────────────────────────
+// First-launch brand moment. Shown before the goal wizard when no goal is
+// locked AND the welcomeSeen flag has not been set. One screen, one CTA,
+// no scroll. Storage flag follows the same flow.onboarded.* pattern as the
+// program-notice and tour-seen flags above. Setting the flag on CTA tap
+// means a user who closes the app mid-wizard skips the welcome on second
+// launch and lands directly in the wizard, which is the right behavior:
+// the welcome is a one-time orientation, not a recurring obstacle.
+var ONBOARDING_WELCOME_KEY = 'flow.onboarded.welcomeSeen';
+function getOnboardingWelcomeSeen() {
+  try { return localStorage.getItem(ONBOARDING_WELCOME_KEY) === 'true'; } catch (e) { return false; }
+}
+function setOnboardingWelcomeSeen() {
+  try { localStorage.setItem(ONBOARDING_WELCOME_KEY, 'true'); } catch (e) { /* non-fatal */ }
+}
+function clearOnboardingWelcomeSeen() {
+  try { localStorage.removeItem(ONBOARDING_WELCOME_KEY); } catch (e) { /* non-fatal */ }
+}
+
+function hideWelcomeScreen() {
+  var ov = document.getElementById('onboarding-welcome-overlay');
+  if (ov && ov.parentNode) ov.parentNode.removeChild(ov);
+}
+
+function showWelcomeScreen() {
+  // Idempotent: if already shown, do not stack a second overlay.
+  if (document.getElementById('onboarding-welcome-overlay')) return null;
+
+  var overlay = el('div', {
+    id: 'onboarding-welcome-overlay',
+    style: {
+      position: 'fixed', top: '0', left: '0', right: '0', bottom: '0',
+      // Fully opaque so the halo nav at the bottom is covered without
+      // needing a separate hide path. z-index matches the settings
+      // overlay so subsequent modals stack as expected.
+      background: 'var(--bg-base)',
+      zIndex: '5000',
+      display: 'flex', flexDirection: 'column',
+      paddingTop: 'env(safe-area-inset-top, 0px)',
+      paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+      overflow: 'hidden'
+    }
+  });
+
+  // Top spacer (~24% of viewport so wordmark sits in the upper third)
+  overlay.appendChild(el('div', { style: { flex: '0.24' } }));
+
+  // Wordmark group: FLOW above, Tracker below.
+  var mark = el('div', { style: {
+    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px'
+  } });
+  mark.appendChild(el('div', { style: {
+    fontFamily: "'Bebas Neue', sans-serif",
+    fontSize: '72px',
+    color: 'var(--text-primary)',
+    letterSpacing: '0.06em',
+    lineHeight: '1'
+  } }, 'FLOW'));
+  mark.appendChild(el('div', { style: {
+    fontFamily: "'Bebas Neue', sans-serif",
+    fontSize: '28px',
+    color: 'var(--text-tertiary)',
+    letterSpacing: '0.18em',
+    lineHeight: '1',
+    marginTop: '2px'
+  } }, 'Tracker'));
+  overlay.appendChild(mark);
+
+  // Tagline below the wordmark.
+  overlay.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace",
+    fontSize: '12px',
+    color: 'var(--text-muted)',
+    letterSpacing: '0.04em',
+    textAlign: 'center',
+    marginTop: '24px',
+    padding: '0 24px'
+  } }, 'Plan your week. Track what changes.'));
+
+  // Middle spacer (pushes the CTA toward the bottom third).
+  overlay.appendChild(el('div', { style: { flex: '1' } }));
+
+  // CTA button container, with horizontal padding so the button has breathing
+  // room from the viewport edges.
+  var ctaWrap = el('div', { style: {
+    padding: '0 24px 40px',
+    display: 'flex', flexDirection: 'column', alignItems: 'stretch'
+  } });
+  var cta = el('button', {
+    class: 'btn',
+    'data-welcome-cta': '1',
+    style: {
+      width: '100%',
+      background: 'var(--accent-primary)',
+      color: 'var(--text-on-accent)',
+      border: 'none',
+      borderRadius: '12px',
+      padding: '16px 20px',
+      fontFamily: "'Bebas Neue', sans-serif",
+      fontSize: '20px',
+      letterSpacing: '0.10em',
+      cursor: 'pointer',
+      fontWeight: '700'
+    },
+    onclick: function (e) {
+      if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+      // Persist before removing so a flaky tap that loses the overlay still
+      // leaves the user in a preferences-on-next-launch state. M0.5 inserts
+      // the preferences screen between here and the wizard; the preferences
+      // overlay's CTA is what eventually opens the wizard.
+      try { setOnboardingWelcomeSeen(); } catch (_e) { /* non-fatal */ }
+      hideWelcomeScreen();
+      if (typeof showPreferencesScreen === 'function') {
+        showPreferencesScreen(function () {
+          if (typeof openSettings === 'function') {
+            try { openSettings('goal_wizard'); } catch (_e) { /* non-fatal */ }
+          }
+        });
+      } else if (typeof openSettings === 'function') {
+        // Defensive fallback for the unlikely case M0.5 helpers are absent.
+        try { openSettings('goal_wizard'); } catch (_e) { /* non-fatal */ }
+      }
+    }
+  }, 'Create your program');
+  ctaWrap.appendChild(cta);
+  overlay.appendChild(ctaWrap);
+
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
+// ─── M0.5: Preferences, Allergies & Dietary Pattern ────────────────────────
+// Onboarding step inserted between welcome (O4) and the goal wizard. Captures
+// three preference dimensions:
+//   allergies[]      structural restrictions; recipes containing these
+//                    ingredients are filtered out by the recipe engine.
+//   dietaryPattern   omnivore (default), pescatarian, vegetarian, vegan.
+//                    Single-select; the recipe engine queries this directly.
+//   dislikes[]       soft preferences; recipes containing these get a quiet
+//                    "leave out" hint or a swap suggestion, not filtered.
+//
+// The schema vocabulary (option IDs) is the contract M1's recipes will write
+// against in their `swaps` and `optionalIngredients` fields. Renaming an ID
+// after release breaks existing user data, so the IDs below are fixed.
+//
+// Existing users with locked goals skip the onboarding routing and reach the
+// same overlay via a Settings menu row. The renderer accepts an onContinue
+// callback so the boot-routing flow (opens wizard) and Settings flow (just
+// closes) can share the same screen.
+
+var M05_ALLERGY_KEY    = 'flow.prefs.allergies';
+var M05_DIETARY_KEY    = 'flow.prefs.dietaryPattern';
+var M05_DISLIKES_KEY   = 'flow.prefs.dislikes';
+var M05_SET_KEY        = 'flow.prefs.preferencesSet';
+
+var ALLERGY_OPTIONS = [
+  { id: 'nuts',      label: 'Tree nuts & peanuts' },
+  { id: 'dairy',     label: 'Dairy' },
+  { id: 'gluten',    label: 'Gluten' },
+  { id: 'eggs',      label: 'Eggs' },
+  { id: 'shellfish', label: 'Shellfish' },
+  { id: 'fish',      label: 'Fish' },
+  { id: 'sesame',    label: 'Sesame' },
+  { id: 'soy',       label: 'Soy' }
+];
+
+var DIETARY_PATTERN_OPTIONS = [
+  { id: 'omnivore',    label: 'I eat everything' },
+  { id: 'pescatarian', label: 'No meat, fish OK' },
+  { id: 'vegetarian',  label: 'No meat or fish' },
+  { id: 'vegan',       label: 'No animal products' }
+];
+
+var DISLIKE_OPTIONS = [
+  { id: 'cilantro',     label: 'Cilantro / coriander leaf' },
+  { id: 'raw_onion',    label: 'Raw onion' },
+  { id: 'mushrooms',    label: 'Mushrooms' },
+  { id: 'olives',       label: 'Olives' },
+  { id: 'anchovies',    label: 'Anchovies' },
+  { id: 'blue_cheese',  label: 'Blue cheese' },
+  { id: 'beets',        label: 'Beetroot' },
+  { id: 'fennel',       label: 'Fennel' },
+  { id: 'bell_peppers', label: 'Bell peppers (capsicum)' },
+  { id: 'coconut',      label: 'Coconut' }
+];
+
+// ─── Storage helpers ────────────────────────────────────────────────────────
+function getAllergies() {
+  try {
+    var raw = localStorage.getItem(M05_ALLERGY_KEY);
+    if (!raw) return [];
+    var parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) { return []; }
+}
+function setAllergies(arr) {
+  try { localStorage.setItem(M05_ALLERGY_KEY, JSON.stringify(Array.isArray(arr) ? arr : [])); } catch (e) { /* non-fatal */ }
+}
+function clearAllergies() {
+  try { localStorage.removeItem(M05_ALLERGY_KEY); } catch (e) { /* non-fatal */ }
+}
+
+function getDietaryPattern() {
+  try {
+    var v = localStorage.getItem(M05_DIETARY_KEY);
+    return v || 'omnivore';
+  } catch (e) { return 'omnivore'; }
+}
+function setDietaryPattern(value) {
+  try { localStorage.setItem(M05_DIETARY_KEY, value || 'omnivore'); } catch (e) { /* non-fatal */ }
+}
+
+function getDislikes() {
+  try {
+    var raw = localStorage.getItem(M05_DISLIKES_KEY);
+    if (!raw) return [];
+    var parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) { return []; }
+}
+function setDislikes(arr) {
+  try { localStorage.setItem(M05_DISLIKES_KEY, JSON.stringify(Array.isArray(arr) ? arr : [])); } catch (e) { /* non-fatal */ }
+}
+function clearDislikes() {
+  try { localStorage.removeItem(M05_DISLIKES_KEY); } catch (e) { /* non-fatal */ }
+}
+
+function getPreferencesSet() {
+  try { return localStorage.getItem(M05_SET_KEY) === 'true'; } catch (e) { return false; }
+}
+function setPreferencesSet() {
+  try { localStorage.setItem(M05_SET_KEY, 'true'); } catch (e) { /* non-fatal */ }
+}
+function clearPreferencesSet() {
+  try { localStorage.removeItem(M05_SET_KEY); } catch (e) { /* non-fatal */ }
+}
+
+// ─── Convenience predicates (used by M1+) ───────────────────────────────────
+function hasAllergy(name) { return getAllergies().indexOf(name) !== -1; }
+function hasDislike(name) { return getDislikes().indexOf(name) !== -1; }
+function isVegetarianPlus() {
+  var p = getDietaryPattern();
+  return p === 'vegetarian' || p === 'vegan';
+}
+
+// ─── Renderer ───────────────────────────────────────────────────────────────
+function hidePreferencesScreen() {
+  var ov = document.getElementById('onboarding-preferences-overlay');
+  if (ov && ov.parentNode) ov.parentNode.removeChild(ov);
+}
+
+function showPreferencesScreen(onContinue) {
+  if (document.getElementById('onboarding-preferences-overlay')) return null;
+
+  // Read existing selections so the overlay reflects current state when
+  // opened from Settings.
+  var selectedAllergies = getAllergies().slice();
+  var selectedDietary   = getDietaryPattern();
+  var selectedDislikes  = getDislikes().slice();
+
+  var overlay = el('div', {
+    id: 'onboarding-preferences-overlay',
+    style: {
+      position: 'fixed', top: '0', left: '0', right: '0', bottom: '0',
+      background: 'var(--bg-base)',
+      zIndex: '5000',
+      display: 'flex', flexDirection: 'column',
+      paddingTop: 'env(safe-area-inset-top, 0px)',
+      paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+      overflow: 'hidden'
+    }
+  });
+
+  // Sticky header
+  var header = el('div', { style: {
+    padding: '20px 24px 14px',
+    borderBottom: '1px solid var(--border-subtle)',
+    background: 'var(--bg-base)',
+    flexShrink: '0'
+  } });
+  header.appendChild(el('div', { style: {
+    fontFamily: "'Bebas Neue', sans-serif",
+    fontSize: '28px',
+    color: 'var(--text-primary)',
+    letterSpacing: '0.08em',
+    lineHeight: '1'
+  } }, 'PREFERENCES'));
+  header.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace",
+    fontSize: '11px',
+    color: 'var(--text-muted)',
+    marginTop: '8px',
+    lineHeight: '1.5'
+  } }, "So we cook food you'll actually want to eat."));
+  overlay.appendChild(header);
+
+  // Scrollable body
+  var bodyWrap = el('div', { style: {
+    flex: '1', overflowY: 'auto',
+    padding: '20px 24px 24px'
+  } });
+
+  // Section heading helper
+  function sectionHeading(title, sub) {
+    var grp = el('div', { style: { marginBottom: '12px', marginTop: '6px' } });
+    grp.appendChild(el('div', { style: {
+      fontFamily: "'Bebas Neue', sans-serif",
+      fontSize: '18px',
+      color: 'var(--text-primary)',
+      letterSpacing: '0.05em',
+      marginBottom: '4px'
+    } }, title));
+    if (sub) {
+      grp.appendChild(el('div', { style: {
+        fontFamily: "'DM Mono', monospace",
+        fontSize: '10px',
+        color: 'var(--text-muted)',
+        lineHeight: '1.45'
+      } }, sub));
+    }
+    return grp;
+  }
+
+  // ── Section 1: Dietary pattern (single-select) ──
+  var dietGroup = el('div', { style: { marginBottom: '28px' } });
+  dietGroup.appendChild(sectionHeading('How do you eat?', null));
+  DIETARY_PATTERN_OPTIONS.forEach(function (opt) {
+    var isOn = selectedDietary === opt.id;
+    var row = el('button', {
+      class: 'btn',
+      'data-diet-id': opt.id,
+      style: {
+        display: 'flex', alignItems: 'center', gap: '12px', width: '100%',
+        background: isOn ? 'var(--accent-primary-soft)' : 'var(--bg-card-nested)',
+        border: '1px solid ' + (isOn ? 'var(--accent-primary-border)' : 'var(--border-default)'),
+        borderRadius: '10px', padding: '12px 14px', marginBottom: '8px',
+        cursor: 'pointer', textAlign: 'left'
+      },
+      onclick: function () {
+        selectedDietary = opt.id;
+        // Re-render section 1 in place by rebuilding all dietary rows.
+        var rows = dietGroup.querySelectorAll('[data-diet-id]');
+        rows.forEach(function (r) {
+          var on = r.getAttribute('data-diet-id') === selectedDietary;
+          r.style.background = on ? 'var(--accent-primary-soft)' : 'var(--bg-card-nested)';
+          r.style.borderColor = on ? 'var(--accent-primary-border)' : 'var(--border-default)';
+          var dot = r.querySelector('[data-diet-dot]');
+          if (dot) dot.style.background = on ? 'var(--accent-primary)' : 'transparent';
+        });
+      }
+    });
+    // Radio dot
+    var dot = el('span', {
+      'data-diet-dot': '1',
+      style: {
+        width: '14px', height: '14px', borderRadius: '50%',
+        border: '1px solid var(--border-default)',
+        background: isOn ? 'var(--accent-primary)' : 'transparent',
+        flexShrink: '0'
+      }
+    });
+    row.appendChild(dot);
+    row.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace",
+      fontSize: '12px',
+      color: 'var(--text-primary)',
+      lineHeight: '1.3'
+    } }, opt.label));
+    dietGroup.appendChild(row);
+  });
+  bodyWrap.appendChild(dietGroup);
+
+  // ── Section 2: Allergies (multi-select) ──
+  var allergyGroup = el('div', { style: { marginBottom: '24px' } });
+  allergyGroup.appendChild(sectionHeading(
+    'Anything you need to avoid?',
+    "We'll filter recipes that contain these."
+  ));
+  var allergyChipWrap = el('div', { style: {
+    display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '12px'
+  } });
+  ALLERGY_OPTIONS.forEach(function (opt) {
+    var isOn = selectedAllergies.indexOf(opt.id) !== -1;
+    var chip = el('button', {
+      class: 'btn',
+      'data-allergy-id': opt.id,
+      style: {
+        background: isOn ? 'var(--accent-primary-soft)' : 'var(--bg-card-nested)',
+        border: '1px solid ' + (isOn ? 'var(--accent-primary-border)' : 'var(--border-default)'),
+        color: 'var(--text-primary)',
+        borderRadius: '999px',
+        padding: '8px 14px',
+        fontFamily: "'DM Mono', monospace",
+        fontSize: '11px',
+        letterSpacing: '0.04em',
+        cursor: 'pointer'
+      },
+      onclick: function () {
+        var idx = selectedAllergies.indexOf(opt.id);
+        if (idx === -1) selectedAllergies.push(opt.id);
+        else selectedAllergies.splice(idx, 1);
+        var nowOn = selectedAllergies.indexOf(opt.id) !== -1;
+        chip.style.background = nowOn ? 'var(--accent-primary-soft)' : 'var(--bg-card-nested)';
+        chip.style.borderColor = nowOn ? 'var(--accent-primary-border)' : 'var(--border-default)';
+      }
+    }, opt.label);
+    allergyChipWrap.appendChild(chip);
+  });
+  allergyGroup.appendChild(allergyChipWrap);
+  // Safety disclaimer
+  allergyGroup.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace",
+    fontSize: '10px',
+    fontStyle: 'italic',
+    color: 'var(--text-muted)',
+    lineHeight: '1.5',
+    marginTop: '14px'
+  } }, 'For severe allergies, always verify ingredients on the packaging. FLOW filters reduce exposure but cannot guarantee safety.'));
+  bodyWrap.appendChild(allergyGroup);
+
+  // ── Section 3: Strong dislikes (multi-select) ──
+  var dislikeGroup = el('div', { style: { marginBottom: '24px' } });
+  dislikeGroup.appendChild(sectionHeading(
+    "Anything you'd rather not see?",
+    "Recipes containing these will get a 'leave out' hint or a suggested swap."
+  ));
+  var dislikeChipWrap = el('div', { style: {
+    display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '12px'
+  } });
+  DISLIKE_OPTIONS.forEach(function (opt) {
+    var isOn = selectedDislikes.indexOf(opt.id) !== -1;
+    var chip = el('button', {
+      class: 'btn',
+      'data-dislike-id': opt.id,
+      style: {
+        background: isOn ? 'var(--accent-primary-soft)' : 'var(--bg-card-nested)',
+        border: '1px solid ' + (isOn ? 'var(--accent-primary-border)' : 'var(--border-default)'),
+        color: 'var(--text-primary)',
+        borderRadius: '999px',
+        padding: '8px 14px',
+        fontFamily: "'DM Mono', monospace",
+        fontSize: '11px',
+        letterSpacing: '0.04em',
+        cursor: 'pointer'
+      },
+      onclick: function () {
+        var idx = selectedDislikes.indexOf(opt.id);
+        if (idx === -1) selectedDislikes.push(opt.id);
+        else selectedDislikes.splice(idx, 1);
+        var nowOn = selectedDislikes.indexOf(opt.id) !== -1;
+        chip.style.background = nowOn ? 'var(--accent-primary-soft)' : 'var(--bg-card-nested)';
+        chip.style.borderColor = nowOn ? 'var(--accent-primary-border)' : 'var(--border-default)';
+      }
+    }, opt.label);
+    dislikeChipWrap.appendChild(chip);
+  });
+  dislikeGroup.appendChild(dislikeChipWrap);
+  bodyWrap.appendChild(dislikeGroup);
+
+  overlay.appendChild(bodyWrap);
+
+  // Sticky footer CTA
+  var footer = el('div', { style: {
+    padding: '14px 24px 16px',
+    borderTop: '1px solid var(--border-subtle)',
+    background: 'var(--bg-base)',
+    flexShrink: '0'
+  } });
+  var cta = el('button', {
+    class: 'btn',
+    'data-prefs-cta': '1',
+    style: {
+      width: '100%',
+      background: 'var(--accent-primary)',
+      color: 'var(--text-on-accent)',
+      border: 'none',
+      borderRadius: '12px',
+      padding: '14px 20px',
+      fontFamily: "'Bebas Neue', sans-serif",
+      fontSize: '20px',
+      letterSpacing: '0.10em',
+      cursor: 'pointer',
+      fontWeight: '700'
+    },
+    onclick: function (e) {
+      if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+      // Persist all three dimensions before navigating. Zero selections is
+      // valid (the "skip" path); empty arrays + omnivore default still set
+      // preferencesSet=true so boot routing falls through next launch.
+      try { setAllergies(selectedAllergies); } catch (_e) { /* non-fatal */ }
+      try { setDietaryPattern(selectedDietary); } catch (_e) { /* non-fatal */ }
+      try { setDislikes(selectedDislikes); } catch (_e) { /* non-fatal */ }
+      try { setPreferencesSet(); } catch (_e) { /* non-fatal */ }
+      hidePreferencesScreen();
+      // Default behavior: close overlay and do nothing further. Boot routing
+      // passes a callback that opens the wizard; Settings entry passes a
+      // callback that re-renders the settings menu.
+      if (typeof onContinue === 'function') {
+        try { onContinue(); } catch (_e) { /* non-fatal */ }
+      }
+    }
+  }, 'Continue');
+  footer.appendChild(cta);
+  overlay.appendChild(footer);
+
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
+// Renders the tour overlay containing the current step's callout, OR returns
+// null if the tour has already been seen. The check is the first statement
+// so a seen-tour user never produces a DOM node. The renderer is stateful:
+// it keeps an internal step index and rebuilds the callout in place when
+// Next is tapped, without removing and recreating the overlay.
+function renderOnboardingTour() {
+  if (getOnboardingTourSeen()) return null;
+  if (!Array.isArray(TOUR_STEPS) || TOUR_STEPS.length === 0) return null;
+
+  var stepIndex = 0;
+  var overlay = el('div', { id: 'onboarding-tour', style: {
+    position: 'fixed', top: '0', left: '0', right: '0', bottom: '0', zIndex: '7000',
+    background: 'rgba(0,0,0,0.5)', opacity: '0',
+    transition: 'opacity 0.22s cubic-bezier(0.32,0.72,0,1)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    padding: '24px', boxSizing: 'border-box'
+  } });
+
+  var card = el('div', { style: {
+    background: 'var(--bg-card)', border: '1px solid var(--border-default)',
+    borderRadius: '14px', padding: '20px 22px', maxWidth: '360px', width: '100%',
+    boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
+    transform: 'translateY(8px)', transition: 'transform 0.22s cubic-bezier(0.32,0.72,0,1), opacity 0.18s ease'
+  } });
+  // Stop overlay-tap-to-skip from triggering when the user taps the card.
+  card.onclick = function (e) { e.stopPropagation(); };
+  overlay.appendChild(card);
+
+  function dismiss() {
+    setOnboardingTourSeen();
+    if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+  }
+  // Tapping outside the card counts as Skip.
+  overlay.onclick = dismiss;
+
+  function paintStep() {
+    var step = TOUR_STEPS[stepIndex];
+    if (!step) { dismiss(); return; }
+    card.innerHTML = '';
+
+    // Step pill (e.g. "1 of 4").
+    card.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '9px', color: 'var(--accent-primary)',
+      letterSpacing: '0.22em', textTransform: 'uppercase', fontWeight: '700', marginBottom: '10px'
+    } }, (stepIndex + 1) + ' of ' + TOUR_STEPS.length));
+
+    // Heading.
+    card.appendChild(el('div', { style: {
+      fontFamily: "'Bebas Neue', sans-serif", fontSize: '26px', color: '#ebebeb',
+      letterSpacing: '0.04em', marginBottom: '10px', lineHeight: '1.1'
+    } }, step.title));
+
+    // Body.
+    card.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '12px', color: '#9a9a9a',
+      lineHeight: '1.6', marginBottom: '18px'
+    } }, step.body));
+
+    // Actions row.
+    var actions = el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' } });
+    var skipLink = el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '11px', color: '#777',
+      cursor: 'pointer', padding: '6px 4px', letterSpacing: '0.06em'
+    }, onclick: function (e) { e.stopPropagation(); dismiss(); } }, 'Skip tour');
+    var isLast = (stepIndex === TOUR_STEPS.length - 1);
+    var nextBtn = el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '12px', color: '#080808',
+      background: 'var(--accent-primary)', borderRadius: '8px',
+      padding: '10px 18px', cursor: 'pointer', fontWeight: '700',
+      letterSpacing: '0.06em'
+    }, onclick: function (e) {
+      e.stopPropagation();
+      if (isLast) { dismiss(); return; }
+      stepIndex++;
+      paintStep();
+    } }, isLast ? 'Done' : 'Next \u203a');
+    actions.appendChild(skipLink);
+    actions.appendChild(nextBtn);
+    card.appendChild(actions);
+  }
+  paintStep();
+  return overlay;
+}
+
+// Mount the tour into the document body, with a gentle fade-in. Safe to call
+// when the tour has already been seen (renderOnboardingTour returns null and
+// nothing happens).
+function startOnboardingTour() {
+  var overlay = renderOnboardingTour();
+  if (!overlay) return;
+  document.body.appendChild(overlay);
+  requestAnimationFrame(function () {
+    overlay.style.opacity = '1';
+    var card = overlay.firstElementChild;
+    if (card) card.style.transform = 'translateY(0)';
+  });
+}
+
 // Per-slot target card. daily is { kcal, protein, carbs, fat }.
 function renderMealEngineSlotTargets(daily, dayType) {
   if (!daily || !daily.kcal) return null;
@@ -27978,7 +29712,7 @@ function getUserProfile() {
 
 function defaultProfile() {
   return {
-    realName: 'Fraser',
+    realName: '',
     nickname: '',
     displayPreference: 'real',  // 'real' or 'nickname'
     programLabelOverride: false,
@@ -28120,6 +29854,19 @@ function renderSettingsModal(section) {
     closeSettings();
     if (typeof showCuisinePreferencesModal === 'function') {
       showCuisinePreferencesModal(() => { /* no follow-up; user can close */ });
+    }
+    return;
+  } else if (section === 'allergies') {
+    // M0.5: allergies + dietary pattern + dislikes. Re-uses the same overlay
+    // shown during onboarding. From Settings we close the settings overlay
+    // first (same pattern as 'preferences' above) and pass an onContinue
+    // callback that re-opens Settings so the user lands back where they
+    // started, not in the wizard.
+    closeSettings();
+    if (typeof showPreferencesScreen === 'function') {
+      showPreferencesScreen(function () {
+        if (typeof openSettings === 'function') openSettings('menu');
+      });
     }
     return;
   } else {
@@ -28522,6 +30269,7 @@ function renderSettingsMenu() {
   const items = [
     { id:'profile', icon:'👤', label:'Profile',          desc:'Your name, nickname, program label' },
     { id:'goals',   icon:'🎯', label:'Goals',           desc:'Body composition goals + macro targets' },
+    { id:'allergies', icon:'⚠', label:'Allergies & Diet', desc:'Dietary pattern · allergies · dislikes' },
     { id:'preferences', icon:'🍽', label:'Preferences',  desc:'Cuisines you enjoy · meal suggestions' },
     { id:'sync',    icon:'☁',  label:'Cloud Sync',       desc:'Optional: sync across devices via Google Drive' },
     { id:'display', icon:'◐',  label:'Display',          desc:'Text size · readability presets' },
@@ -28620,7 +30368,7 @@ function renderProfileSection() {
     row.appendChild(input);
     return row;
   }
-  nameCard.appendChild(inputRow('Real name', 'realName', 'e.g. Fraser'));
+  nameCard.appendChild(inputRow('Real name', 'realName', 'Your name'));
   nameCard.appendChild(inputRow('Nickname (optional)', 'nickname', 'e.g. Fraz'));
 
   // Display preference toggle (only meaningful if nickname is set)
@@ -29385,7 +31133,7 @@ function renderGoalWizard() {
 
 function isWizardStepValid(step) {
   const s = wizardState;
-  if (step === 1) return s.weight > 30 && s.weight < 250 && s.age > 12 && s.age < 100 && s.height > 100;
+  if (step === 1) return !!(s.realName && typeof s.realName === 'string' && s.realName.trim()) && s.weight > 30 && s.weight < 250 && s.age > 12 && s.age < 100 && s.height > 100;
   if (step === 2) return !!s.activityId;
   if (step === 3) return !!s.trainingDaysPerWeek && s.trainingDaysPerWeek >= 1 && s.trainingDaysPerWeek <= 7;
   if (step === 4) return !!s.trainingStyle;                              // Training Style — must pick one
@@ -29460,6 +31208,33 @@ function renderWizStep1Identity() {
     return row;
   }
 
+  // Text-input row, parallel to numRow. Onboarding O1: used for the Name field.
+  function textRow(label, key, placeholder) {
+    const row = div({marginBottom:'14px'});
+    row.appendChild(el('label',{
+      style:{fontSize:'9px',color:'#888',letterSpacing:'0.2em',textTransform:'uppercase',fontWeight:'700',display:'block',marginBottom:'6px'}
+    }, label));
+    const input = el('input',{
+      type:'text',
+      value: (wizardState[key] != null ? wizardState[key] : ''),
+      placeholder: placeholder || '',
+      autocomplete: 'given-name',
+      style:{
+        width:'100%', background:'#0a0a0a', color:'#e0e0e0',
+        border:'1px solid #1e1e1e', borderRadius:'8px',
+        padding:'12px 14px', fontFamily:"'DM Mono',monospace",
+        fontSize:'14px', boxSizing:'border-box'
+      }
+    });
+    input.oninput = (e) => {
+      wizardState[key] = e.target.value;
+      refreshWizardContinueButton();
+    };
+    row.appendChild(input);
+    return row;
+  }
+
+  wrap.appendChild(textRow('Name', 'realName', 'Your name'));
   wrap.appendChild(numRow('Weight', 'weight', 'kg', 30, 250, 0.05));
   wrap.appendChild(numRow('Body fat %', 'bodyFat', 'optional but recommended', 3, 50, 0.1));
   wrap.appendChild(numRow('Height', 'height', 'cm', 100, 230, 1));
@@ -30607,6 +32382,18 @@ function renderWizStep10Review() {
 function commitWizard() {
   const profile = computeGoalProfile(wizardState);
   profile.lockedAt = Date.now();
+  // Onboarding O1: persist the wizard's collected real name to the user
+  // profile so the header reads correctly after lock, and gate the Renpho
+  // baseline seed so a brand-new user does not inherit Fraser's body
+  // composition as their starting metric entry.
+  try {
+    if (wizardState && typeof wizardState.realName === 'string' && wizardState.realName.trim()) {
+      const userProfile = (typeof getUserProfile === 'function') ? getUserProfile() : {};
+      userProfile.realName = wizardState.realName.trim();
+      if (typeof saveUserProfile === 'function') saveUserProfile(userProfile);
+    }
+  } catch (e) { /* non-fatal */ }
+  try { localStorage.setItem('fraser_baseline_seeded', 'true'); } catch (e) { /* non-fatal */ }
   saveGoalProfile(profile);
   // Goal targets just changed — invalidate scaled meal cache
   if (typeof clearMealScalingCache === 'function') clearMealScalingCache();
@@ -30619,6 +32406,13 @@ function commitWizard() {
   applyProfileToHeader();
   renderSettingsModal('goals');
   renderActiveTab();
+  // Onboarding O2: fire the post-wizard walkthrough on a slight delay so the
+  // main UI has settled. startOnboardingTour internally checks the seen flag
+  // and is a no-op if already seen, so a second goal-lock will not re-fire it.
+  // Wrapped so a tour failure cannot brick the post-wizard flow.
+  try {
+    setTimeout(function () { try { startOnboardingTour(); } catch (e) { /* non-fatal */ } }, 350);
+  } catch (e) { /* non-fatal */ }
   // Onboarding's final step: ask about cuisine preferences. Only fires for
   // brand-new users completing the wizard — existing users already locked
   // never see this. If user dismisses, we default to ['general'] silently.
@@ -30735,23 +32529,37 @@ function renderNutrition() {
   // Opens the new meal-engine template browser. A settled, primary feature
   // carrying the accent-primary treatment. Sits alongside the existing meal
   // UI; nothing below is replaced.
+  // Reorganisation R4: Meal Templates entry demoted from accent-primary
+  // to supporting treatment. The templates surface is genuinely useful but
+  // it is not the day's primary action. The Daily Calorie Target card
+  // (below) is the Fuel hero; this card now reads as a sibling of the
+  // water-compact and shopping-list entries.
   var mealEngineEntry = el('div', { style: {
-    background: 'var(--accent-primary-soft)', border: '1px solid var(--accent-primary-border)',
-    borderRadius: '10px', padding: '14px 16px', marginBottom: '12px', cursor: 'pointer',
+    background: 'var(--bg-card-nested)', border: '1px solid var(--border-default)',
+    borderRadius: '10px', padding: '12px 14px', marginBottom: '12px', cursor: 'pointer',
     display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px'
   }, onclick: function () { openMealEngineSheet(); } });
-  var meLeft = el('div', {});
+  var meLeft = el('div', { style: { flex: '1', minWidth: '0' } });
   meLeft.appendChild(el('div', { style: {
-    fontFamily: "'Bebas Neue', sans-serif", fontSize: '19px', color: '#ebebeb', letterSpacing: '0.04em'
+    fontFamily: "'DM Mono', monospace", fontSize: '10px', color: '#888',
+    letterSpacing: '0.22em', textTransform: 'uppercase', fontWeight: '700'
   } }, 'Meal Templates'));
   meLeft.appendChild(el('div', { style: {
-    fontFamily: "'DM Mono', monospace", fontSize: '11px', color: '#9a9a9a', marginTop: '2px'
-  } }, 'Browse templates, swap ingredients, see live macros'));
+    fontFamily: "'DM Mono', monospace", fontSize: '11px', color: 'var(--text-tertiary)',
+    marginTop: '3px', lineHeight: '1.4'
+  } }, 'Browse templates, swap ingredients, see live macros.'));
   mealEngineEntry.appendChild(meLeft);
   mealEngineEntry.appendChild(el('span', { style: {
-    fontFamily: "'DM Mono', monospace", fontSize: '16px', color: 'var(--accent-primary)', flexShrink: '0'
+    fontFamily: "'DM Mono', monospace", fontSize: '16px', color: '#444', flexShrink: '0'
   } }, '\u203a'));
   list.appendChild(mealEngineEntry);
+
+  // Reorganisation R1: water + shopping live on Fuel now. Water was its
+  // own tab; now a compact card with quick-add buttons + tap-to-expand
+  // into the full Water sheet. Shopping was its own tab; now a one-line
+  // entry that opens the full Shopping sheet.
+  try { list.appendChild(renderWaterCompactCard()); } catch (e) { /* non-fatal */ }
+  try { list.appendChild(renderShoppingListEntry()); } catch (e) { /* non-fatal */ }
 
   // ── DAILY CALORIE TARGET CARD ──
   // Shows the calculated target for TODAY (day-type-specific) or the weekly
@@ -30780,24 +32588,35 @@ function renderNutrition() {
     const dispCarbs    = _ntIsToday ? _ntDayMacros.carbsG     : target.carbsG;
     const dispFat      = _ntIsToday ? _ntDayMacros.fatG       : target.fatG;
 
+    // Reorganisation R4: hero treatment on the Fuel tab's primary surface.
+    // The kcal target is the day's headline number. Promote the outer card
+    // to the same structural pattern as R2 (Today) and R5 (Body): accent
+    // border, inset accent-soft shadow, larger padding, and a Bebas Neue
+    // kcal headline above the existing detail rows. Inner content (header
+    // toggle, day-type label, macro grid, footnotes, plan-totals line) is
+    // unchanged.
     const targetCard = div({
-      background:'#0a0a0a',
-      border:'1px solid #1a1a1a',
-      borderRadius:'10px',
-      padding:'12px 14px',
-      marginBottom:'10px'
+      background: 'var(--bg-card)',
+      border: '1px solid var(--accent-primary-border)',
+      boxShadow: '0 0 0 1px var(--accent-primary-soft) inset',
+      borderRadius:'12px',
+      padding:'16px 18px',
+      marginBottom:'12px'
     });
+    targetCard.appendChild(el('div', {
+      style:{fontFamily:"'Bebas Neue', sans-serif",fontSize:'30px',color:'var(--text-primary)',letterSpacing:'0.04em',lineHeight:'1',marginBottom:'6px'}
+    }, dispKcal + ' KCAL'));
     const targetHdr = div({display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',marginBottom:'8px'});
     const hdrLeft = div({flex:'1', minWidth:'0'});
     hdrLeft.appendChild(el('div', {
       style:{fontSize:'8px',color:'#06d6a0',letterSpacing:'0.22em',textTransform:'uppercase',fontWeight:'700'}
     }, _ntIsToday ? '🎯 ' + dayTypeLabel : '🎯 Weekly Average · ' + target.label));
     hdrLeft.appendChild(el('div', {
-      style:{fontSize:'9px',color:'#7a7a7a',fontFamily:"'DM Mono',monospace",letterSpacing:'0.04em',marginTop:'2px'}
+      style:{fontSize:'9px',color:'var(--text-muted)',fontFamily:"'DM Mono',monospace",letterSpacing:'0.04em',marginTop:'2px'}
     }, _ntIsToday ? day.label + ' · ' + day.title : 'Avg across all 7 days'));
     targetHdr.appendChild(hdrLeft);
 
-    // Toggle button — flips between today's day-type target and weekly avg.
+    // Toggle button . flips between today's day-type target and weekly avg.
     // Only show toggle if there's a goal profile (otherwise both modes show
     // the same value).
     if (_ntDayMacros) {
@@ -30821,14 +32640,14 @@ function renderNutrition() {
       }, _ntIsToday ? 'Today ⇄' : 'Weekly ⇄');
       targetHdr.appendChild(toggle);
     } else {
-      // No profile — fallback to original TDEE / deficit micro-stat
+      // No profile . fallback to original TDEE / deficit micro-stat
       targetHdr.appendChild(el('div', {
-        style:{fontSize:'8px',color:'#7a7a7a',fontFamily:"'DM Mono',monospace",flexShrink:'0',whiteSpace:'nowrap'}
+        style:{fontSize:'8px',color:'var(--text-muted)',fontFamily:"'DM Mono',monospace",flexShrink:'0',whiteSpace:'nowrap'}
       }, 'TDEE ' + target.tdee + ' · ' + (target.deficit > 0 ? '-' : (target.deficit < 0 ? '+' : '±')) + Math.abs(target.deficit)));
     }
     targetCard.appendChild(targetHdr);
 
-    // Target macros row — uses the mode-determined display values
+    // Target macros row . uses the mode-determined display values
     const tgtGrid = div({display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:'6px'});
     [
       {label:'KCAL', val: dispKcal, color:'#06d6a0'},
@@ -30846,12 +32665,12 @@ function renderNutrition() {
     });
     targetCard.appendChild(tgtGrid);
 
-    // Body comp footnote — same data regardless of mode
+    // Body comp footnote . same data regardless of mode
     targetCard.appendChild(el('div', {
       style:{fontSize:'8px',color:'#5a5a5a',marginTop:'6px',fontFamily:"'DM Mono',monospace",textAlign:'center'}
     }, 'Based on ' + target.weight + 'kg · ' + target.bodyFat + '% BF · LBM ' + target.lbm + 'kg'));
 
-    // Plan-totals vs target — sums the displayed meals (including swaps and
+    // Plan-totals vs target . sums the displayed meals (including swaps and
     // scaling, excluding dropped optional meals) and compares to today's
     // day-type target. Makes it obvious when a macro-distant swap pushes
     // the day off-plan. Only shown when we have a day-type target to
@@ -30881,7 +32700,7 @@ function renderNutrition() {
         fontSize:'9px',fontFamily:"'DM Mono',monospace"
       });
       _planLine.appendChild(el('span',{
-        style:{color:'#7a7a7a',letterSpacing:'0.05em'}
+        style:{color:'var(--text-muted)',letterSpacing:'0.05em'}
       }, 'Plan totals'));
       const _rt = el('span', {
         style:{color: _showImpact ? _planColor : '#aaa', fontWeight:'700', letterSpacing:'0.03em'}
@@ -32211,8 +34030,12 @@ function showSleepPromptModal(dateStr, sentinelKey) {
       saveSleepLog(dateStr, data);
       try { localStorage.setItem(sentinelKey, '1'); } catch(_){}
       overlay.remove();
-      // If user is on Sleep tab, refresh it to show the new log
-      if (activeTab === 'sleep') render();
+      // Reorganisation R1: Sleep moved off as a sheet. If the sheet is
+      // currently open, refresh its inner content so the new log appears.
+      // Otherwise the next time the user opens the sheet it will rebuild.
+      if (_r1SleepSheetOpen) {
+        try { closeSleepSheet(); openSleepSheet(); } catch (_e) { /* non-fatal */ }
+      }
     }
   }, 'Save Sleep');
   modal.appendChild(saveBtn);
@@ -36138,6 +37961,34 @@ requestAnimationFrame(() => {
 // 3.5s cap set at module load is the backstop if init somehow didn't reach
 // this line.
 requestAnimationFrame(hideSplashScreen);
+
+// Onboarding O1 + O4 + M0.5: first-launch routing. If no goal is locked, the
+// user gets routed through onboarding. The sequence is welcome → preferences
+// → wizard. Each step persists its own flag so a user who closes the app
+// mid-flow resumes at the right step rather than restarting from the top.
+// The welcome and preferences overlays each chain forward via their own CTA
+// handlers; this boot block only fires the first step that has not yet been
+// seen. The splash's minimum dwell keeps the main UI hidden while any
+// overlay opens. Wrapped defensively so a malformed profile or missing
+// function cannot block the rest of init.
+try {
+  const _goal = (typeof getGoalProfile === 'function') ? getGoalProfile() : null;
+  if (!_goal || !_goal.lockedAt) {
+    if (typeof getOnboardingWelcomeSeen === 'function' && !getOnboardingWelcomeSeen()) {
+      if (typeof showWelcomeScreen === 'function') showWelcomeScreen();
+    } else if (typeof getPreferencesSet === 'function' && !getPreferencesSet()) {
+      if (typeof showPreferencesScreen === 'function') {
+        showPreferencesScreen(function () {
+          if (typeof openSettings === 'function') openSettings('goal_wizard');
+        });
+      }
+    } else {
+      if (typeof openSettings === 'function') openSettings('goal_wizard');
+    }
+  }
+} catch (e) {
+  if (typeof console !== 'undefined') console.warn('First-launch routing skipped:', e);
+}
 // Schedule the first auto-collapse: bar starts expanded so user discovers it,
 // collapses to a pill after 5s if untouched.
 scheduleHaloAutoCollapse();
