@@ -711,7 +711,7 @@
 //   1. Bump APP_VERSION here
 //   2. Bump CACHE_VERSION in service-worker.js to match
 //   3. mv fraser-final-complete.html index.html; git commit; git push
-const APP_VERSION = '2026.05.19.20';
+const APP_VERSION = '2026.05.19.26';
 
 let activeTab = 'today';
 let activeDay = 0; // will be set to today on init
@@ -24957,6 +24957,2681 @@ const MEAL_DATABASE = [
 
 
 // ═══════════════════════════════════════════════════════════════════════════
+// M1: Origin Rotation Lunches
+// ═══════════════════════════════════════════════════════════════════════════
+// The first six recipes of the M-arc. Origin is the inaugural fusion-themed
+// rotation, intended as the most universally accessible entry point. These
+// recipes sit alongside MEAL_DATABASE behind a feature flag (flipped in M2+)
+// and do not interact with any existing render path.
+//
+// The schema differs intentionally from MEAL_DATABASE: per-carb-level
+// variants, swap chains with macro deltas, optionalIngredients for dislike
+// handling, and a teaching/technique/fusion-story authoring layer. The M2
+// picker UI will read against this shape.
+//
+// All recipes were macro-targeted by hand against Fraser's 2470 kcal cut.
+// Stored macros are computed from ingredients; the M1 test re-computes and
+// asserts within ±5 kcal / ±2g protein / ±3g carb / ±2g fat tolerance.
+
+// ─── M1: New INGREDIENT_DATABASE entries ───────────────────────────────────
+// Six new ingredients added to support the Origin Lunches. Each follows the
+// existing INGREDIENT_DATABASE schema. Merged via Object.assign at module
+// load time so the legacy ingredient browser sees them too.
+const M1_INGREDIENTS = {
+  'paprika-smoked': {
+    usdaId: 170932, name: 'Paprika, smoked (pimentón)',
+    per100g: { kcal: 282, protein: 14.1, carbs: 53.9, fat: 12.9, fiber: 34.9 },
+    density: 0.46, commonUnit: 'g', aisle: 'Pantry & Condiments'
+  },
+  'coconut-milk-light': {
+    usdaId: 173570, name: 'Coconut milk, canned, light',
+    per100g: { kcal: 73, protein: 0.7, carbs: 1.4, fat: 7.3, fiber: 0.2 },
+    density: 0.99, commonUnit: 'ml', aisle: 'Pantry & Condiments'
+  },
+  'sesame-seeds-raw': {
+    usdaId: 170150, name: 'Sesame seeds, whole, raw',
+    per100g: { kcal: 573, protein: 17.7, carbs: 23.5, fat: 49.7, fiber: 11.8 },
+    density: null, commonUnit: 'g', aisle: 'Nuts & Seeds'
+  },
+  'parsley-fresh': {
+    usdaId: 170416, name: 'Parsley, fresh (flat-leaf)',
+    per100g: { kcal: 36, protein: 3.0, carbs: 6.3, fat: 0.8, fiber: 3.3 },
+    density: null, commonUnit: 'g', aisle: 'Fruits & Vegetables'
+  },
+  'mint-fresh': {
+    usdaId: 169327, name: 'Mint, fresh',
+    per100g: { kcal: 70, protein: 3.8, carbs: 14.9, fat: 0.9, fiber: 8.0 },
+    density: null, commonUnit: 'g', aisle: 'Fruits & Vegetables'
+  },
+  'nutritional-yeast': {
+    usdaId: 174299, name: 'Nutritional yeast, flakes',
+    per100g: { kcal: 290, protein: 50.0, carbs: 36.0, fat: 4.0, fiber: 22.0 },
+    density: null, commonUnit: 'g', aisle: 'Pantry & Condiments'
+  },
+  'tempeh': {
+    usdaId: 174272, name: 'Tempeh, soybean',
+    per100g: { kcal: 192, protein: 20.3, carbs: 7.6, fat: 10.8, fiber: 0 },
+    density: null, commonUnit: 'g', aisle: 'Refrigerated'
+  }
+};
+
+// Merge into the live INGREDIENT_DATABASE so existing browsers and the
+// new M1 recipes share a single lookup table.
+Object.assign(INGREDIENT_DATABASE, M1_INGREDIENTS);
+
+// ─── M1: Dislike-to-ingredient cross-reference ─────────────────────────────
+// Maps DISLIKE_OPTIONS ids (M0.5 vocabulary, e.g. 'cilantro', 'coconut') to
+// the INGREDIENT_DATABASE ids that carry that flavor. The M2 picker UI will
+// query this to decide which ingredients in a recipe need a 'leave out' or
+// swap hint. A dislike id with an empty array means no current ingredient
+// in the database carries that flavor; M-arc expansions can add entries as
+// new ingredients land.
+//
+// This mapping is asymmetric on purpose: an ingredient might map back to
+// multiple dislike ids (e.g. a future 'beet-feta-salad' ingredient), but
+// each dislike id lists every ingredient that flags it.
+const DISLIKE_TO_INGREDIENTS = {
+  cilantro:     ['coriander-fresh'],
+  raw_onion:    ['onion-raw'],           // only when used uncooked in a recipe
+  mushrooms:    [],
+  olives:       [],
+  anchovies:    [],
+  blue_cheese:  [],
+  beets:        [],
+  fennel:       [],
+  bell_peppers: ['bell-pepper-red-raw'],
+  coconut:      ['coconut-milk-light']
+};
+
+// ─── M1: Origin Lunches ────────────────────────────────────────────────────
+const ORIGIN_LUNCHES = [
+  {
+    id: 'origin-lunch-smoke-citrus-salmon',
+    slot: 'lunch',
+    rotation: 'origin',
+    carbLevel: 'HIGH',
+    proteinClass: 'meat',
+    name: 'Smoke & Citrus Salmon Bowl',
+    tagline: 'Smoked-paprika salmon over brown rice with a bright lemon-yogurt sauce.',
+    fusionStory: 'Spanish pimentón meets Pacific Northwest salmon meets a California grain bowl. The yogurt sauce is Greek-style, sharpened with lemon, doing the work cream would do in a richer dish.',
+    teachingNote: "Higher-carb training days want the rice. Brown rice keeps the fibre and the chew, and the salmon's natural fat carries the smoked paprika without needing extra oil. The yogurt sauce is the protein lever: thick Greek yogurt at this volume adds 18 grams of protein for almost no fat, which is what lets the salmon portion stay modest enough to keep total fat in range.",
+    techniques: [
+      { name: 'Pan-searing salmon', note: 'Hot dry pan, skin down first if skin-on. Do not move it for the first 3 minutes; the crust forms when the fish releases on its own.' },
+      { name: 'Yogurt sauce assembly', note: 'Whisk lemon juice and grated garlic into yogurt off the heat. Acid plus raw garlic tames into something balanced over 5 minutes of sitting.' }
+    ],
+    ingredients: [
+      { id: 'salmon-atlantic-raw',    qty: 100, unit: 'g', role: 'main_protein' },
+      { id: 'brown-rice-raw',         qty: 80,  unit: 'g', role: 'main_carb' },
+      { id: 'broccoli-raw',           qty: 150, unit: 'g', role: 'flavor' },
+      { id: 'cucumber-raw',           qty: 100, unit: 'g', role: 'flavor' },
+      { id: 'greek-yogurt-nonfat',    qty: 180, unit: 'g', role: 'main_protein' },
+      { id: 'olive-oil',              qty: 3,   unit: 'ml', role: 'fat_source' },
+      { id: 'lemon-raw',              qty: 25,  unit: 'g', role: 'finishing' },
+      { id: 'garlic-raw',             qty: 4,   unit: 'g', role: 'aromatic' },
+      { id: 'paprika-smoked',         qty: 3,   unit: 'g', role: 'flavor' },
+      { id: 'parsley-fresh',          qty: 5,   unit: 'g', role: 'finishing' }
+    ],
+    swaps: [
+      { from: 'salmon-atlantic-raw', to: 'chicken-breast-raw',
+        macroAdjust: { kcal: -88, protein: 2, carbs: 0, fat: -11 },
+        cookNote: 'Use 100g chicken breast; cook a minute longer per side. Skip the paprika-on-skin step and rub the spice straight on the meat.' },
+      { from: 'salmon-atlantic-raw', to: 'tofu-firm',
+        macroAdjust: { kcal: -64, protein: -3, carbs: 3, fat: -5 },
+        cookNote: 'Press 160g firm tofu 10 minutes, slice thick, pan-sear to crust. The paprika rub clings to the dry tofu surface.' }
+    ],
+    optionalIngredients: [],
+    macros: { kcal: 720, protein: 51, carbs: 87, fat: 21 },
+    cookTime: { prep: 8, cook: 27, total: 35 },
+    equipment: ['pan', 'pot', 'stove'],
+    airFryerAlt: { tempC: 200, timeMin: 10, note: 'Brush salmon lightly with oil, dust with paprika, air-fry skin-side down. Skin crisps better than pan in most home models.' },
+    steps: [
+      { n: 1, body: 'Rinse the brown rice, then cook it: bring 220ml water to a boil, add the rice, cover, drop to low, set a 25-minute timer. The rice will be the slowest thing on the plate, so start it first.' },
+      { n: 2, body: 'While the rice cooks, cut the broccoli into small florets and the cucumber into thin half-moons. Grate the garlic clove. Juice the lemon. Roughly chop the parsley.' },
+      { n: 3, body: 'Make the yogurt sauce: in a small bowl, stir the yogurt with half the lemon juice, the grated garlic, a pinch of salt. Let it sit while you cook.' },
+      { n: 4, body: 'Steam or microwave the broccoli for 3 minutes until just tender. Set aside.' },
+      { n: 5, body: 'Pat the salmon dry, rub it with the smoked paprika and a pinch of salt. Heat the olive oil in a pan over medium-high. Cook the salmon 3 minutes on the first side without moving it, then 2 minutes on the second.' },
+      { n: 6, body: 'Plate the rice, top with broccoli and cucumber. Lay the salmon on top, spoon yogurt sauce over, finish with the remaining lemon juice and the parsley.' }
+    ]
+  },
+
+  {
+    id: 'origin-lunch-lime-coast-chickpea-curry',
+    slot: 'lunch',
+    rotation: 'origin',
+    carbLevel: 'HIGH',
+    proteinClass: 'non-meat',
+    name: 'Lime Coast Chickpea Curry',
+    tagline: 'Bright lime-ginger chickpeas with edamame, spinach, and a touch of coconut rice.',
+    fusionStory: 'Thai coconut rice, Indian chickpea curry, and a lime-forward finish that nods to South-East Asian street food. The edamame is the Japanese touch that solves the plant-protein puzzle without leaning on tofu.',
+    teachingNote: "Plant-based on a higher-carb day is the protein puzzle of all puzzles. Chickpeas, edamame, and nutritional yeast each carry meaningful protein per gram, and stacked together they clear the 45-gram floor without needing any animal source. Coconut milk in the rice is small but it is the difference between a chickpea bowl and something that actually feels like a meal.",
+    techniques: [
+      { name: 'Coconut rice', note: 'Cook rice in 60-percent water and 40-percent coconut milk. The starch and the fat together produce a creamier grain without any added oil.' },
+      { name: 'Toasted aromatic base', note: 'Ginger and garlic in hot oil for 30 seconds is the difference between raw harsh edge and round depth. Do not skip; do not burn.' }
+    ],
+    ingredients: [
+      { id: 'chickpeas-canned',     qty: 200, unit: 'g', role: 'main_protein' },
+      { id: 'edamame-frozen',       qty: 145, unit: 'g', role: 'main_protein' },
+      { id: 'basmati-rice-raw',     qty: 30,  unit: 'g', role: 'main_carb' },
+      { id: 'coconut-milk-light',   qty: 45,  unit: 'ml', role: 'fat_source' },
+      { id: 'spinach-raw',          qty: 100, unit: 'g', role: 'flavor' },
+      { id: 'nutritional-yeast',    qty: 15,  unit: 'g', role: 'flavor' },
+      { id: 'lime-raw',             qty: 20,  unit: 'g', role: 'finishing' },
+      { id: 'ginger-raw',           qty: 5,   unit: 'g', role: 'aromatic' },
+      { id: 'garlic-raw',           qty: 6,   unit: 'g', role: 'aromatic' },
+      { id: 'olive-oil',            qty: 3,   unit: 'ml', role: 'fat_source' },
+      { id: 'cumin-ground',         qty: 2,   unit: 'g', role: 'flavor' },
+      { id: 'coriander-fresh',      qty: 5,   unit: 'g', role: 'finishing' }
+    ],
+    swaps: [
+      { from: 'chickpeas-canned', to: 'chicken-breast-raw',
+        macroAdjust: { kcal: -83, protein: 16, carbs: -43, fat: 0 },
+        cookNote: 'Use 130g diced chicken breast, sear before adding aromatics. Drop the cumin slightly; chicken takes less spice well.' },
+      { from: 'edamame-frozen', to: 'tofu-firm',
+        macroAdjust: { kcal: 33, protein: 7, carbs: -10, fat: 7 },
+        cookNote: 'Press and cube 145g firm tofu, brown separately, stir in at the end. Edamame brings a snappy bite that tofu does not, so do not overcook.' }
+    ],
+    optionalIngredients: ['coconut-milk-light', 'coriander-fresh'],
+    macros: { kcal: 717, protein: 46, carbs: 96, fat: 21 },
+    cookTime: { prep: 10, cook: 25, total: 35 },
+    equipment: ['pan', 'pot', 'stove'],
+    airFryerAlt: null,
+    steps: [
+      { n: 1, body: 'Rinse the rice. Bring 35ml water and the coconut milk to a boil, add the rice, cover, drop to low, set a 12-minute timer.' },
+      { n: 2, body: 'Grate the ginger and garlic. Drain and rinse the chickpeas. Juice the lime. Chop the coriander.' },
+      { n: 3, body: 'Heat the olive oil in a pan over medium. Add ginger and garlic, stir 30 seconds until fragrant. Add cumin, stir 10 seconds.' },
+      { n: 4, body: 'Add the chickpeas, edamame (still frozen is fine), and 60ml of water. Bring to a simmer, cover, cook 6 minutes until edamame is just tender.' },
+      { n: 5, body: 'Stir in the spinach in handfuls until wilted (about 90 seconds). Pull off the heat, stir in the nutritional yeast and half the lime juice.' },
+      { n: 6, body: 'Fluff the rice. Plate, spoon the curry over, finish with the remaining lime juice and the coriander.' }
+    ]
+  },
+
+  {
+    id: 'origin-lunch-ginger-sesame-chicken',
+    slot: 'lunch',
+    rotation: 'origin',
+    carbLevel: 'MOD',
+    proteinClass: 'meat',
+    name: 'Ginger Sesame Chicken Bowl',
+    tagline: 'Ginger-glazed chicken thigh over basmati with crisp edamame and toasted sesame.',
+    fusionStory: 'Korean ginger-soy lean, Japanese toasted sesame, California assembly. The honey is small enough that the glaze stays savoury but big enough that the chicken browns properly in the pan.',
+    teachingNote: "Chicken thigh holds up to a glaze better than chicken breast because the slightly higher fat keeps it tender even when the pan heat finishes the sugar. The total fat sits just under the cap thanks to the smaller rice portion and the rest of the bowl leaning on vegetables. Edamame brings a second protein source and a fibre bump that keeps you full.",
+    techniques: [
+      { name: 'Pan-glazing', note: 'Cook the protein first, then add the sauce in the same pan and let it reduce around the protein. The fond from the sear becomes the body of the glaze.' },
+      { name: 'Toasting sesame seeds', note: 'Dry pan over medium, shake constantly for 90 seconds until they smell warm and look one shade darker. The flavour difference vs untoasted is enormous.' }
+    ],
+    ingredients: [
+      { id: 'chicken-thigh-raw',   qty: 130, unit: 'g', role: 'main_protein' },
+      { id: 'basmati-rice-raw',    qty: 50,  unit: 'g', role: 'main_carb' },
+      { id: 'broccoli-raw',        qty: 100, unit: 'g', role: 'flavor' },
+      { id: 'edamame-frozen',      qty: 80,  unit: 'g', role: 'main_protein' },
+      { id: 'cucumber-raw',        qty: 80,  unit: 'g', role: 'flavor' },
+      { id: 'spring-onion-raw',    qty: 15,  unit: 'g', role: 'finishing' },
+      { id: 'soy-sauce',           qty: 12,  unit: 'ml', role: 'flavor' },
+      { id: 'sesame-oil',          qty: 5,   unit: 'ml', role: 'fat_source' },
+      { id: 'ginger-raw',          qty: 8,   unit: 'g', role: 'aromatic' },
+      { id: 'garlic-raw',          qty: 5,   unit: 'g', role: 'aromatic' },
+      { id: 'honey',               qty: 8,   unit: 'g', role: 'flavor' },
+      { id: 'sesame-seeds-raw',    qty: 5,   unit: 'g', role: 'finishing' }
+    ],
+    swaps: [
+      { from: 'chicken-thigh-raw', to: 'chicken-breast-raw',
+        macroAdjust: { kcal: -30, protein: 4, carbs: 0, fat: -6 },
+        cookNote: 'Same weight of chicken breast; cooks 2 minutes faster. The breast can dry out under the glaze, so pull it earlier.' },
+      { from: 'chicken-thigh-raw', to: 'tofu-firm',
+        macroAdjust: { kcal: 1, protein: -3, carbs: 4, fat: 3 },
+        cookNote: 'Press 150g firm tofu, cube, brown all sides. The tofu drinks the glaze faster than chicken, so reduce honey by a third.' }
+    ],
+    optionalIngredients: [],
+    macros: { kcal: 634, protein: 45, carbs: 69, fat: 22 },
+    cookTime: { prep: 10, cook: 22, total: 32 },
+    equipment: ['pan', 'pot', 'stove'],
+    airFryerAlt: { tempC: 200, timeMin: 12, note: 'Marinate chicken thigh in half the glaze for 5 minutes, then air-fry. Finish the remaining glaze in a small pan on the stove and drizzle over.' },
+    steps: [
+      { n: 1, body: 'Rinse the rice. Bring 90ml water to a boil, add rice, cover, drop to low, set a 12-minute timer.' },
+      { n: 2, body: 'Cut the chicken thigh into bite-size pieces. Grate the ginger and garlic. Slice the cucumber into half-moons and the spring onion thin.' },
+      { n: 3, body: 'Whisk the glaze: soy sauce, honey, half the ginger, half the garlic. Set aside.' },
+      { n: 4, body: 'Toast the sesame seeds in a dry pan over medium for 90 seconds, shaking. Tip into a bowl so they do not keep cooking.' },
+      { n: 5, body: 'In the same pan, heat the sesame oil. Add the chicken in a single layer, brown for 4 minutes without stirring, then flip and cook 3 more minutes. Add the broccoli and edamame, toss for 2 minutes. Add the remaining ginger and garlic, stir 30 seconds.' },
+      { n: 6, body: 'Pour in the glaze, let it bubble around everything for 60 seconds until thickened. Plate over rice, top with cucumber, spring onion, and the toasted sesame.' }
+    ]
+  },
+
+  {
+    id: 'origin-lunch-hearth-bolognese',
+    slot: 'lunch',
+    rotation: 'origin',
+    carbLevel: 'MOD',
+    proteinClass: 'non-meat',
+    name: 'Hearth Bolognese Bowl',
+    tagline: 'Lentil and tofu ragù slow-built in tomato, walnut crumble, kale on the side.',
+    fusionStory: 'Northern Italian bolognese rebuilt from plant pantry: lentils carry the body, crumbled tofu mimics the mince texture, walnuts and nutritional yeast take the place of parmesan. California farm bowl framing.',
+    teachingNote: "The trick to a vegan bolognese that does not taste vegetarian is texture stacking. Lentils provide the bite, crumbled tofu does the mince mimicry, and the walnuts add the fat-and-crunch finish that animal versions get from the meat itself. Nutritional yeast is the secret weapon on protein: 15 grams adds nearly 8 grams of protein for almost no fat, and it tastes savoury in a way that fills the parmesan-shaped hole.",
+    techniques: [
+      { name: 'Crumbled tofu', note: 'Press 90g firm tofu briefly, then break by hand into uneven pieces before browning. Hand-torn beats knife-cut here because the rough surface catches the tomato.' },
+      { name: 'Slow tomato build', note: 'Let the tomatoes reduce uncovered for at least 12 minutes. Watery sauce is the most common bolognese mistake. The sauce should hold a line on the spoon.' }
+    ],
+    ingredients: [
+      { id: 'lentils-dry',           qty: 75,  unit: 'g', role: 'main_protein' },
+      { id: 'tofu-firm',             qty: 90,  unit: 'g', role: 'main_protein' },
+      { id: 'walnuts-raw',           qty: 8,   unit: 'g', role: 'fat_source' },
+      { id: 'tomato-canned-chopped', qty: 200, unit: 'g', role: 'main_carb' },
+      { id: 'onion-raw',             qty: 50,  unit: 'g', role: 'aromatic' },
+      { id: 'garlic-raw',            qty: 6,   unit: 'g', role: 'aromatic' },
+      { id: 'olive-oil',             qty: 5,   unit: 'ml', role: 'fat_source' },
+      { id: 'cumin-ground',          qty: 1,   unit: 'g', role: 'flavor' },
+      { id: 'basil-fresh',           qty: 5,   unit: 'g', role: 'finishing' },
+      { id: 'nutritional-yeast',     qty: 12,  unit: 'g', role: 'flavor' },
+      { id: 'kale-raw',              qty: 60,  unit: 'g', role: 'flavor' }
+    ],
+    swaps: [
+      { from: 'tofu-firm', to: 'beef-mince-lean-raw',
+        macroAdjust: { kcal: 28, protein: 6, carbs: -3, fat: 3 },
+        cookNote: 'Use 90g lean beef mince, brown before the lentils go in. Drop the nutritional yeast by half; the beef adds its own savoury weight.' },
+      { from: 'lentils-dry', to: 'tempeh',
+        macroAdjust: { kcal: -53, protein: -1, carbs: -38, fat: 7 },
+        cookNote: 'Crumble 80g tempeh into the pan after the aromatics, brown 4 minutes before adding tomato. Replaces both texture and protein from the lentils.' }
+    ],
+    optionalIngredients: [],
+    macros: { kcal: 614, protein: 46, carbs: 73, fat: 21 },
+    cookTime: { prep: 12, cook: 28, total: 40 },
+    equipment: ['pan', 'pot', 'stove'],
+    airFryerAlt: null,
+    steps: [
+      { n: 1, body: 'Rinse and drain the lentils. Bring 250ml water to a boil, add the lentils, drop to a simmer, cook 18 to 20 minutes until just tender. Drain and reserve.' },
+      { n: 2, body: 'Finely dice the onion. Crush and chop the garlic. Press the tofu briefly between paper towels, then hand-tear into rough crumble.' },
+      { n: 3, body: 'Heat the olive oil in a large pan over medium. Add the onion, cook 5 minutes until softened. Add the garlic and cumin, stir 30 seconds.' },
+      { n: 4, body: 'Add the tofu crumble, raise the heat, brown 4 minutes without stirring too much. Stir in the cooked lentils.' },
+      { n: 5, body: 'Pour in the tomatoes plus 80ml water. Simmer uncovered 12 minutes, stirring occasionally, until the sauce holds a line on the spoon.' },
+      { n: 6, body: 'While the sauce reduces, tear the kale into bite pieces and toss in a hot dry pan with a pinch of salt for 3 minutes until just wilted and slightly charred at the edges.' },
+      { n: 7, body: 'Off the heat, stir the nutritional yeast through the bolognese. Plate the kale beside, ragù on top, scatter with walnut crumble and torn basil.' }
+    ]
+  },
+
+  {
+    id: 'origin-lunch-lemon-herb-prawns',
+    slot: 'lunch',
+    rotation: 'origin',
+    carbLevel: 'LOW',
+    proteinClass: 'meat',
+    name: 'Lemon-Herb Prawns & Cauliflower',
+    tagline: 'Garlic-lemon prawns over cauliflower "couscous" with feta, mint, and avocado.',
+    fusionStory: 'Mediterranean prawn-and-herb tradition rebuilt on Levantine cauliflower-couscous principles, with the avocado-feta finish that California has made universal.',
+    teachingNote: "Lower carb days lean on fat to keep total calories where they need to be without crashing the protein floor. Prawns are remarkably lean for a protein this concentrated; the 200-gram portion gives 40 grams of protein for under 200 calories. That leaves real fat budget for the feta, the avocado, and a generous olive oil pour, which is what makes the dish feel like a meal rather than a diet plate.",
+    techniques: [
+      { name: 'Cauliflower "couscous"', note: 'Pulse raw cauliflower florets in short bursts until they look like rice grains. Sauté in a hot dry pan 3 minutes to dry out the moisture. Soggy cauliflower couscous is the failure mode.' },
+      { name: 'Prawn pan-sear', note: 'Pat dry, season, hit a screaming hot pan with one tablespoon of oil, 90 seconds a side. Any longer and they turn rubbery; pull them off the heat the moment they curl.' }
+    ],
+    ingredients: [
+      { id: 'prawns-raw',         qty: 200, unit: 'g', role: 'main_protein' },
+      { id: 'cauliflower-raw',    qty: 250, unit: 'g', role: 'main_carb' },
+      { id: 'cucumber-raw',       qty: 80,  unit: 'g', role: 'flavor' },
+      { id: 'tomato-raw',         qty: 100, unit: 'g', role: 'flavor' },
+      { id: 'olive-oil',          qty: 10,  unit: 'ml', role: 'fat_source' },
+      { id: 'lemon-raw',          qty: 30,  unit: 'g', role: 'finishing' },
+      { id: 'garlic-raw',         qty: 5,   unit: 'g', role: 'aromatic' },
+      { id: 'parsley-fresh',      qty: 10,  unit: 'g', role: 'finishing' },
+      { id: 'mint-fresh',         qty: 5,   unit: 'g', role: 'finishing' },
+      { id: 'feta-cheese',        qty: 25,  unit: 'g', role: 'fat_source' },
+      { id: 'avocado-raw',        qty: 60,  unit: 'g', role: 'fat_source' }
+    ],
+    swaps: [
+      { from: 'prawns-raw', to: 'chicken-breast-raw',
+        macroAdjust: { kcal: 35, protein: 5, carbs: 0, fat: 2 },
+        cookNote: 'Use 175g chicken breast, sliced thin for fast cooking. Marinate in the lemon-garlic oil for 10 minutes before pan-searing.' },
+      { from: 'prawns-raw', to: 'tofu-firm',
+        macroAdjust: { kcal: 60, protein: -10, carbs: 6, fat: 13 },
+        cookNote: 'Press 180g firm tofu, cube, brown. Toss in the lemon-garlic-oil dressing at the end instead of cooking it in.' }
+    ],
+    optionalIngredients: [],
+    macros: { kcal: 536, protein: 52, carbs: 31, fat: 26 },
+    cookTime: { prep: 12, cook: 12, total: 24 },
+    equipment: ['pan', 'stove'],
+    airFryerAlt: null,
+    steps: [
+      { n: 1, body: 'Pulse the cauliflower florets in a food processor in short bursts until they look like rice grains. If you do not have a processor, grate on the large holes of a box grater.' },
+      { n: 2, body: 'Dice the cucumber and tomato small. Roughly chop the parsley and mint. Halve and pit the avocado, slice. Crumble the feta. Juice the lemon. Crush and chop the garlic.' },
+      { n: 3, body: 'Pat the prawns very dry. Toss with half the garlic, a pinch of salt, and one teaspoon of the olive oil.' },
+      { n: 4, body: 'Heat a dry pan over medium-high, add the cauliflower couscous and a pinch of salt, sauté 4 minutes until dry and just toasted. Tip into a serving bowl.' },
+      { n: 5, body: 'In the same pan, raise the heat to high, add two more teaspoons of olive oil. Sear the prawns 90 seconds a side. Off the heat, add the remaining garlic and half the lemon juice, swirl 10 seconds.' },
+      { n: 6, body: 'Toss the herbs, cucumber, and tomato through the cauliflower. Top with prawns and their pan juices, scatter feta and avocado, finish with the remaining olive oil and lemon juice.' }
+    ]
+  },
+
+  {
+    id: 'origin-lunch-garden-crush-bowl',
+    slot: 'lunch',
+    rotation: 'origin',
+    carbLevel: 'LOW',
+    proteinClass: 'non-meat',
+    name: 'Garden Crush Bowl',
+    tagline: 'Pan-seared tofu over a crushed cucumber-tomato salad with tahini-lemon dressing.',
+    fusionStory: 'A Levantine fattoush-style crushed salad meets Cali tofu treatment, with smoked paprika tying the whole thing to North Africa. The tahini does the heavy lifting on richness without adding bulk.',
+    teachingNote: "On lower carb days the tofu has to do almost all the protein work. 220 grams sounds like a lot, but it cooks down and the bowl reads light because the rest of it is herbs, cucumber, and tomato. Tahini is small in weight but its fat density means even five grams perfumes the whole bowl. The chickpea sprinkle is for texture and a small carb bump; this is the lowest-carb plant-based bowl in the rotation by design.",
+    techniques: [
+      { name: 'Pan-searing tofu', note: 'The whole game is dryness. Press the tofu under a weight for 15 minutes, pat aggressively, dust with the spice rub. Hot pan, do not crowd, do not move it until the crust forms (about 3 minutes per side).' },
+      { name: 'Crushed salad', note: 'Smash the cucumber gently with the flat of a knife before chopping. The cell walls break, the cucumber drinks the dressing instead of sitting next to it. Same trick works on cherry tomatoes.' }
+    ],
+    ingredients: [
+      { id: 'tofu-firm',           qty: 220, unit: 'g', role: 'main_protein' },
+      { id: 'chickpeas-canned',    qty: 60,  unit: 'g', role: 'main_protein' },
+      { id: 'cucumber-raw',        qty: 100, unit: 'g', role: 'flavor' },
+      { id: 'tomato-raw',          qty: 100, unit: 'g', role: 'flavor' },
+      { id: 'spinach-raw',         qty: 100, unit: 'g', role: 'flavor' },
+      { id: 'olive-oil',           qty: 3,   unit: 'ml', role: 'fat_source' },
+      { id: 'lemon-raw',           qty: 30,  unit: 'g', role: 'finishing' },
+      { id: 'garlic-raw',          qty: 5,   unit: 'g', role: 'aromatic' },
+      { id: 'tahini',              qty: 5,   unit: 'g', role: 'fat_source' },
+      { id: 'parsley-fresh',       qty: 10,  unit: 'g', role: 'finishing' },
+      { id: 'cumin-ground',        qty: 1,   unit: 'g', role: 'flavor' },
+      { id: 'paprika-smoked',      qty: 2,   unit: 'g', role: 'flavor' }
+    ],
+    swaps: [
+      { from: 'tofu-firm', to: 'chicken-breast-raw',
+        macroAdjust: { kcal: -53, protein: 11, carbs: -6, fat: -14 },
+        cookNote: 'Use 180g chicken breast, sliced thin. The same paprika-cumin rub works perfectly. Sear hot and fast, 3 minutes a side.' },
+      { from: 'tofu-firm', to: 'prawns-raw',
+        macroAdjust: { kcal: -130, protein: 7, carbs: -6, fat: -18 },
+        cookNote: 'Swap 180g prawns. Drop the cooking oil to 1 teaspoon; prawns release their own moisture. Add lemon at the end, not the start.' }
+    ],
+    optionalIngredients: [],
+    macros: { kcal: 542, protein: 49, carbs: 38, fat: 28 },
+    cookTime: { prep: 15, cook: 12, total: 27 },
+    equipment: ['pan', 'stove'],
+    airFryerAlt: { tempC: 200, timeMin: 15, note: 'Cube the tofu, toss with the spice rub and a teaspoon of oil, air-fry shaking once halfway. Edges crisp better than pan in most home models, especially for cubed tofu.' },
+    steps: [
+      { n: 1, body: 'Press the tofu under a weight for 15 minutes. While it presses, drain and rinse the chickpeas. Juice the lemon. Crush and chop the garlic. Roughly chop the parsley.' },
+      { n: 2, body: 'Smash the cucumber gently with the flat of a knife, then chop into rough pieces. Halve the cherry tomatoes (or roughly chop a regular tomato). Toss both in a bowl with a pinch of salt.' },
+      { n: 3, body: 'Make the dressing: whisk the tahini, lemon juice, half the garlic, 1 tablespoon water, a pinch of salt. It will look like it is splitting; keep whisking until it goes creamy.' },
+      { n: 4, body: 'Slice the pressed tofu into thick slabs, pat dry, dust both sides with the cumin and paprika and a pinch of salt.' },
+      { n: 5, body: 'Heat the olive oil in a pan over medium-high. Lay the tofu in, do not move it for 3 minutes, flip and cook 3 more. Add the chickpeas to the pan in the last minute, just to warm and pick up some colour.' },
+      { n: 6, body: 'Pile the spinach in a bowl, top with the smashed salad, lay tofu and chickpeas on top, drizzle the tahini dressing and scatter the parsley.' }
+    ]
+  },
+
+  // ── M4: Rest-day variants ────────────────────────────────────────────────
+  // The conformance-day model. REST days no longer share the LOW menu; they
+  // get two purpose-built recipes tuned for non-training context: kcal floor
+  // 380-450, protein ~35g, carbs 25-40g, fat 15-25g, teaching emphasis on
+  // satiety and gut rather than fuel timing. carbLevel = 'REST' is added as
+  // a first-class option here.
+  {
+    id: 'origin-lunch-aegean-drift-plate',
+    slot: 'lunch',
+    rotation: 'origin',
+    carbLevel: 'REST',
+    proteinClass: 'meat',
+    name: 'Aegean Drift Plate',
+    tagline: 'Cool tuna and white beans, olive oil, lemon, herbs. A plate that asks nothing of the day.',
+    fusionStory: 'Mediterranean coastal plate culture meets a high-protein restraint. Aegean fishing villages have eaten this kind of plate for centuries: a protein, a bean, an oil, some greens, some lemon. The structure is ancient; the macro tuning is modern.',
+    teachingNote: 'Rest days reward you for not chasing fuel. Tuna gives ~27 grams of protein for almost no fat, then olive oil and avocado do the satiety work, then the white beans give just enough carb to keep your gut moving and your mood steady. The whole plate is served at room temperature, which is part of the point: a hot meal triggers more "feed me more" signals than a cool one. Eat slowly. The plate is meant to feel like enough at exactly its kcal target, not like a deprivation.',
+    techniques: [
+      { name: 'Vinaigrette emulsion', note: 'Whisk lemon juice with minced garlic and a pinch of salt before adding olive oil in a slow stream. The acid plus salt grab the oil into emulsion; if you reverse the order, the oil floats.' },
+      { name: 'Bean warming', note: 'Rinse canned beans (the brine tastes tinny), then warm them gently in a pot of clean water for 2 minutes before draining. This softens the skins and helps them absorb the vinaigrette.' }
+    ],
+    ingredients: [
+      { id: 'tuna-canned-water',        qty: 140, unit: 'g', role: 'main_protein' },
+      { id: 'cannellini-beans-canned',  qty: 100, unit: 'g', role: 'main_protein' },
+      { id: 'avocado-raw',              qty: 40,  unit: 'g', role: 'fat_source' },
+      { id: 'cucumber-raw',             qty: 60,  unit: 'g', role: 'flavor' },
+      { id: 'tomato-raw',               qty: 80,  unit: 'g', role: 'flavor' },
+      { id: 'olive-oil',                qty: 8,   unit: 'ml', role: 'fat_source' },
+      { id: 'olives-kalamata',          qty: 10,  unit: 'g', role: 'fat_source' },
+      { id: 'garlic-raw',               qty: 4,   unit: 'g', role: 'aromatic' },
+      { id: 'lemon-raw',                qty: 6,   unit: 'g', role: 'finishing' },
+      { id: 'parsley-fresh',            qty: 4,   unit: 'g', role: 'finishing' }
+    ],
+    swaps: [
+      { from: 'tuna-canned-water', to: 'chicken-breast-raw',
+        macroAdjust: { kcal: 48, protein: 4, carbs: 0, fat: 2 },
+        cookNote: 'Use 140 g cooked shredded chicken breast in place of the canned tuna. Season with salt and a pinch of lemon zest. The plate gains a little body without changing character.' },
+      { from: 'tuna-canned-water', to: 'tofu-firm',
+        macroAdjust: { kcal: 81, protein: -3, carbs: 4, fat: 11 },
+        cookNote: 'Use 140 g pan-seared firm tofu cubes in place of the tuna. Sear in a dry pan until each face is golden, then toss in lemon juice off the heat. Makes the plate fully plant-based.' }
+    ],
+    optionalIngredients: ['olives-kalamata', 'parsley-fresh'],
+    macros: { kcal: 430, protein: 37, carbs: 32, fat: 18 },
+    cookTime: { prep: 10, active: 5, total: 15 },
+    equipment: ['pot'],
+    airFryerAlt: null,
+    steps: [
+      { n: 1, body: 'Drain and rinse the cannellini beans. Add to a small pot with fresh water, bring to a gentle warmth (do not boil), 2 minutes, then drain.' },
+      { n: 2, body: 'While the beans warm, drain the tuna. Mince the garlic and chop the parsley. Slice the cucumber and tomato into half-moons; cube the avocado.' },
+      { n: 3, body: 'In a small bowl, whisk together the lemon juice and minced garlic with a pinch of salt. Stream in the olive oil while whisking until the dressing emulsifies into a single creamy line.' },
+      { n: 4, body: 'Toss the warm beans through half the vinaigrette so they absorb the flavour while still warm.' },
+      { n: 5, body: 'On a wide plate, arrange the tuna, dressed beans, cucumber, tomato, avocado, and olives in their own quadrants. Drizzle the remaining vinaigrette over the top. Scatter the parsley.' }
+    ]
+  },
+  {
+    id: 'origin-lunch-slowfire-lentil-bowl',
+    slot: 'lunch',
+    rotation: 'origin',
+    carbLevel: 'REST',
+    proteinClass: 'non-meat',
+    name: 'Slowfire Lentil Bowl',
+    tagline: 'Cumin-roasted carrot, brown lentils, crisp tofu, tahini and lemon. The bowl your gut wants on a quiet day.',
+    fusionStory: 'A Levantine spice cabinet meets a Mediterranean roasted-vegetable plate. Cumin-roasted carrots are an east-Mediterranean staple, lentils are a global one, and the tahini-lemon drizzle is a through-line of a dozen cuisines from Damascus to Athens. Tofu is the modern addition: the protein anchor that lets the plate stand alone.',
+    teachingNote: 'Rest days are a chance to give your gut a different rhythm. Lentils and cumin are both fibre-heavy and lightly mucilaginous; they slow your digestion in a good way, which is what you want on a day with no training stress to dampen. The tahini does the work yogurt would on a training day: a creamy protein-and-fat lever that ties the bowl together without dairy. If you have eaten well on training days, this is the plate that lets your gut catch up without leaving you hungry.',
+    techniques: [
+      { name: 'Crispy tofu', note: 'Press the tofu under a weight for 10 minutes before searing to drive off excess water. Then sear in a dry hot pan, no oil, until each face goes deep golden. The pressed water is the difference between crisp and rubbery.' },
+      { name: 'Cumin bloom', note: 'Toast ground cumin in a dry pan for 30 to 45 seconds until fragrant before using. Heat activates the volatile oils; raw cumin tastes dusty in a finished dish.' }
+    ],
+    ingredients: [
+      { id: 'tofu-firm',         qty: 110, unit: 'g', role: 'main_protein' },
+      { id: 'edamame-frozen',    qty: 50,  unit: 'g', role: 'main_protein' },
+      { id: 'lentils-dry',       qty: 25,  unit: 'g', role: 'main_carb' },
+      { id: 'carrot-raw',        qty: 80,  unit: 'g', role: 'main_carb' },
+      { id: 'spinach-raw',       qty: 60,  unit: 'g', role: 'flavor' },
+      { id: 'tahini',            qty: 8,   unit: 'g', role: 'fat_source' },
+      { id: 'olive-oil',         qty: 3,   unit: 'ml', role: 'fat_source' },
+      { id: 'cumin-ground',      qty: 3,   unit: 'g', role: 'flavor' },
+      { id: 'garlic-raw',        qty: 4,   unit: 'g', role: 'aromatic' },
+      { id: 'lemon-raw',         qty: 6,   unit: 'g', role: 'finishing' },
+      { id: 'parsley-fresh',     qty: 4,   unit: 'g', role: 'finishing' }
+    ],
+    swaps: [
+      { from: 'tofu-firm', to: 'chicken-breast-raw',
+        macroAdjust: { kcal: -28, protein: 6, carbs: -3, fat: -7 },
+        cookNote: 'Use 110 g pan-seared chicken breast cubes in place of the tofu. Higher protein-per-kcal, lower fat. Season simply with salt and a squeeze of lemon; the bowl carries enough flavour from the cumin carrots and tahini.' },
+      { from: 'tofu-firm', to: 'tuna-canned-water',
+        macroAdjust: { kcal: -67, protein: 2, carbs: -3, fat: -9 },
+        cookNote: 'Use 110 g drained canned tuna in place of the tofu. Skip the tofu sear; just fold the tuna through at the end. The bowl becomes lighter and more Aegean-leaning.' }
+    ],
+    optionalIngredients: ['parsley-fresh'],
+    macros: { kcal: 448, protein: 36, carbs: 38, fat: 21 },
+    cookTime: { prep: 8, active: 25, total: 30 },
+    equipment: ['pot', 'pan', 'oven'],
+    airFryerAlt: { tempC: 200, timeMin: 12, note: 'Cut the carrots smaller (1.5 cm) and air-fry at 200 C for 10 to 12 minutes, shaking halfway. The smaller cut plus circulating air gets you a crisper edge than the oven at the same temperature, and you save 8 minutes while the tofu sears in parallel.' },
+    steps: [
+      { n: 1, body: 'Rinse the lentils, add to a small pot with 200 ml water, bring to a gentle simmer; cook 20 to 25 minutes until tender. Drain.' },
+      { n: 2, body: 'While the lentils cook: cut the carrots into 2 cm chunks. Toast half the cumin in a dry pan for 30 to 45 seconds until fragrant. Toss the carrots with the bloomed cumin, 1 g of the olive oil, and a pinch of salt. Roast at 200 C for 18 to 20 minutes until edges char.' },
+      { n: 3, body: 'Press the tofu between paper towels with a weight on top for 10 minutes while the carrots roast. Cube into 2 cm pieces. Sear in a dry hot pan until each face is deep golden, about 6 minutes total.' },
+      { n: 4, body: 'Thaw the edamame under running warm water, drain.' },
+      { n: 5, body: 'Whisk together the tahini, lemon juice, minced garlic, the rest of the cumin, and 2 tablespoons of water until smooth. Thin with more water if it seizes.' },
+      { n: 6, body: 'Plate: lentils as a bed, tofu cubes and roasted carrots layered, edamame and raw spinach over the top. Drizzle the tahini sauce. Scatter the parsley.' }
+    ]
+  }
+];
+
+// ─── M4: New ingredient (cumin) ────────────────────────────────────────────
+// Cumin is the signature flavour of the Slowfire Lentil Bowl and earns its
+// own ingredient entry rather than living implicitly in the steps. Same
+// pattern as M1_INGREDIENTS (Object.assign onto INGREDIENT_DATABASE).
+const M4_INGREDIENTS = {
+  'cumin-ground': {
+    usdaId: 170923, name: 'Cumin, ground',
+    per100g: { kcal: 375, protein: 17.8, carbs: 44.2, fat: 22.3, fiber: 10.5 },
+    density: null, commonUnit: 'g', aisle: 'Pantry'
+  }
+};
+Object.assign(INGREDIENT_DATABASE, M4_INGREDIENTS);
+
+// End M1 block. M2 will read against this shape.
+// ═══════════════════════════════════════════════════════════════════════════
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// M2: Origin Rotation Lunches Picker UI
+//
+// This block is the first UI surface for the M-arc menu system. It reads the
+// ORIGIN_LUNCHES data shape M1 established and renders a per-day picker that
+// respects M0.5 preferences (allergies, dietary pattern, dislikes).
+//
+// Additive only: the legacy MEAL_DATABASE render path is NOT replaced. M2
+// adds a new entry-point card to the Fuel tab that opens a bottom-sheet
+// picker. Both surfaces coexist until M6.
+//
+// No hex literals in this block. CSS custom properties only.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ─── M2: Allergen to ingredient mapping ────────────────────────────────────
+// Listed ingredient ids are those actually present in ORIGIN_LUNCHES. M3+
+// will extend this map as the rotation grows. Allergens hit recipes
+// structurally; dietary pattern hits the proteinClass field; dislikes are
+// soft and surface as hints, not hides (see _m2DislikeHints below).
+const M2_ALLERGEN_TO_INGREDIENTS = {
+  shellfish: ['prawns-raw'],
+  fish:      ['salmon-atlantic-raw', 'tuna-canned-water'],
+  soy:       ['tofu-firm', 'edamame-frozen', 'soy-sauce', 'tempeh'],
+  dairy:     ['greek-yogurt-nonfat', 'feta-cheese'],
+  nuts:      ['walnuts-raw'],
+  sesame:    ['sesame-seeds-raw', 'sesame-oil', 'tahini'],
+  gluten:    ['soy-sauce'], // wheat-based; tamari path is future work
+  eggs:      []             // no eggs in M1 lunches
+};
+
+function _m2IsVegan() {
+  try { return getDietaryPattern() === 'vegan'; } catch (e) { return false; }
+}
+
+// ─── M2: Filter logic ──────────────────────────────────────────────────────
+// Returns true if the recipe should be HIDDEN from the user. Three sources:
+// 1. Dietary pattern: vegetarian/vegan hide meat-class recipes; vegan also
+//    hides non-meat recipes containing dairy or eggs.
+// 2. Allergies: hide if any allergen-mapped ingredient appears in the recipe
+//    AND no swap exists that replaces it with a non-offending ingredient.
+// 3. (Dislikes do NOT hide; they surface as soft hints. See _m2DislikeHints.)
+// Structural allergens: presence of any allergen-mapped ingredient hides the
+// recipe outright. A swap chain does not rescue the recipe (the user
+// shouldn't see fish recipes at all if they have a fish allergy). Soy is the
+// exception: tofu/edamame are often supporting proteins that can swap to a
+// non-soy ingredient cleanly, so soy-allergic users still see the recipe if
+// every offending soy ingredient has an escape swap.
+const M2_ALLERGEN_STRUCTURAL = ['shellfish', 'fish', 'dairy', 'nuts', 'sesame', 'gluten', 'eggs'];
+
+function _m2RecipeStructurallyHidden(recipe) {
+  if (recipe.proteinClass === 'meat' && (function () {
+    try { return isVegetarianPlus(); } catch (e) { return false; }
+  })()) return true;
+
+  if (_m2IsVegan()) {
+    var veganBlockers = (M2_ALLERGEN_TO_INGREDIENTS.dairy || []).concat(
+                         M2_ALLERGEN_TO_INGREDIENTS.eggs || []);
+    if (recipe.ingredients.some(function (i) { return veganBlockers.indexOf(i.id) !== -1; })) return true;
+  }
+
+  // Allergy filter: structural hide for most allergens, swap-aware leniency
+  // only for soy. See M2_ALLERGEN_STRUCTURAL above for the contract.
+  var allergens = ['shellfish','fish','soy','dairy','nuts','sesame','gluten','eggs'];
+  for (var k = 0; k < allergens.length; k++) {
+    var a = allergens[k];
+    var triggers = M2_ALLERGEN_TO_INGREDIENTS[a] || [];
+    if (triggers.length === 0) continue;
+    var hit = (function () { try { return hasAllergy(a); } catch (e) { return false; } })();
+    if (!hit) continue;
+    var offendingIngredients = recipe.ingredients.filter(function (i) {
+      return triggers.indexOf(i.id) !== -1;
+    });
+    if (offendingIngredients.length === 0) continue;
+
+    if (M2_ALLERGEN_STRUCTURAL.indexOf(a) !== -1) {
+      // Structural: presence alone hides the recipe.
+      return true;
+    }
+    // Swap-aware (soy): does a swap exist that escapes every offending ingredient?
+    var allSwappable = offendingIngredients.every(function (offending) {
+      return recipe.swaps.some(function (s) {
+        return s.from === offending.id && triggers.indexOf(s.to) === -1;
+      });
+    });
+    if (!allSwappable) return true;
+  }
+  return false;
+}
+
+// Returns the recipes visible to the user for a given carbLevel, in original
+// menu order (meat first, non-meat second, matching the ORIGIN_LUNCHES order).
+function _m2VisibleRecipesForCarbLevel(carbLevel) {
+  return ORIGIN_LUNCHES.filter(function (r) {
+    return r.carbLevel === carbLevel && !_m2RecipeStructurallyHidden(r);
+  });
+}
+
+// ─── M2: Dislike soft hints ────────────────────────────────────────────────
+// For each user dislike, return any matching ingredients in the recipe plus
+// a hint type: 'leave_out' (ingredient is in optionalIngredients) or 'swap'
+// (a swap exists removing the disliked ingredient) or 'note' (neither).
+function _m2DislikeHints(recipe) {
+  var hints = [];
+  var dislikes = (function () { try { return getDislikes(); } catch (e) { return []; } })();
+  if (!Array.isArray(dislikes) || dislikes.length === 0) return hints;
+  dislikes.forEach(function (d) {
+    var mappedIds = (DISLIKE_TO_INGREDIENTS[d] || []);
+    if (mappedIds.length === 0) return;
+    mappedIds.forEach(function (mid) {
+      var inRecipe = recipe.ingredients.some(function (i) { return i.id === mid; });
+      if (!inRecipe) return;
+      var optional = (recipe.optionalIngredients || []).indexOf(mid) !== -1;
+      if (optional) {
+        hints.push({ dislike: d, ingredientId: mid, type: 'leave_out' });
+        return;
+      }
+      var swap = (recipe.swaps || []).find(function (s) { return s.from === mid; });
+      hints.push({
+        dislike: d,
+        ingredientId: mid,
+        type: swap ? 'swap' : 'note',
+        swap: swap || null
+      });
+    });
+  });
+  return hints;
+}
+
+// ─── M2: Carb-level mapping from PROGRAM ───────────────────────────────────
+// PROGRAM[d-1].nutriType is 'high' | 'mod' | 'low' | 'rest'. The picker uses
+// uppercase carbLevel. M4: REST is now a first-class level alongside HIGH /
+// MOD / LOW (was: REST -> LOW shortcut from M1). REST days map to their own
+// conformance-day menu defined in ORIGIN_LUNCHES.
+function _m2CarbLevelForDay(dayNum) {
+  var idx = dayNum - 1;
+  if (idx < 0 || idx >= PROGRAM.length) return 'MOD';
+  var t = (PROGRAM[idx].nutriType || '').toLowerCase();
+  if (t === 'high') return 'HIGH';
+  if (t === 'low')  return 'LOW';
+  if (t === 'rest') return 'REST';
+  return 'MOD';
+}
+
+function _m2IsRestDay(dayNum) {
+  var idx = dayNum - 1;
+  if (idx < 0 || idx >= PROGRAM.length) return false;
+  return (PROGRAM[idx].nutriType || '').toLowerCase() === 'rest';
+}
+
+// ─── M2: Storage ───────────────────────────────────────────────────────────
+// Key shape: flow.menu.origin.lunch.{dayNum} = recipeId. Persists per day.
+// flow.menu.* is added to SYNC_KEY_PREFIXES so selections follow the user.
+const M2_STORAGE_PREFIX = 'flow.menu.origin.lunch.';
+
+function getOriginLunchSelection(dayNum) {
+  try {
+    var v = localStorage.getItem(M2_STORAGE_PREFIX + dayNum);
+    return v || null;
+  } catch (e) { return null; }
+}
+
+function setOriginLunchSelection(dayNum, recipeId) {
+  try {
+    if (recipeId == null) localStorage.removeItem(M2_STORAGE_PREFIX + dayNum);
+    else localStorage.setItem(M2_STORAGE_PREFIX + dayNum, String(recipeId));
+  } catch (e) { /* non-fatal */ }
+}
+
+// ─── M2: Set all same (meal-prep affordance) ───────────────────────────────
+// When a recipe is selected for one day, offer to apply it to all OTHER days
+// at the same carbLevel for the current week. Returns the list of changes
+// so the caller can offer undo.
+function _m2SetAllSame(sourceDayNum, recipeId) {
+  var sourceLevel = _m2CarbLevelForDay(sourceDayNum);
+  var changes = [];
+  for (var d = 1; d <= 7; d++) {
+    if (d === sourceDayNum) continue;
+    if (_m2CarbLevelForDay(d) !== sourceLevel) continue;
+    var prev = getOriginLunchSelection(d);
+    if (prev !== recipeId) {
+      setOriginLunchSelection(d, recipeId);
+      changes.push({ day: d, prev: prev });
+    }
+  }
+  return changes;
+}
+
+function _m2UndoSetAllSame(changes) {
+  if (!Array.isArray(changes)) return;
+  changes.forEach(function (c) { setOriginLunchSelection(c.day, c.prev); });
+}
+
+// Returns all OTHER days in the week that share the source day's carbLevel.
+function _m2MatchingDays(sourceDayNum) {
+  var sourceLevel = _m2CarbLevelForDay(sourceDayNum);
+  var out = [];
+  for (var d = 1; d <= 7; d++) {
+    if (d === sourceDayNum) continue;
+    if (_m2CarbLevelForDay(d) === sourceLevel) out.push(d);
+  }
+  return out;
+}
+
+// ─── M2: Macro and ingredient display helpers ──────────────────────────────
+// Free-text unit field is rendered verbatim. Whole-count units (e.g. 'whole')
+// drop the unit suffix in display. Acceptable trade-off documented in the
+// M1 ship summary; M3 may revisit if shopping aggregation needs enum-typed
+// units.
+function _m2FormatIngredient(ing) {
+  var def = INGREDIENT_DATABASE[ing.id];
+  var label = def ? def.name : ing.id;
+  var qty   = (typeof ing.qty === 'number') ? ing.qty : 0;
+  var unit  = ing.unit || 'g';
+  if (unit === 'whole') {
+    return qty + ' ' + label;
+  }
+  return qty + ' ' + unit + ' ' + label;
+}
+
+// Compute post-swap macros from base macros + macroAdjust deltas. Honest
+// display: caller decides whether to render as +deltas or absolute totals.
+function _m2ApplySwap(baseMacros, macroAdjust) {
+  if (!macroAdjust) return baseMacros;
+  return {
+    kcal:    baseMacros.kcal    + (macroAdjust.kcal    || 0),
+    protein: baseMacros.protein + (macroAdjust.protein || 0),
+    carbs:   baseMacros.carbs   + (macroAdjust.carbs   || 0),
+    fat:     baseMacros.fat     + (macroAdjust.fat     || 0)
+  };
+}
+
+// Group label for ingredient-list display. Role buckets:
+//   main_protein -> 'Protein'
+//   main_carb    -> 'Carbs'
+//   fat_source   -> 'Fats'
+//   flavor       -> 'Vegetables & seasoning'
+//   aromatic     -> 'Aromatics'
+//   finishing    -> 'Finishing'
+function _m2RoleLabel(role) {
+  if (role === 'main_protein') return 'Protein';
+  if (role === 'main_carb')    return 'Carbs';
+  if (role === 'fat_source')   return 'Fats';
+  if (role === 'flavor')       return 'Vegetables & seasoning';
+  if (role === 'aromatic')     return 'Aromatics';
+  if (role === 'finishing')    return 'Finishing';
+  return 'Other';
+}
+
+// Order roles appear in the detail view ingredient list.
+const M2_ROLE_ORDER = ['main_protein', 'main_carb', 'fat_source', 'flavor', 'aromatic', 'finishing'];
+
+// ─── M2: Picker state (single open sheet at a time) ────────────────────────
+var _m2State = {
+  dayNum: null,
+  detailRecipeId: null,
+  engagedSwaps: {}, // { recipeId: { fromIngredientId: toIngredientId } }
+  lastUndo: null    // { changes: [...], expiresAt: number }
+};
+
+// ─── M2: Sheet open/close ──────────────────────────────────────────────────
+function openOriginLunchPicker(dayNum) {
+  _m2State.dayNum = dayNum;
+  _m2State.detailRecipeId = null;
+  // M3: hydrate engagedSwaps cache from persisted storage for this day, so
+  // a swap engaged in a previous session shows as engaged when the picker
+  // re-opens. Resolve which recipe carries the swap by reading the current
+  // selection.
+  try {
+    if (typeof getOriginLunchSwap === 'function') {
+      var persistedSwap = getOriginLunchSwap(dayNum);
+      var selectionId = (typeof getOriginLunchSelection === 'function')
+        ? getOriginLunchSelection(dayNum) : null;
+      if (persistedSwap && selectionId) {
+        _m2State.engagedSwaps[selectionId] = {};
+        _m2State.engagedSwaps[selectionId][persistedSwap.from] = persistedSwap.to;
+      }
+    }
+  } catch (e) { /* non-fatal */ }
+  var sheet = _m2BuildSheet();
+  document.body.appendChild(sheet);
+  requestAnimationFrame(function () {
+    var inner = sheet.querySelector('[data-m2-sheet-inner]');
+    if (inner) inner.style.transform = 'translateY(0)';
+    sheet.style.opacity = '1';
+  });
+}
+
+function closeOriginLunchPicker() {
+  var sheet = document.getElementById('m2-picker-sheet');
+  if (!sheet) return;
+  var inner = sheet.querySelector('[data-m2-sheet-inner]');
+  if (inner) inner.style.transform = 'translateY(100%)';
+  sheet.style.opacity = '0';
+  setTimeout(function () {
+    if (sheet.parentNode) sheet.parentNode.removeChild(sheet);
+    // Refresh Fuel tab entry card if visible.
+    try {
+      if (typeof activeTab !== 'undefined' && activeTab === 'fuel') renderNutrition();
+    } catch (e) { /* non-fatal */ }
+    // M5: if the picker was opened from the throughpath tour's Step 1 CTA,
+    // resume the tour at Step 2 (provided the user actually selected
+    // something).
+    try {
+      if (typeof _m5MaybeResumeTour === 'function') _m5MaybeResumeTour();
+    } catch (e) { /* non-fatal */ }
+  }, 220);
+}
+
+function _m2RerenderSheet() {
+  var content = document.getElementById('m2-picker-content');
+  if (content) _m2RenderContent(content);
+}
+
+function _m2BuildSheet() {
+  var sheet = el('div', { id: 'm2-picker-sheet', style: {
+    position: 'fixed', top: '0', left: '0', right: '0', bottom: '0', zIndex: '6000',
+    background: 'rgba(0,0,0,0.7)', opacity: '0',
+    transition: 'opacity 0.22s cubic-bezier(0.32,0.72,0,1)',
+    display: 'flex', flexDirection: 'column', justifyContent: 'flex-end'
+  } });
+  sheet.onclick = function (e) { if (e.target === sheet) closeOriginLunchPicker(); };
+
+  var inner = el('div', { 'data-m2-sheet-inner': 'true', style: {
+    background: 'var(--bg-base)',
+    borderTop: '1px solid var(--border-subtle)',
+    borderRadius: '20px 20px 0 0',
+    maxHeight: '88vh', overflowY: 'auto', WebkitOverflowScrolling: 'touch',
+    transform: 'translateY(100%)', transition: 'transform 0.28s cubic-bezier(0.32,0.72,0,1)',
+    paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 24px)'
+  } });
+  inner.appendChild(div({
+    width: '40px', height: '4px',
+    background: 'var(--border-default)',
+    borderRadius: '2px', margin: '10px auto'
+  }));
+
+  var content = el('div', { id: 'm2-picker-content', style: { padding: '4px 16px 0' } });
+  inner.appendChild(content);
+  sheet.appendChild(inner);
+  _m2RenderContent(content);
+  return sheet;
+}
+
+function _m2RenderContent(host) {
+  host.innerHTML = '';
+  if (_m2State.detailRecipeId) { _m2RenderDetail(host); return; }
+  _m2RenderList(host);
+}
+
+// Header row used by both views. Left: optional back action. Center: title.
+// Right: close.
+function _m2Header(host, title, subtitle, backFn) {
+  var row = el('div', { style: {
+    display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '4px 0 14px'
+  } });
+  if (backFn) {
+    row.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '13px',
+      color: 'var(--accent-primary)', cursor: 'pointer',
+      padding: '4px 6px', flexShrink: '0'
+    }, onclick: backFn }, '\u2039 Back'));
+  }
+  var titleWrap = el('div', { style: { flex: '1', minWidth: '0' } });
+  titleWrap.appendChild(el('div', { style: {
+    fontFamily: "'Bebas Neue', sans-serif", fontSize: '24px',
+    color: 'var(--text-primary)', letterSpacing: '0.04em', lineHeight: '1.1'
+  } }, title));
+  if (subtitle) {
+    titleWrap.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '11px',
+      color: 'var(--text-tertiary)', marginTop: '4px', letterSpacing: '0.04em'
+    } }, subtitle));
+  }
+  row.appendChild(titleWrap);
+  row.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '13px',
+    color: 'var(--text-muted)', cursor: 'pointer',
+    padding: '4px 6px', flexShrink: '0'
+  }, onclick: closeOriginLunchPicker }, 'Close'));
+  host.appendChild(row);
+}
+
+// ─── M2: List view ─────────────────────────────────────────────────────────
+function _m2RenderList(host) {
+  var dayNum = _m2State.dayNum;
+  var carbLevel = _m2CarbLevelForDay(dayNum);
+  var program = PROGRAM[dayNum - 1];
+  var dayLabel = program ? (program.label + ' (' + program.title + ')') : ('Day ' + dayNum);
+
+  var titleStr = 'Origin Lunch';
+  // M6: tighten the REST framing. Previously the subtitle was constructed
+  // with the "{level} carb day" pattern and then overridden for REST; that
+  // left dead "REST carb day" text in the source. Now we branch once and
+  // pick the right framing per day type. Wording also tightened from
+  // "REST day menu" to "REST day" (the user already knows they are in the
+  // menu).
+  var subtitle;
+  if (_m2IsRestDay(dayNum)) {
+    subtitle = dayLabel + ' \u00b7 REST day';
+  } else {
+    subtitle = dayLabel + ' \u00b7 ' + carbLevel + ' carb day';
+  }
+  _m2Header(host, titleStr, subtitle, null);
+
+  var recipes = _m2VisibleRecipesForCarbLevel(carbLevel);
+  if (recipes.length === 0) {
+    host.appendChild(_m2EmptyState());
+    return;
+  }
+
+  var currentSelectionId = getOriginLunchSelection(dayNum);
+  recipes.forEach(function (recipe) {
+    host.appendChild(_m2RenderRecipeCard(recipe, currentSelectionId === recipe.id));
+  });
+
+  // Footnote about how filtering works.
+  host.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '10px',
+    color: 'var(--text-footnote)', marginTop: '14px',
+    padding: '10px 12px',
+    background: 'var(--bg-inset)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: '8px',
+    lineHeight: '1.5', letterSpacing: '0.02em'
+  } }, 'Recipes filter by your allergies and dietary pattern. Dislikes surface as soft hints. Change preferences in Settings.'));
+}
+
+function _m2EmptyState() {
+  var card = div({
+    background: 'var(--bg-card-nested)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: '10px', padding: '20px 16px',
+    textAlign: 'center'
+  });
+  card.appendChild(el('div', { style: {
+    fontFamily: "'Bebas Neue', sans-serif", fontSize: '18px',
+    color: 'var(--text-secondary)', letterSpacing: '0.04em'
+  } }, 'No recipes match your preferences for this day'));
+  card.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '11px',
+    color: 'var(--text-tertiary)', marginTop: '8px', lineHeight: '1.5'
+  } }, 'The Origin rotation grows in later milestones. For now, you can adjust your allergies or dietary pattern in Settings.'));
+  return card;
+}
+
+// Collapsed recipe card. Tap to expand into detail.
+function _m2RenderRecipeCard(recipe, isSelected) {
+  var card = el('div', { style: {
+    background: 'var(--bg-card)',
+    border: '1px solid ' + (isSelected ? 'var(--accent-primary-border)' : 'var(--border-subtle)'),
+    borderRadius: '12px', padding: '14px 16px',
+    marginBottom: '10px', cursor: 'pointer',
+    boxShadow: isSelected ? 'var(--accent-primary-shadow)' : 'none'
+  }, onclick: function () {
+    _m2State.detailRecipeId = recipe.id;
+    _m2RerenderSheet();
+  } });
+
+  // Top row: name + selected pill
+  var topRow = el('div', { style: {
+    display: 'flex', alignItems: 'flex-start',
+    justifyContent: 'space-between', gap: '10px', marginBottom: '6px'
+  } });
+  var nameWrap = el('div', { style: { flex: '1', minWidth: '0' } });
+  nameWrap.appendChild(el('div', { style: {
+    fontFamily: "'Bebas Neue', sans-serif", fontSize: '22px',
+    color: 'var(--text-primary)', letterSpacing: '0.03em', lineHeight: '1.1'
+  } }, recipe.name));
+  nameWrap.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '11px',
+    color: 'var(--text-tertiary)', marginTop: '4px', lineHeight: '1.45'
+  } }, recipe.tagline));
+  topRow.appendChild(nameWrap);
+  if (isSelected) {
+    topRow.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '9px',
+      color: 'var(--text-on-accent)',
+      background: 'var(--accent-primary)',
+      padding: '4px 8px', borderRadius: '4px',
+      letterSpacing: '0.12em', textTransform: 'uppercase',
+      flexShrink: '0', alignSelf: 'flex-start'
+    } }, 'Selected'));
+  }
+  card.appendChild(topRow);
+
+  // Macro grid + cook time row
+  card.appendChild(_m2RenderMacroStrip(recipe.macros));
+
+  // Equipment + cooktime row
+  var metaRow = el('div', { style: {
+    display: 'flex', alignItems: 'center', gap: '10px', marginTop: '10px',
+    flexWrap: 'wrap'
+  } });
+  metaRow.appendChild(_m2RenderTimeBadge(recipe.cookTime.total));
+  recipe.equipment.forEach(function (e) {
+    metaRow.appendChild(_m2RenderEquipBadge(e, false));
+  });
+  if (recipe.airFryerAlt) {
+    metaRow.appendChild(_m2RenderEquipBadge('air-fryer', true));
+  }
+  card.appendChild(metaRow);
+
+  // Dislike hint chips (soft handling).
+  var hints = _m2DislikeHints(recipe);
+  if (hints.length > 0) {
+    var hintWrap = el('div', { style: {
+      marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '6px'
+    } });
+    hints.forEach(function (h) {
+      var label;
+      if (h.type === 'leave_out')      label = 'Leave out ' + (h.dislike.replace(/_/g, ' '));
+      else if (h.type === 'swap')       label = 'Swap available for ' + (h.dislike.replace(/_/g, ' '));
+      else                              label = 'Contains ' + (h.dislike.replace(/_/g, ' '));
+      hintWrap.appendChild(el('div', { style: {
+        fontFamily: "'DM Mono', monospace", fontSize: '10px',
+        color: 'var(--status-warning)',
+        background: 'rgba(251,191,36,0.08)',
+        border: '1px solid rgba(251,191,36,0.30)',
+        padding: '3px 8px', borderRadius: '4px',
+        letterSpacing: '0.04em'
+      } }, label));
+    });
+    card.appendChild(hintWrap);
+  }
+
+  return card;
+}
+
+function _m2RenderMacroStrip(macros, targets) {
+  // M6: optional `targets` argument enables goal-aware display. When passed,
+  // a small percentage line appears below the unit label showing this
+  // recipe's contribution to the active day's target macros (per the
+  // locked schema decision: active-day target, not week-average).
+  var strip = el('div', { style: {
+    display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
+    gap: '6px', marginTop: '10px'
+  } });
+  var cells = [
+    { label: 'kcal',  value: Math.round(macros.kcal),               raw: macros.kcal,    targetKey: 'kcal' },
+    { label: 'P',     value: Math.round(macros.protein) + 'g',      raw: macros.protein, targetKey: 'protein' },
+    { label: 'C',     value: Math.round(macros.carbs) + 'g',        raw: macros.carbs,   targetKey: 'carbs' },
+    { label: 'F',     value: Math.round(macros.fat) + 'g',          raw: macros.fat,     targetKey: 'fat' }
+  ];
+  cells.forEach(function (c) {
+    var cell = div({
+      background: 'var(--bg-inset)',
+      border: '1px solid var(--border-subtle)',
+      borderRadius: '6px',
+      padding: '6px 4px', textAlign: 'center'
+    });
+    cell.appendChild(el('div', { style: {
+      fontFamily: "'Bebas Neue', sans-serif", fontSize: '18px',
+      color: 'var(--text-primary)', letterSpacing: '0.02em', lineHeight: '1'
+    } }, String(c.value)));
+    cell.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '9px',
+      color: 'var(--text-muted)', marginTop: '3px',
+      letterSpacing: '0.1em', textTransform: 'uppercase'
+    } }, c.label));
+    // M6: goal-aware percentage line. Renders only when targets are passed
+    // and the corresponding target value computes to a sensible percentage.
+    if (targets) {
+      var pct = (typeof _m6PercentOfTarget === 'function')
+        ? _m6PercentOfTarget(c.raw, targets[c.targetKey]) : null;
+      if (pct) {
+        cell.appendChild(el('div', { style: {
+          fontFamily: "'DM Mono', monospace", fontSize: '9px',
+          color: 'var(--accent-primary)',
+          marginTop: '4px', letterSpacing: '0.06em'
+        } }, pct));
+      }
+    }
+    strip.appendChild(cell);
+  });
+  return strip;
+}
+
+function _m2RenderTimeBadge(totalMin) {
+  return el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '10px',
+    color: 'var(--text-secondary)',
+    background: 'var(--bg-inset)',
+    border: '1px solid var(--border-subtle)',
+    padding: '3px 8px', borderRadius: '4px',
+    letterSpacing: '0.06em'
+  } }, totalMin + ' min');
+}
+
+function _m2RenderEquipBadge(kind, isAirFryer) {
+  var labels = { pan: 'PAN', pot: 'POT', stove: 'STOVE', oven: 'OVEN', 'air-fryer': 'AIR-FRYER' };
+  var label = labels[kind] || kind.toUpperCase();
+  return el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '9px',
+    color: isAirFryer ? 'var(--accent-primary)' : 'var(--text-tertiary)',
+    background: isAirFryer ? 'var(--accent-primary-soft)' : 'var(--bg-inset)',
+    border: '1px solid ' + (isAirFryer ? 'var(--accent-primary-border)' : 'var(--border-subtle)'),
+    padding: '3px 7px', borderRadius: '4px',
+    letterSpacing: '0.12em'
+  } }, label);
+}
+
+// ─── M2: Detail view ───────────────────────────────────────────────────────
+function _m2RenderDetail(host) {
+  var recipeId = _m2State.detailRecipeId;
+  var recipe = ORIGIN_LUNCHES.find(function (r) { return r.id === recipeId; });
+  if (!recipe) {
+    _m2State.detailRecipeId = null;
+    _m2RenderList(host);
+    return;
+  }
+  var dayNum = _m2State.dayNum;
+  var currentSelectionId = getOriginLunchSelection(dayNum);
+  var isSelected = currentSelectionId === recipe.id;
+
+  _m2Header(host, recipe.name, recipe.tagline, function () {
+    _m2State.detailRecipeId = null;
+    _m2RerenderSheet();
+  });
+
+  // Apply any engaged swap to macros for display.
+  var engagedSwap = _m2State.engagedSwaps[recipe.id] || null;
+  var displayMacros = recipe.macros;
+  var activeSwap = null;
+  if (engagedSwap) {
+    var sk = Object.keys(engagedSwap)[0];
+    if (sk) {
+      activeSwap = (recipe.swaps || []).find(function (s) {
+        return s.from === sk && s.to === engagedSwap[sk];
+      });
+      if (activeSwap) displayMacros = _m2ApplySwap(recipe.macros, activeSwap.macroAdjust);
+    }
+  }
+
+  // M6: goal-aware macro display. The detail view passes the active day's
+  // targets so each cell shows a small "X% of today's target" line. List-
+  // view cards stay absolute-only (no target argument).
+  var _m6Targets = null;
+  try { _m6Targets = (typeof _m6GetActiveDayTargets === 'function') ? _m6GetActiveDayTargets() : null; }
+  catch (e) { _m6Targets = null; }
+  host.appendChild(_m2RenderMacroStrip(displayMacros, _m6Targets));
+  if (activeSwap) {
+    host.appendChild(_m2RenderSwapDeltaBanner(activeSwap));
+  }
+
+  // Cook time / equipment row
+  var metaRow = el('div', { style: {
+    display: 'flex', alignItems: 'center', gap: '8px',
+    marginTop: '10px', flexWrap: 'wrap'
+  } });
+  metaRow.appendChild(_m2RenderTimeBadge(recipe.cookTime.total));
+  recipe.equipment.forEach(function (e) {
+    metaRow.appendChild(_m2RenderEquipBadge(e, false));
+  });
+  if (recipe.airFryerAlt) {
+    metaRow.appendChild(_m2RenderEquipBadge('air-fryer', true));
+  }
+  host.appendChild(metaRow);
+
+  // Ingredients grouped by role.
+  host.appendChild(_m2SectionHeader('Ingredients'));
+  host.appendChild(_m2RenderIngredientList(recipe, activeSwap));
+
+  // Steps (numbered prose), with inline cook-note from any engaged swap.
+  host.appendChild(_m2SectionHeader('Method'));
+  host.appendChild(_m2RenderSteps(recipe, activeSwap));
+
+  // Air-fryer alt callout, if present.
+  if (recipe.airFryerAlt) {
+    host.appendChild(_m2RenderAirFryerCallout(recipe.airFryerAlt));
+  }
+
+  // Swap options (chained).
+  if (recipe.swaps && recipe.swaps.length > 0) {
+    host.appendChild(_m2SectionHeader('Swap options'));
+    host.appendChild(_m2RenderSwapChain(recipe, engagedSwap));
+  }
+
+  // Teaching note + fusion story + techniques.
+  host.appendChild(_m2SectionHeader('Why this works'));
+  host.appendChild(_m2RenderTeachingBlock(recipe));
+
+  // Action row: Select / change / set-all-same.
+  host.appendChild(_m2RenderActionRow(recipe, isSelected, dayNum));
+}
+
+function _m2SectionHeader(label) {
+  return el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '10px',
+    color: 'var(--text-muted)',
+    letterSpacing: '0.22em', textTransform: 'uppercase',
+    marginTop: '20px', marginBottom: '8px', fontWeight: '700'
+  } }, label);
+}
+
+function _m2RenderSwapDeltaBanner(swap) {
+  var banner = div({
+    marginTop: '8px',
+    padding: '8px 10px',
+    background: 'var(--accent-primary-soft)',
+    border: '1px solid var(--accent-primary-border)',
+    borderRadius: '8px',
+    fontFamily: "'DM Mono', monospace", fontSize: '11px',
+    color: 'var(--accent-primary)',
+    letterSpacing: '0.02em'
+  });
+  var fromDef = INGREDIENT_DATABASE[swap.from];
+  var toDef   = INGREDIENT_DATABASE[swap.to];
+  var fromName = fromDef ? fromDef.name : swap.from;
+  var toName   = toDef ? toDef.name : swap.to;
+  var ma = swap.macroAdjust || {};
+  var fmt = function (v, suffix) {
+    if (v == null) v = 0;
+    var s = (v > 0 ? '+' : '') + Math.round(v);
+    return s + (suffix || '');
+  };
+  banner.appendChild(el('div', { style: { marginBottom: '4px' } },
+    'Swap engaged: ' + fromName + ' \u2192 ' + toName));
+  banner.appendChild(el('div', { style: {
+    color: 'var(--text-secondary)', fontSize: '10px'
+  } }, 'Delta: ' + fmt(ma.kcal) + ' kcal \u00b7 ' + fmt(ma.protein, 'g P') +
+       ' \u00b7 ' + fmt(ma.carbs, 'g C') + ' \u00b7 ' + fmt(ma.fat, 'g F')));
+  return banner;
+}
+
+function _m2RenderIngredientList(recipe, activeSwap) {
+  var wrap = div({});
+  var byRole = {};
+  recipe.ingredients.forEach(function (ing) {
+    var r = ing.role || 'flavor';
+    if (!byRole[r]) byRole[r] = [];
+    byRole[r].push(ing);
+  });
+  M2_ROLE_ORDER.forEach(function (role) {
+    if (!byRole[role] || byRole[role].length === 0) return;
+    var group = div({
+      marginBottom: '10px',
+      padding: '10px 12px',
+      background: 'var(--bg-card-nested)',
+      border: '1px solid var(--border-subtle)',
+      borderRadius: '8px'
+    });
+    group.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '9px',
+      color: 'var(--text-muted)',
+      letterSpacing: '0.16em', textTransform: 'uppercase',
+      marginBottom: '6px'
+    } }, _m2RoleLabel(role)));
+    byRole[role].forEach(function (ing) {
+      var line = el('div', { style: {
+        fontFamily: "'DM Mono', monospace", fontSize: '12px',
+        color: 'var(--text-secondary)', lineHeight: '1.6'
+      } });
+      var swappedOut = activeSwap && activeSwap.from === ing.id;
+      if (swappedOut) {
+        line.appendChild(el('span', { style: {
+          textDecoration: 'line-through',
+          color: 'var(--text-tertiary)',
+          marginRight: '6px'
+        } }, _m2FormatIngredient(ing)));
+        var toDef = INGREDIENT_DATABASE[activeSwap.to];
+        var toLabel = toDef ? (ing.qty + ' ' + (ing.unit || 'g') + ' ' + toDef.name) : activeSwap.to;
+        line.appendChild(el('span', { style: { color: 'var(--accent-primary)' } }, toLabel));
+      } else {
+        line.appendChild(document.createTextNode(_m2FormatIngredient(ing)));
+      }
+      var optional = (recipe.optionalIngredients || []).indexOf(ing.id) !== -1;
+      if (optional) {
+        line.appendChild(el('span', { style: {
+          color: 'var(--text-footnote)', marginLeft: '6px', fontSize: '10px'
+        } }, '\u00b7 optional'));
+      }
+      group.appendChild(line);
+    });
+    wrap.appendChild(group);
+  });
+  return wrap;
+}
+
+function _m2RenderSteps(recipe, activeSwap) {
+  var wrap = div({});
+  (recipe.steps || []).forEach(function (step) {
+    var row = el('div', { style: {
+      display: 'flex', gap: '10px', marginBottom: '10px',
+      padding: '10px 12px',
+      background: 'var(--bg-card-nested)',
+      border: '1px solid var(--border-subtle)',
+      borderRadius: '8px'
+    } });
+    row.appendChild(el('div', { style: {
+      fontFamily: "'Bebas Neue', sans-serif", fontSize: '16px',
+      color: 'var(--accent-primary)', letterSpacing: '0.04em',
+      flexShrink: '0', minWidth: '22px'
+    } }, String(step.n)));
+    row.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '12px',
+      color: 'var(--text-secondary)', lineHeight: '1.55', flex: '1'
+    } }, step.body));
+    wrap.appendChild(row);
+  });
+  // Inline cook-note from engaged swap, if any.
+  if (activeSwap && activeSwap.cookNote) {
+    wrap.appendChild(el('div', { style: {
+      marginTop: '4px',
+      padding: '10px 12px',
+      background: 'var(--accent-primary-soft)',
+      border: '1px solid var(--accent-primary-border)',
+      borderRadius: '8px',
+      fontFamily: "'DM Mono', monospace", fontSize: '11px',
+      color: 'var(--accent-primary)', lineHeight: '1.55'
+    } }, 'Swap note: ' + activeSwap.cookNote));
+  }
+  return wrap;
+}
+
+function _m2RenderAirFryerCallout(alt) {
+  var box = div({
+    marginTop: '14px',
+    padding: '12px 14px',
+    background: 'var(--bg-inset)',
+    border: '1px solid var(--accent-primary-border)',
+    borderRadius: '8px'
+  });
+  box.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '9px',
+    color: 'var(--accent-primary)',
+    letterSpacing: '0.22em', textTransform: 'uppercase',
+    fontWeight: '700', marginBottom: '6px'
+  } }, 'Air-fryer alternative'));
+  box.appendChild(el('div', { style: {
+    fontFamily: "'Bebas Neue', sans-serif", fontSize: '18px',
+    color: 'var(--text-primary)', letterSpacing: '0.04em',
+    marginBottom: '6px'
+  } }, alt.tempC + '\u00b0C \u00b7 ' + alt.timeMin + ' min'));
+  box.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '11px',
+    color: 'var(--text-secondary)', lineHeight: '1.55'
+  } }, alt.note));
+  return box;
+}
+
+function _m2RenderSwapChain(recipe, engagedSwap) {
+  var wrap = div({});
+  var engagedFrom = engagedSwap ? Object.keys(engagedSwap)[0] : null;
+  (recipe.swaps || []).forEach(function (swap) {
+    var fromDef = INGREDIENT_DATABASE[swap.from];
+    var toDef   = INGREDIENT_DATABASE[swap.to];
+    var isEngaged = (engagedFrom === swap.from && engagedSwap[engagedFrom] === swap.to);
+    var row = el('div', { style: {
+      padding: '12px 14px', marginBottom: '8px',
+      background: isEngaged ? 'var(--accent-primary-soft)' : 'var(--bg-card-nested)',
+      border: '1px solid ' + (isEngaged ? 'var(--accent-primary-border)' : 'var(--border-subtle)'),
+      borderRadius: '8px', cursor: 'pointer'
+    }, onclick: function () {
+      if (isEngaged) {
+        // Toggle off.
+        delete _m2State.engagedSwaps[recipe.id];
+        // M3: also clear persisted swap for this day so the shopping list
+        // aggregates against the un-swapped recipe.
+        try { if (typeof clearOriginLunchSwap === 'function') clearOriginLunchSwap(_m2State.dayNum); } catch (e) { /* non-fatal */ }
+      } else {
+        _m2State.engagedSwaps[recipe.id] = {};
+        _m2State.engagedSwaps[recipe.id][swap.from] = swap.to;
+        // M3: persist the swap so it survives a refresh and feeds the
+        // shopping-list aggregator. Keyed by day, since the same recipe can
+        // appear on multiple days with different swap states.
+        try { if (typeof setOriginLunchSwap === 'function') setOriginLunchSwap(_m2State.dayNum, swap.from, swap.to); } catch (e) { /* non-fatal */ }
+      }
+      _m2RerenderSheet();
+    } });
+    row.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '12px',
+      color: 'var(--text-primary)', marginBottom: '4px'
+    } }, (fromDef ? fromDef.name : swap.from) + ' \u2192 ' + (toDef ? toDef.name : swap.to)));
+    var ma = swap.macroAdjust || {};
+    var fmt = function (v, suffix) {
+      if (v == null) v = 0;
+      return (v > 0 ? '+' : '') + Math.round(v) + (suffix || '');
+    };
+    row.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '10px',
+      color: 'var(--text-tertiary)', letterSpacing: '0.02em'
+    } }, fmt(ma.kcal) + ' kcal \u00b7 ' + fmt(ma.protein, 'g P') +
+         ' \u00b7 ' + fmt(ma.carbs, 'g C') + ' \u00b7 ' + fmt(ma.fat, 'g F')));
+    if (swap.cookNote) {
+      row.appendChild(el('div', { style: {
+        fontFamily: "'DM Mono', monospace", fontSize: '11px',
+        color: 'var(--text-secondary)', marginTop: '6px', lineHeight: '1.55'
+      } }, swap.cookNote));
+    }
+    if (isEngaged) {
+      row.appendChild(el('div', { style: {
+        fontFamily: "'DM Mono', monospace", fontSize: '9px',
+        color: 'var(--accent-primary)', marginTop: '6px',
+        letterSpacing: '0.16em', textTransform: 'uppercase'
+      } }, 'Engaged \u00b7 tap to revert'));
+    }
+    wrap.appendChild(row);
+  });
+  return wrap;
+}
+
+function _m2RenderTeachingBlock(recipe) {
+  var wrap = div({});
+  // Teaching note.
+  wrap.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '12px',
+    color: 'var(--text-secondary)', lineHeight: '1.65',
+    padding: '12px 14px',
+    background: 'var(--bg-card-nested)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: '8px', marginBottom: '10px'
+  } }, recipe.teachingNote));
+
+  // Fusion story.
+  if (recipe.fusionStory) {
+    wrap.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '11px',
+      color: 'var(--text-tertiary)', lineHeight: '1.65',
+      padding: '10px 12px',
+      background: 'var(--bg-inset)',
+      borderLeft: '2px solid var(--accent-primary)',
+      borderRadius: '0 6px 6px 0',
+      marginBottom: '10px', fontStyle: 'italic'
+    } }, recipe.fusionStory));
+  }
+
+  // Techniques.
+  (recipe.techniques || []).forEach(function (t) {
+    var card = div({
+      padding: '10px 12px', marginBottom: '8px',
+      background: 'var(--bg-card-nested)',
+      border: '1px solid var(--border-subtle)',
+      borderRadius: '8px'
+    });
+    card.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '10px',
+      color: 'var(--accent-primary)',
+      letterSpacing: '0.16em', textTransform: 'uppercase',
+      fontWeight: '700', marginBottom: '4px'
+    } }, 'Technique \u00b7 ' + t.name));
+    card.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '11px',
+      color: 'var(--text-secondary)', lineHeight: '1.55'
+    } }, t.note));
+    wrap.appendChild(card);
+  });
+  return wrap;
+}
+
+function _m2RenderActionRow(recipe, isSelected, dayNum) {
+  var wrap = div({
+    marginTop: '20px',
+    paddingTop: '14px',
+    borderTop: '1px solid var(--border-subtle)'
+  });
+
+  // M3: when the current week is locked, the picker is read-only until the
+  // user explicitly unlocks. The primary button switches to "Unlock to
+  // change" and tapping it triggers the inline unlock-confirm flow.
+  var locked = false;
+  try { locked = (typeof isWeekLocked === 'function') ? isWeekLocked() : false; } catch (e) { /* non-fatal */ }
+
+  if (locked) {
+    var lockedPrimary = el('div', { style: {
+      fontFamily: "'Bebas Neue', sans-serif", fontSize: '20px',
+      color: 'var(--text-primary)',
+      background: 'var(--bg-inset)',
+      border: '1px solid var(--accent-primary-border)',
+      borderRadius: '10px',
+      padding: '14px 16px', textAlign: 'center',
+      letterSpacing: '0.06em', cursor: 'pointer',
+      marginBottom: '8px'
+    }, onclick: function () {
+      _m2State.lockUnlockConfirm = true;
+      _m2RerenderSheet();
+    } }, 'Unlock to change');
+    wrap.appendChild(lockedPrimary);
+
+    var lockedNote = el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '10px',
+      color: 'var(--text-tertiary)',
+      textAlign: 'center', lineHeight: '1.5'
+    } }, isSelected
+      ? 'This week is locked. ' + recipe.name + ' is committed for this day.'
+      : 'This week is locked. Unlock to select a recipe for this day.');
+    wrap.appendChild(lockedNote);
+
+    if (_m2State.lockUnlockConfirm) {
+      var confirmCard = div({
+        marginTop: '12px',
+        padding: '12px 14px',
+        background: 'var(--accent-primary-soft)',
+        border: '1px dashed var(--accent-primary-border)',
+        borderRadius: '8px'
+      });
+      confirmCard.appendChild(el('div', { style: {
+        fontFamily: "'DM Mono', monospace", fontSize: '11px',
+        color: 'var(--text-secondary)', lineHeight: '1.55', marginBottom: '10px'
+      } }, 'Unlock this week? Selections become editable again. Your shopping check-offs are kept.'));
+      var confirmRow = el('div', { style: { display: 'flex', gap: '8px' } });
+      var yes = el('div', { style: {
+        flex: '1', fontFamily: "'DM Mono', monospace", fontSize: '11px',
+        color: 'var(--text-on-accent)', background: 'var(--accent-primary)',
+        border: '1px solid var(--accent-primary)', borderRadius: '6px',
+        padding: '8px 12px', cursor: 'pointer', textAlign: 'center',
+        letterSpacing: '0.12em', textTransform: 'uppercase', fontWeight: '700'
+      }, onclick: function () {
+        try { if (typeof unlockCurrentWeek === 'function') unlockCurrentWeek(); } catch (e) { /* non-fatal */ }
+        _m2State.lockUnlockConfirm = false;
+        _m2RerenderSheet();
+      } }, 'Yes, unlock');
+      var no = el('div', { style: {
+        flex: '1', fontFamily: "'DM Mono', monospace", fontSize: '11px',
+        color: 'var(--text-secondary)', background: 'var(--bg-inset)',
+        border: '1px solid var(--border-default)', borderRadius: '6px',
+        padding: '8px 12px', cursor: 'pointer', textAlign: 'center',
+        letterSpacing: '0.12em', textTransform: 'uppercase', fontWeight: '700'
+      }, onclick: function () {
+        _m2State.lockUnlockConfirm = false;
+        _m2RerenderSheet();
+      } }, 'Cancel');
+      confirmRow.appendChild(yes);
+      confirmRow.appendChild(no);
+      confirmCard.appendChild(confirmRow);
+      wrap.appendChild(confirmCard);
+    }
+
+    return wrap;
+  }
+
+  var primary = el('div', { style: {
+    fontFamily: "'Bebas Neue', sans-serif", fontSize: '20px',
+    color: isSelected ? 'var(--text-primary)' : 'var(--text-on-accent)',
+    background: isSelected ? 'var(--bg-inset)' : 'var(--accent-primary)',
+    border: '1px solid ' + (isSelected ? 'var(--border-default)' : 'var(--accent-primary)'),
+    borderRadius: '10px',
+    padding: '14px 16px', textAlign: 'center',
+    letterSpacing: '0.06em', cursor: 'pointer',
+    marginBottom: '8px'
+  }, onclick: function () {
+    if (isSelected) {
+      setOriginLunchSelection(dayNum, null);
+    } else {
+      setOriginLunchSelection(dayNum, recipe.id);
+    }
+    _m2RerenderSheet();
+  } }, isSelected ? 'Remove selection' : 'Select for ' + (PROGRAM[dayNum - 1] ? PROGRAM[dayNum - 1].label : ('Day ' + dayNum)));
+  wrap.appendChild(primary);
+
+  // "Set all same" affordance: appears only if there are other matching days
+  // AND the recipe is selected (so the action is meaningful).
+  if (isSelected) {
+    var matching = _m2MatchingDays(dayNum);
+    if (matching.length > 0) {
+      var dayLabels = matching.map(function (d) {
+        return PROGRAM[d - 1] ? PROGRAM[d - 1].label : ('Day ' + d);
+      });
+      var setAllBtn = el('div', { style: {
+        fontFamily: "'DM Mono', monospace", fontSize: '12px',
+        color: 'var(--accent-primary)',
+        background: 'var(--accent-primary-soft)',
+        border: '1px dashed var(--accent-primary-border)',
+        borderRadius: '8px',
+        padding: '10px 12px', textAlign: 'center', cursor: 'pointer',
+        letterSpacing: '0.02em'
+      }, onclick: function () {
+        var changes = _m2SetAllSame(dayNum, recipe.id);
+        _m2State.lastUndo = { changes: changes, recipeId: recipe.id, sourceDayNum: dayNum };
+        _m2RerenderSheet();
+      } }, 'Apply to ' + dayLabels.join(', ') + ' (same carb level)');
+      wrap.appendChild(setAllBtn);
+
+      if (_m2State.lastUndo && _m2State.lastUndo.changes && _m2State.lastUndo.changes.length > 0) {
+        var undoRow = el('div', { style: {
+          fontFamily: "'DM Mono', monospace", fontSize: '11px',
+          color: 'var(--text-tertiary)', marginTop: '8px',
+          textAlign: 'center'
+        } });
+        undoRow.appendChild(document.createTextNode('Applied to ' + _m2State.lastUndo.changes.length + ' day(s). '));
+        undoRow.appendChild(el('span', { style: {
+          color: 'var(--accent-primary)', cursor: 'pointer',
+          textDecoration: 'underline'
+        }, onclick: function () {
+          _m2UndoSetAllSame(_m2State.lastUndo.changes);
+          _m2State.lastUndo = null;
+          _m2RerenderSheet();
+        } }, 'Undo'));
+        wrap.appendChild(undoRow);
+      }
+    }
+  }
+
+  return wrap;
+}
+
+// ─── M2: Entry-point card (renders in Fuel tab via renderNutrition) ────────
+// Inserted in renderNutrition immediately after the Meal Templates entry,
+// before the water/shopping rows. Reflects the active day's current
+// selection (or prompts to choose).
+function renderOriginLunchEntry() {
+  var day = (typeof activeDay !== 'undefined' && PROGRAM[activeDay]) ? PROGRAM[activeDay] : PROGRAM[0];
+  var dayNum = day.day;
+  var carbLevel = _m2CarbLevelForDay(dayNum);
+  var selectionId = getOriginLunchSelection(dayNum);
+  var selection = selectionId ? ORIGIN_LUNCHES.find(function (r) { return r.id === selectionId; }) : null;
+
+  var card = el('div', { style: {
+    background: 'var(--bg-card-nested)',
+    border: '1px solid var(--border-default)',
+    borderRadius: '10px',
+    padding: '12px 14px', marginBottom: '12px', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px'
+  }, onclick: function () { openOriginLunchPicker(dayNum); } });
+
+  var left = el('div', { style: { flex: '1', minWidth: '0' } });
+  // M6: REST days surface as "REST DAY" rather than the bare carbLevel
+  // string so the day-type is unambiguous on the entry card.
+  var carbLabel = _m2IsRestDay(dayNum) ? 'REST DAY' : carbLevel;
+  left.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '10px',
+    color: 'var(--text-muted)',
+    letterSpacing: '0.22em', textTransform: 'uppercase', fontWeight: '700'
+  } }, 'Origin Lunch \u00b7 ' + carbLabel));
+  if (selection) {
+    left.appendChild(el('div', { style: {
+      fontFamily: "'Bebas Neue', sans-serif", fontSize: '17px',
+      color: 'var(--text-primary)', letterSpacing: '0.03em',
+      marginTop: '3px', lineHeight: '1.2'
+    } }, selection.name));
+    left.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '10px',
+      color: 'var(--text-tertiary)', marginTop: '3px'
+    } }, Math.round(selection.macros.kcal) + ' kcal \u00b7 ' +
+         Math.round(selection.macros.protein) + 'g P \u00b7 ' +
+         selection.cookTime.total + ' min'));
+  } else {
+    left.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '11px',
+      color: 'var(--text-tertiary)', marginTop: '3px', lineHeight: '1.4'
+    } }, 'Choose a lunch for ' + day.label + '. Filtered by your preferences.'));
+  }
+  card.appendChild(left);
+  card.appendChild(el('span', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '16px',
+    color: 'var(--text-disabled)', flexShrink: '0'
+  } }, '\u203a'));
+  return card;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// End M2 block.
+// ═══════════════════════════════════════════════════════════════════════════
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// M3: Week Lock + Shopping List Integration
+//
+// Ties M2's per-day Origin selections to a weekly experience: a "Lock week"
+// snapshot, swap-engagement persistence (so the picker's swap toggles carry
+// into the shopping list and survive a refresh), and an Origin section in
+// the existing shopping sheet that aggregates ingredients across all
+// selected days.
+//
+// Additive only: the legacy fraser_meal_keep_* shopping path stays intact.
+// The Origin section sits above it in the same sheet.
+//
+// No hex literals in this block. CSS custom properties only.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ─── M3: Storage prefixes ──────────────────────────────────────────────────
+const M3_WEEKLOCK_PREFIX  = 'flow.menu.origin.lunch.weekLock.';
+const M3_SWAP_PREFIX      = 'flow.menu.origin.lunch.swap.';
+const M3_SHOPCHECK_PREFIX = 'flow.menu.origin.shopping.checked.';
+const M3_SHOP_SETTINGS_KEY = 'flow.menu.origin.shopping.settings';
+
+// ─── M3: ISO week id helper ────────────────────────────────────────────────
+// Wraps getWeekId() but guards against missing globals (e.g. early boot or
+// test sandbox). Returns the current real-world week as the M3 default,
+// because week lock is always anchored to the actual calendar week, never
+// to a relative weekOffset preview.
+function _m3CurrentWeekId() {
+  try {
+    if (typeof getWeekId === 'function') return getWeekId(0);
+  } catch (e) { /* fall through */ }
+  try {
+    if (typeof getISOWeekId === 'function') return getISOWeekId(new Date());
+  } catch (e) { /* fall through */ }
+  return 'unknown';
+}
+
+// ─── M3: Week lock storage ─────────────────────────────────────────────────
+// Stored value: JSON string of { lockedAt, selections } where selections is
+// { '1': recipeId, '2': recipeId, ..., '7': recipeId } (null for unselected
+// days). A new ISO week has no lock entry, so isWeekLocked() returns false
+// automatically.
+function getWeekLock(weekId) {
+  try {
+    var raw = localStorage.getItem(M3_WEEKLOCK_PREFIX + weekId);
+    if (!raw) return null;
+    var parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch (e) { return null; }
+}
+
+function setWeekLock(weekId, selections) {
+  try {
+    var payload = {
+      lockedAt: new Date().toISOString(),
+      selections: selections || {}
+    };
+    localStorage.setItem(M3_WEEKLOCK_PREFIX + weekId, JSON.stringify(payload));
+  } catch (e) { /* non-fatal */ }
+}
+
+function clearWeekLock(weekId) {
+  try { localStorage.removeItem(M3_WEEKLOCK_PREFIX + weekId); } catch (e) { /* non-fatal */ }
+}
+
+function isWeekLocked() {
+  return !!getWeekLock(_m3CurrentWeekId());
+}
+
+// Reads the current week's selections: from the lock if present, otherwise
+// from the live M2 storage. Returns { '1': id|null, ..., '7': id|null }.
+function getCurrentWeekSelections() {
+  var lock = getWeekLock(_m3CurrentWeekId());
+  if (lock && lock.selections) {
+    var out = {};
+    for (var d = 1; d <= 7; d++) out[String(d)] = lock.selections[String(d)] || null;
+    return out;
+  }
+  var live = {};
+  for (var dd = 1; dd <= 7; dd++) live[String(dd)] = getOriginLunchSelection(dd);
+  return live;
+}
+
+// Snapshot the live selections into a week lock. Returns the snapshotted
+// selections so the caller can confirm what was locked.
+function lockCurrentWeek() {
+  var weekId = _m3CurrentWeekId();
+  var selections = {};
+  for (var d = 1; d <= 7; d++) selections[String(d)] = getOriginLunchSelection(d);
+  setWeekLock(weekId, selections);
+  return selections;
+}
+
+function unlockCurrentWeek() {
+  clearWeekLock(_m3CurrentWeekId());
+}
+
+// ─── M3: Swap engagement persistence ───────────────────────────────────────
+// M2 stored swap engagement in _m2State.engagedSwaps (in-memory only). M3
+// promotes this to per-day localStorage so the shopping list aggregates
+// against the same swap state the user engaged in the picker, and so swaps
+// survive a page refresh.
+//
+// Value shape: a single string 'fromIngredientId|toIngredientId'. Null /
+// absent means no swap engaged.
+function getOriginLunchSwap(dayNum) {
+  try {
+    var raw = localStorage.getItem(M3_SWAP_PREFIX + dayNum);
+    if (!raw) return null;
+    var parts = raw.split('|');
+    if (parts.length !== 2) return null;
+    return { from: parts[0], to: parts[1] };
+  } catch (e) { return null; }
+}
+
+function setOriginLunchSwap(dayNum, fromId, toId) {
+  try {
+    if (!fromId || !toId) {
+      localStorage.removeItem(M3_SWAP_PREFIX + dayNum);
+      return;
+    }
+    localStorage.setItem(M3_SWAP_PREFIX + dayNum, String(fromId) + '|' + String(toId));
+  } catch (e) { /* non-fatal */ }
+}
+
+function clearOriginLunchSwap(dayNum) {
+  try { localStorage.removeItem(M3_SWAP_PREFIX + dayNum); } catch (e) { /* non-fatal */ }
+}
+
+// ─── M3: Shopping check state ──────────────────────────────────────────────
+// Per-line checkoff. Key shape: M3_SHOPCHECK_PREFIX + ingredientId + '|' +
+// unit. Per-week scoping is handled by ALSO including the week id in the
+// localStorage key, so a new week starts with everything unchecked.
+function _m3ShopCheckKey(ingredientId, unit) {
+  return M3_SHOPCHECK_PREFIX + _m3CurrentWeekId() + '.' + ingredientId + '|' + (unit || '');
+}
+
+function getOriginShoppingChecked(ingredientId, unit) {
+  try {
+    return localStorage.getItem(_m3ShopCheckKey(ingredientId, unit)) === 'true';
+  } catch (e) { return false; }
+}
+
+function setOriginShoppingChecked(ingredientId, unit, checked) {
+  try {
+    if (checked) localStorage.setItem(_m3ShopCheckKey(ingredientId, unit), 'true');
+    else         localStorage.removeItem(_m3ShopCheckKey(ingredientId, unit));
+  } catch (e) { /* non-fatal */ }
+}
+
+// ─── M3: Origin shopping settings (section-level prefs) ────────────────────
+// Currently only one setting: includePantry. Default false (hide pantry
+// items from the qty roll-up, matching the prompt's intent).
+function getOriginShoppingSettings() {
+  try {
+    var raw = localStorage.getItem(M3_SHOP_SETTINGS_KEY);
+    var parsed = raw ? JSON.parse(raw) : {};
+    return Object.assign({ includePantry: false }, parsed);
+  } catch (e) { return { includePantry: false }; }
+}
+
+function setOriginShoppingSettings(patch) {
+  var cur = getOriginShoppingSettings();
+  var next = Object.assign({}, cur, patch);
+  try { localStorage.setItem(M3_SHOP_SETTINGS_KEY, JSON.stringify(next)); } catch (e) { /* non-fatal */ }
+}
+
+// ─── M3: Pantry interop ────────────────────────────────────────────────────
+// Legacy pantry uses key shape "normalizedName|normalizedUnit" stored in
+// fraser_pantry_w{weekId}. To make pantry flags cross over to Origin lines,
+// we compute the same key shape from an ingredient id + unit. This relies on
+// normalizeIngredientName / normalizeIngredientUnit being present (they are,
+// near the legacy shopping list helpers).
+function _m3PantryKey(ingredientId, unit, ingredientDb) {
+  if (!ingredientDb || !ingredientDb[ingredientId]) return null;
+  var rawName = ingredientDb[ingredientId].name || ingredientId;
+  var normalizedName = (typeof normalizeIngredientName === 'function')
+    ? normalizeIngredientName(rawName)
+    : rawName.toLowerCase();
+  var normalizedUnit = (typeof normalizeIngredientUnit === 'function')
+    ? normalizeIngredientUnit(unit || 'g', normalizedName)
+    : (unit || 'g').toLowerCase();
+  return normalizedName + '|' + normalizedUnit;
+}
+
+function _m3IsInPantry(ingredientId, unit, pantryFlags, ingredientDb) {
+  var key = _m3PantryKey(ingredientId, unit, ingredientDb);
+  if (!key || !pantryFlags) return false;
+  return pantryFlags[key] === true;
+}
+
+// ─── M3: Pure aggregator ───────────────────────────────────────────────────
+// This is the core of M3 and the only function the test suite exercises in
+// isolation (no DOM, no globals, no I/O). Signature:
+//
+//   _m3AggregateOriginLunchIngredients(selections, recipes, swaps, ingredientDb)
+//
+// Inputs:
+//   selections:   { '1': recipeId | null, ..., '7': recipeId | null }
+//   recipes:      ORIGIN_LUNCHES (array of recipe objects)
+//   swaps:        { '1': { from, to } | null, ..., '7': { from, to } | null }
+//   ingredientDb: INGREDIENT_DATABASE (for display-name lookup; optional)
+//
+// Output: an array of aggregated lines, sorted alphabetically by display
+// name, each shaped:
+//
+//   {
+//     ingredientId, ingredientName, qty, unit,
+//     sourceDays: [1, 3, 5],   // days this aggregated qty draws from
+//     roles: ['main_protein']  // role(s) the ingredient plays across recipes
+//   }
+//
+// Aggregation contract:
+//   - Same (ingredientId, unit) tuples sum their qty values.
+//   - Different units for the same ingredient render as separate lines (no
+//     g <-> kg or ml <-> l normalisation in M3; locked decision).
+//   - Engaged swaps substitute swap.to for swap.from with the swap.to id and
+//     the ORIGINAL ingredient's qty and unit. No proportional rescaling.
+function _m3AggregateOriginLunchIngredients(selections, recipes, swaps, ingredientDb) {
+  if (!selections || typeof selections !== 'object') return [];
+  if (!Array.isArray(recipes)) return [];
+  swaps = swaps || {};
+  var recipeById = {};
+  recipes.forEach(function (r) { recipeById[r.id] = r; });
+
+  var bucket = {}; // key: ingredientId|unit -> { ... line ... }
+
+  for (var d = 1; d <= 7; d++) {
+    var dayKey = String(d);
+    var recipeId = selections[dayKey];
+    if (!recipeId) continue;
+    var recipe = recipeById[recipeId];
+    if (!recipe || !Array.isArray(recipe.ingredients)) continue;
+    var swap = swaps[dayKey] || null;
+
+    recipe.ingredients.forEach(function (ing) {
+      var resolvedId = ing.id;
+      // Swap engagement: replace the from-ingredient with the to-ingredient.
+      // The original ingredient's qty + unit + role carry over (no
+      // proportional rescaling, per the locked schema decision). The
+      // shopping math reflects "I'm cooking with chicken not salmon" at the
+      // same gram weight the recipe called for.
+      if (swap && swap.from === ing.id) resolvedId = swap.to;
+
+      var unit = ing.unit || 'g';
+      var bucketKey = resolvedId + '|' + unit;
+      if (bucket[bucketKey]) {
+        bucket[bucketKey].qty += (typeof ing.qty === 'number' ? ing.qty : 0);
+        if (bucket[bucketKey].sourceDays.indexOf(d) === -1) bucket[bucketKey].sourceDays.push(d);
+        if (ing.role && bucket[bucketKey].roles.indexOf(ing.role) === -1) bucket[bucketKey].roles.push(ing.role);
+      } else {
+        var displayName = ing.id;
+        if (ingredientDb && ingredientDb[resolvedId] && ingredientDb[resolvedId].name) {
+          displayName = ingredientDb[resolvedId].name;
+        } else if (ingredientDb && ingredientDb[resolvedId]) {
+          displayName = resolvedId;
+        } else {
+          displayName = resolvedId;
+        }
+        bucket[bucketKey] = {
+          ingredientId: resolvedId,
+          ingredientName: displayName,
+          qty: (typeof ing.qty === 'number' ? ing.qty : 0),
+          unit: unit,
+          sourceDays: [d],
+          roles: ing.role ? [ing.role] : []
+        };
+      }
+    });
+  }
+
+  var lines = Object.keys(bucket).map(function (k) { return bucket[k]; });
+  // Sort alphabetically by display name, then by unit (g before ml so the
+  // same ingredient's grams line shows above its ml line consistently).
+  lines.sort(function (a, b) {
+    var n = a.ingredientName.toLowerCase().localeCompare(b.ingredientName.toLowerCase());
+    if (n !== 0) return n;
+    return a.unit.localeCompare(b.unit);
+  });
+  return lines;
+}
+
+// Convenience reader: pulls swaps for all 7 days into the shape the
+// aggregator expects.
+function _m3GetAllSwaps() {
+  var out = {};
+  for (var d = 1; d <= 7; d++) out[String(d)] = getOriginLunchSwap(d);
+  return out;
+}
+
+// Whether the current week has any Origin lunch selections (used by the
+// shopping sheet to decide whether to render the Origin section).
+function hasAnyOriginSelection() {
+  var sel = getCurrentWeekSelections();
+  for (var d = 1; d <= 7; d++) {
+    if (sel[String(d)]) return true;
+  }
+  return false;
+}
+
+// ─── M3: Lock-week entry card on Fuel tab ──────────────────────────────────
+// Sits below the Origin Lunches entry card. Two states:
+//   - Unlocked: shows count of selected days, "Lock this week" CTA.
+//   - Locked: shows lockedAt timestamp and "Unlock" inline action.
+function renderWeekLockEntry() {
+  var weekId = _m3CurrentWeekId();
+  var lock = getWeekLock(weekId);
+  var sel = lock ? lock.selections : (function () {
+    var live = {};
+    for (var d = 1; d <= 7; d++) live[String(d)] = getOriginLunchSelection(d);
+    return live;
+  })();
+  var pickedCount = 0;
+  for (var d = 1; d <= 7; d++) if (sel[String(d)]) pickedCount++;
+
+  // Hide the card entirely if there are no selections AND no lock.
+  if (pickedCount === 0 && !lock) return el('div', {});
+
+  var card = el('div', { style: {
+    background: 'var(--bg-card-nested)',
+    border: '1px solid ' + (lock ? 'var(--accent-primary-border)' : 'var(--border-default)'),
+    borderRadius: '10px',
+    padding: '12px 14px', marginBottom: '12px',
+    boxShadow: lock ? 'var(--accent-primary-shadow)' : 'none'
+  } });
+
+  var top = el('div', { style: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px'
+  } });
+  var left = el('div', { style: { flex: '1', minWidth: '0' } });
+  left.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '10px',
+    color: lock ? 'var(--accent-primary)' : 'var(--text-muted)',
+    letterSpacing: '0.22em', textTransform: 'uppercase', fontWeight: '700'
+  } }, lock ? 'Week locked' : 'Week plan'));
+  if (lock) {
+    var when = '';
+    try {
+      var t = new Date(lock.lockedAt);
+      when = t.toLocaleString();
+    } catch (e) { when = lock.lockedAt; }
+    left.appendChild(el('div', { style: {
+      fontFamily: "'Bebas Neue', sans-serif", fontSize: '17px',
+      color: 'var(--text-primary)', letterSpacing: '0.03em',
+      marginTop: '3px', lineHeight: '1.2'
+    } }, pickedCount + ' day' + (pickedCount === 1 ? '' : 's') + ' locked'));
+    left.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '10px',
+      color: 'var(--text-tertiary)', marginTop: '3px'
+    } }, 'Locked ' + when));
+  } else {
+    left.appendChild(el('div', { style: {
+      fontFamily: "'Bebas Neue', sans-serif", fontSize: '17px',
+      color: 'var(--text-primary)', letterSpacing: '0.03em',
+      marginTop: '3px', lineHeight: '1.2'
+    } }, pickedCount + ' of 7 days planned'));
+    left.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '10px',
+      color: 'var(--text-tertiary)', marginTop: '3px', lineHeight: '1.4'
+    } }, 'Lock the week to freeze selections and build a shopping list.'));
+  }
+  top.appendChild(left);
+
+  // Action button: Lock or Unlock.
+  var actionLabel = lock ? 'Unlock' : 'Lock week';
+  var actionBtn = el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '11px',
+    color: lock ? 'var(--text-secondary)' : 'var(--text-on-accent)',
+    background: lock ? 'var(--bg-inset)' : 'var(--accent-primary)',
+    border: '1px solid ' + (lock ? 'var(--border-default)' : 'var(--accent-primary)'),
+    borderRadius: '6px',
+    padding: '8px 12px', cursor: 'pointer',
+    letterSpacing: '0.12em', textTransform: 'uppercase', fontWeight: '700',
+    flexShrink: '0'
+  }, onclick: function () {
+    if (lock) {
+      // Inline confirm pattern: replace the action with a confirm row.
+      _m3RenderInlineUnlockConfirm(card);
+    } else {
+      if (pickedCount === 0) return; // shouldn't happen (card hidden), but guard.
+      lockCurrentWeek();
+      try { renderNutrition(); } catch (e) { /* non-fatal */ }
+    }
+  } }, actionLabel);
+  top.appendChild(actionBtn);
+  card.appendChild(top);
+
+  return card;
+}
+
+// Inline unlock confirmation row. Replaces the action button area with two
+// buttons: Yes, unlock / Cancel. Avoids native confirm() which would punch
+// out of the sheet UX.
+function _m3RenderInlineUnlockConfirm(card) {
+  // Clear card content and rebuild as a confirm row.
+  card.innerHTML = '';
+  card.style.border = '1px dashed var(--accent-primary-border)';
+
+  var msg = el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '11px',
+    color: 'var(--text-secondary)', lineHeight: '1.55', marginBottom: '10px'
+  } }, 'Unlock this week? Selections become editable again. Your shopping check-offs are kept.');
+  card.appendChild(msg);
+
+  var row = el('div', { style: { display: 'flex', gap: '8px' } });
+  var yes = el('div', { style: {
+    flex: '1', fontFamily: "'DM Mono', monospace", fontSize: '11px',
+    color: 'var(--text-on-accent)', background: 'var(--accent-primary)',
+    border: '1px solid var(--accent-primary)', borderRadius: '6px',
+    padding: '8px 12px', cursor: 'pointer', textAlign: 'center',
+    letterSpacing: '0.12em', textTransform: 'uppercase', fontWeight: '700'
+  }, onclick: function () {
+    unlockCurrentWeek();
+    try { renderNutrition(); } catch (e) { /* non-fatal */ }
+  } }, 'Yes, unlock');
+  var no = el('div', { style: {
+    flex: '1', fontFamily: "'DM Mono', monospace", fontSize: '11px',
+    color: 'var(--text-secondary)', background: 'var(--bg-inset)',
+    border: '1px solid var(--border-default)', borderRadius: '6px',
+    padding: '8px 12px', cursor: 'pointer', textAlign: 'center',
+    letterSpacing: '0.12em', textTransform: 'uppercase', fontWeight: '700'
+  }, onclick: function () {
+    try { renderNutrition(); } catch (e) { /* non-fatal */ }
+  } }, 'Cancel');
+  row.appendChild(yes);
+  row.appendChild(no);
+  card.appendChild(row);
+}
+
+// ─── M3: Shopping sheet Origin section ─────────────────────────────────────
+// Renders into a host node. Pulls current week's selections + persisted
+// swaps, aggregates ingredients, and emits a section card with one row per
+// aggregated line. Pantry items render with an "@ Home" tag and are
+// excluded from the qty roll unless the includePantry setting is on.
+function renderOriginShoppingSection() {
+  if (!hasAnyOriginSelection()) return null;
+
+  var selections = getCurrentWeekSelections();
+  var swaps = _m3GetAllSwaps();
+  var lines = _m3AggregateOriginLunchIngredients(
+    selections, ORIGIN_LUNCHES, swaps, INGREDIENT_DATABASE);
+  if (lines.length === 0) return null;
+
+  var pantryFlags = (function () {
+    try { return (typeof getPantryFlags === 'function') ? getPantryFlags() : {}; }
+    catch (e) { return {}; }
+  })();
+  var settings = getOriginShoppingSettings();
+  var includePantry = !!settings.includePantry;
+
+  // Partition into shopping (not in pantry, or pantry visible) and pantry-only.
+  var shopLines = [];
+  var pantryLines = [];
+  lines.forEach(function (line) {
+    if (_m3IsInPantry(line.ingredientId, line.unit, pantryFlags, INGREDIENT_DATABASE)) {
+      pantryLines.push(line);
+    } else {
+      shopLines.push(line);
+    }
+  });
+
+  var section = el('div', { style: {
+    marginBottom: '20px',
+    padding: '14px 16px',
+    background: 'var(--bg-elevated, var(--bg-card))',
+    border: '1px solid var(--border-default)',
+    borderRadius: '10px'
+  } });
+
+  // Header row.
+  var hdr = el('div', { style: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    gap: '10px', marginBottom: '6px'
+  } });
+  var hdrLeft = el('div', {});
+  hdrLeft.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '10px',
+    color: 'var(--accent-primary)',
+    letterSpacing: '0.22em', textTransform: 'uppercase', fontWeight: '700'
+  } }, 'From Origin Lunches'));
+  // M6: the header line surfaces both the lock state (M3) and the swap
+  // state (M6). When any day has an engaged swap, " \u00b7 with swaps"
+  // appends to the existing " \u00b7 week locked" suffix. The helper
+  // composes both flags consistently.
+  var _m6HeaderSuffix = (typeof _m6ShoppingHeaderSuffix === 'function')
+    ? _m6ShoppingHeaderSuffix()
+    : (isWeekLocked() ? ' \u00b7 week locked' : '');
+  hdrLeft.appendChild(el('div', { style: {
+    fontFamily: "'Bebas Neue', sans-serif", fontSize: '20px',
+    color: 'var(--text-primary)', letterSpacing: '0.04em', marginTop: '2px'
+  } }, lines.length + ' item' + (lines.length === 1 ? '' : 's') + _m6HeaderSuffix));
+  hdr.appendChild(hdrLeft);
+
+  // Include-pantry toggle (small chip).
+  if (pantryLines.length > 0) {
+    var toggle = el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '9px',
+      color: includePantry ? 'var(--accent-primary)' : 'var(--text-muted)',
+      background: includePantry ? 'var(--accent-primary-soft)' : 'var(--bg-inset)',
+      border: '1px solid ' + (includePantry ? 'var(--accent-primary-border)' : 'var(--border-subtle)'),
+      padding: '4px 8px', borderRadius: '4px', cursor: 'pointer',
+      letterSpacing: '0.12em', textTransform: 'uppercase', flexShrink: '0'
+    }, onclick: function () {
+      setOriginShoppingSettings({ includePantry: !includePantry });
+      try { renderShopping(); } catch (e) { /* non-fatal */ }
+    } }, includePantry ? 'Showing pantry' : 'Hiding pantry');
+    hdr.appendChild(toggle);
+  }
+  section.appendChild(hdr);
+
+  // Shopping lines.
+  if (shopLines.length > 0) {
+    shopLines.forEach(function (line) {
+      section.appendChild(_m3RenderShoppingLine(line, false));
+    });
+  }
+
+  // Pantry-only block (only visible when includePantry is on).
+  if (includePantry && pantryLines.length > 0) {
+    section.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '9px',
+      color: 'var(--text-muted)',
+      letterSpacing: '0.16em', textTransform: 'uppercase',
+      marginTop: '12px', marginBottom: '6px', fontWeight: '700'
+    } }, 'At home'));
+    pantryLines.forEach(function (line) {
+      section.appendChild(_m3RenderShoppingLine(line, true));
+    });
+  } else if (pantryLines.length > 0) {
+    // Compact "+N at home" hint.
+    section.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '10px',
+      color: 'var(--text-tertiary)',
+      marginTop: '10px', letterSpacing: '0.02em',
+      paddingTop: '8px', borderTop: '1px dashed var(--border-subtle)'
+    } }, '+ ' + pantryLines.length + ' at home (hidden)'));
+  }
+
+  return section;
+}
+
+function _m3RenderShoppingLine(line, isPantry) {
+  var checked = getOriginShoppingChecked(line.ingredientId, line.unit);
+  var row = el('div', { style: {
+    display: 'flex', alignItems: 'center', gap: '10px',
+    padding: '8px 0', borderBottom: '1px solid var(--border-subtle)',
+    cursor: isPantry ? 'default' : 'pointer'
+  }, onclick: function () {
+    if (isPantry) return;
+    setOriginShoppingChecked(line.ingredientId, line.unit, !checked);
+    try { renderShopping(); } catch (e) { /* non-fatal */ }
+  } });
+
+  // Checkbox column.
+  var box = el('div', { style: {
+    width: '18px', height: '18px',
+    border: '1px solid ' + (checked ? 'var(--accent-primary)' : 'var(--border-default)'),
+    background: checked ? 'var(--accent-primary)' : 'transparent',
+    borderRadius: '4px', flexShrink: '0',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontFamily: "'DM Mono', monospace", fontSize: '12px',
+    color: 'var(--text-on-accent)', fontWeight: '700'
+  } }, checked ? '\u2713' : '');
+  row.appendChild(box);
+
+  // Label column.
+  var labelWrap = el('div', { style: { flex: '1', minWidth: '0' } });
+  labelWrap.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '12px',
+    color: checked ? 'var(--text-tertiary)' : 'var(--text-primary)',
+    textDecoration: checked ? 'line-through' : 'none',
+    lineHeight: '1.4'
+  } }, line.ingredientName));
+  labelWrap.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '10px',
+    color: 'var(--text-tertiary)', marginTop: '2px', letterSpacing: '0.02em'
+  } }, line.sourceDays.length + ' day' + (line.sourceDays.length === 1 ? '' : 's')));
+  row.appendChild(labelWrap);
+
+  // Qty column.
+  var qtyWrap = el('div', { style: { flexShrink: '0', textAlign: 'right' } });
+  qtyWrap.appendChild(el('div', { style: {
+    fontFamily: "'Bebas Neue', sans-serif", fontSize: '18px',
+    color: 'var(--text-primary)', letterSpacing: '0.02em', lineHeight: '1'
+  } }, Math.round(line.qty) + ' ' + line.unit));
+  if (isPantry) {
+    qtyWrap.appendChild(el('div', { style: {
+      fontFamily: "'DM Mono', monospace", fontSize: '9px',
+      color: 'var(--accent-primary)',
+      marginTop: '4px', letterSpacing: '0.12em',
+      textTransform: 'uppercase'
+    } }, '@ Home'));
+  }
+  row.appendChild(qtyWrap);
+  return row;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// End M3 block.
+// ═══════════════════════════════════════════════════════════════════════════
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// M5: Throughpath Onboarding
+//
+// A guided three-step overlay that lands a first-time user on the Origin
+// Lunches menu surface. Runs on app boot when the user has completed M0.5
+// preferences but has not yet engaged with the M-arc menu (no Origin
+// selections AND no explicit skip).
+//
+// Additive only: the existing welcome / preferences / wizard chain stays
+// intact. M5 fires from a separate boot-routing branch that only triggers
+// once the prior chain is fully resolved (goal profile locked), so the
+// overlay never stacks against an in-flight onboarding step.
+//
+// No hex literals in this block. CSS custom properties only.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ─── M5: Storage ───────────────────────────────────────────────────────────
+// One persistent flag: set to 'true' when the user finishes the tour OR taps
+// "Skip tour" anywhere. The completeness signal also folds in the organic
+// path: if the user has any Origin selection, the tour is considered done
+// even without the flag (they discovered the surface themselves).
+const M5_ONBOARDING_KEY = 'flow.menu.origin.onboardingComplete';
+
+function getM5OnboardingComplete() {
+  try {
+    if (localStorage.getItem(M5_ONBOARDING_KEY) === 'true') return true;
+  } catch (e) { /* non-fatal */ }
+  try {
+    if (typeof hasAnyOriginSelection === 'function' && hasAnyOriginSelection()) return true;
+  } catch (e) { /* non-fatal */ }
+  return false;
+}
+
+function setM5OnboardingComplete() {
+  try { localStorage.setItem(M5_ONBOARDING_KEY, 'true'); } catch (e) { /* non-fatal */ }
+}
+
+function clearM5OnboardingComplete() {
+  // Test / debug helper. Not used by the live UI.
+  try { localStorage.removeItem(M5_ONBOARDING_KEY); } catch (e) { /* non-fatal */ }
+}
+
+// ─── M5: Detection ─────────────────────────────────────────────────────────
+// Returns the step number (1, 2, or 3) the tour should start at, or null if
+// no tour should run.
+//
+// Rules locked here:
+//   - Tour runs only if M0.5 preferences are set (gate already verified by
+//     the boot chain that runs M0.5 first; this is defensive).
+//   - Tour skipped entirely if onboardingComplete is already true.
+//   - Tour skipped if the user has any Origin selection (organic discovery
+//     wins; the flag also flips to true via the helper above).
+//   - Step 2 is the resume point ONLY after the user has actually made a
+//     selection in the middle of a Step 1 → picker chain (tracked via
+//     _m5State.returnToTour); first-time entry always starts at Step 1.
+function getM5InitialStep() {
+  if (getM5OnboardingComplete()) return null;
+  try {
+    if (typeof getPreferencesSet === 'function' && !getPreferencesSet()) return null;
+  } catch (e) { /* non-fatal */ }
+  return 1;
+}
+
+function shouldShowM5Tour() {
+  return getM5InitialStep() !== null;
+}
+
+// ─── M5: Overlay state ─────────────────────────────────────────────────────
+// returnToTour: set true when the user launches the picker via Step 1's CTA.
+// _m5MaybeResumeTour reads this after the picker closes; if a selection was
+// made, the tour re-opens at Step 2.
+var _m5State = { step: 1, returnToTour: false };
+
+// ─── M5: Overlay lifecycle ─────────────────────────────────────────────────
+function showM5Tour(initialStep) {
+  hideM5Tour();
+  _m5State.step = initialStep || getM5InitialStep() || 1;
+  var overlay = _m5BuildOverlay();
+  document.body.appendChild(overlay);
+  requestAnimationFrame(function () { overlay.style.opacity = '1'; });
+}
+
+function hideM5Tour() {
+  var ov = document.getElementById('m5-tour-overlay');
+  if (ov && ov.parentNode) ov.parentNode.removeChild(ov);
+}
+
+function _m5BuildOverlay() {
+  // z-index above sheets (M2 picker uses 6000; we go to 7000 so the tour
+  // sits on top during Step 1's picker-launch transition). Actually the
+  // tour DISMISSES before the picker opens, so they never overlap; the
+  // higher z-index is defence against future overlay additions.
+  var overlay = el('div', { id: 'm5-tour-overlay', style: {
+    position: 'fixed', top: '0', left: '0', right: '0', bottom: '0',
+    zIndex: '7000',
+    background: 'var(--bg-base)',
+    opacity: '0', transition: 'opacity 0.22s ease',
+    display: 'flex', flexDirection: 'column'
+  } });
+  _m5RenderStep(overlay, _m5State.step);
+  return overlay;
+}
+
+function _m5RerenderTour() {
+  var ov = document.getElementById('m5-tour-overlay');
+  if (!ov) return;
+  _m5RenderStep(ov, _m5State.step);
+}
+
+// ─── M5: Step content ──────────────────────────────────────────────────────
+function _m5RenderStep(host, step) {
+  host.innerHTML = '';
+
+  // Skip-tour link (top-right). Sets the flag and dismisses immediately.
+  var skipBtn = el('div', { style: {
+    position: 'absolute', top: '16px', right: '20px',
+    fontFamily: "'DM Mono', monospace", fontSize: '11px',
+    color: 'var(--text-muted)', cursor: 'pointer',
+    padding: '6px 10px', letterSpacing: '0.06em',
+    zIndex: '1'
+  }, onclick: function () {
+    setM5OnboardingComplete();
+    _m5State.returnToTour = false;
+    hideM5Tour();
+  } }, 'Skip tour');
+  host.appendChild(skipBtn);
+
+  // Resolve step content.
+  var hero, headline, body, ctaLabel, ctaAction;
+  if (step === 1) {
+    hero = '\ud83c\udf73'; // chef
+    headline = "Pick a lunch for today";
+    body = 'Origin Lunches builds meals around your training day, your allergies, and what you actually like to eat. Tap below to see today\u2019s options.';
+    ctaLabel = "Pick today\u2019s lunch";
+    ctaAction = function () {
+      // Mark "we want to resume" before the picker opens, so the close
+      // handler knows to come back.
+      _m5State.returnToTour = true;
+      hideM5Tour();
+      try {
+        var dayNum = (typeof activeDay !== 'undefined' && PROGRAM[activeDay])
+          ? PROGRAM[activeDay].day : 1;
+        if (typeof openOriginLunchPicker === 'function') openOriginLunchPicker(dayNum);
+      } catch (e) { /* non-fatal */ }
+    };
+  } else if (step === 2) {
+    hero = '\ud83d\udcc5'; // calendar
+    headline = 'Lock the week, build the list';
+    body = 'When you have lunches set for the days that matter, lock the week. Your shopping list builds itself, summed across all your picks and grouped by what you actually need to buy.';
+    ctaLabel = 'Got it';
+    ctaAction = function () {
+      _m5State.step = 3;
+      _m5RerenderTour();
+    };
+  } else {
+    hero = '\u2728';
+    headline = "You\u2019re set";
+    body = 'Origin Lunches lives on the Fuel tab. Engage a swap in any recipe and your shopping list updates with it. Have a good week.';
+    ctaLabel = 'Start';
+    ctaAction = function () {
+      setM5OnboardingComplete();
+      _m5State.returnToTour = false;
+      hideM5Tour();
+    };
+  }
+
+  // Centered content column.
+  var inner = el('div', { style: {
+    flex: '1', display: 'flex', flexDirection: 'column',
+    alignItems: 'center', justifyContent: 'center',
+    padding: '60px 32px', textAlign: 'center',
+    maxWidth: '480px', margin: '0 auto'
+  } });
+
+  // Hero illustration spot (emoji placeholder; M6 may upgrade).
+  inner.appendChild(el('div', { style: {
+    width: '120px', height: '120px',
+    background: 'var(--bg-card-nested)',
+    border: '1px solid var(--border-default)',
+    borderRadius: '50%',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: '52px', marginBottom: '32px'
+  } }, hero));
+
+  // Step indicator.
+  inner.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '10px',
+    color: 'var(--accent-primary)',
+    letterSpacing: '0.22em', textTransform: 'uppercase',
+    marginBottom: '12px', fontWeight: '700'
+  } }, 'Step ' + step + ' of 3'));
+
+  // Headline (Bebas).
+  inner.appendChild(el('div', { style: {
+    fontFamily: "'Bebas Neue', sans-serif", fontSize: '32px',
+    color: 'var(--text-primary)', letterSpacing: '0.04em',
+    lineHeight: '1.1', marginBottom: '14px'
+  } }, headline));
+
+  // Body copy.
+  inner.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '13px',
+    color: 'var(--text-secondary)', lineHeight: '1.6',
+    maxWidth: '380px', marginBottom: '32px'
+  } }, body));
+
+  // Primary CTA.
+  inner.appendChild(el('div', { style: {
+    fontFamily: "'Bebas Neue', sans-serif", fontSize: '20px',
+    color: 'var(--text-on-accent)',
+    background: 'var(--accent-primary)',
+    border: '1px solid var(--accent-primary)',
+    borderRadius: '10px',
+    padding: '14px 32px', cursor: 'pointer',
+    letterSpacing: '0.06em',
+    boxShadow: 'var(--accent-primary-shadow)'
+  }, onclick: ctaAction }, ctaLabel));
+
+  // Step dots.
+  var dots = el('div', { style: {
+    display: 'flex', gap: '8px', marginTop: '32px'
+  } });
+  for (var i = 1; i <= 3; i++) {
+    dots.appendChild(el('div', { style: {
+      width: '8px', height: '8px', borderRadius: '50%',
+      background: i === step ? 'var(--accent-primary)' : 'var(--border-default)'
+    } }));
+  }
+  inner.appendChild(dots);
+
+  host.appendChild(inner);
+}
+
+// ─── M5: Picker-return resume ──────────────────────────────────────────────
+// Called from closeOriginLunchPicker after the M2 sheet finishes its slide-
+// out animation. If the user came in via Step 1 (returnToTour === true) and
+// actually made a selection, the tour re-opens at Step 2.
+function _m5MaybeResumeTour() {
+  if (!_m5State.returnToTour) return;
+  _m5State.returnToTour = false;
+  // The flag could have flipped to "complete" if the user opened the picker
+  // and then somehow tripped setM5OnboardingComplete; respect that.
+  try {
+    if (localStorage.getItem(M5_ONBOARDING_KEY) === 'true') return;
+  } catch (e) { /* non-fatal */ }
+  // Step 2 requires an actual selection (locked schema decision).
+  var hasSel = false;
+  try { hasSel = (typeof hasAnyOriginSelection === 'function') && hasAnyOriginSelection(); }
+  catch (e) { /* non-fatal */ }
+  if (hasSel) showM5Tour(2);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// End M5 block.
+// ═══════════════════════════════════════════════════════════════════════════
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// M6: Retire Legacy Path, Goal-Aware Macros, Launch Polish
+//
+// The final M-arc milestone. Three threads:
+//   1. Partial legacy retirement: hide the "Meal Templates" entry on the
+//      Fuel tab when the active day has an Origin lunch selection. A new
+//      "Meal Templates (other slots)" entry takes its place so the user
+//      still has access to breakfast / dinner / snacks (which the M-arc
+//      does not cover).
+//   2. Goal-aware macro display: in the M2 picker detail view, each macro
+//      cell shows a small percentage line below the absolute value,
+//      reading against the active day's target macros from
+//      getDayTypeMacros. Active-day target is the locked schema choice;
+//      no color-coding (food-shame territory).
+//   3. Launch polish: REST framing on labels, set-all-same suppression
+//      when no matching days exist (already guarded; M6 verifies),
+//      shopping-section header gets a "with swaps" suffix when any day
+//      has an engaged swap.
+//
+// Additive only. The legacy openMealEngineSheet and MEAL_DATABASE stay
+// intact for the slots the M-arc does not cover.
+//
+// No hex literals in this block. CSS custom properties only.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ─── M6: State ─────────────────────────────────────────────────────────────
+// Carries a slot-filter hint into openMealEngineSheet so the other-slots
+// entry can suggest a non-lunch context. The hint is advisory; the engine
+// sheet's slot picker still shows all slots. M6 does not modify the engine.
+var _m6State = { engineSheetSlotFilter: null };
+
+// ─── M6: Goal-aware target reader ──────────────────────────────────────────
+// Returns the active day's target macros { kcal, protein, carbs, fat } or
+// null if no goal profile exists or the profile is not locked. Reads from
+// getGoalProfile and getDayTypeMacros (both already in the codebase).
+//
+// Locked schema decision: active-DAY target, not week-average. The week-
+// average target would leak into territory the user didn't ask for (e.g.
+// a Thursday picker showing percentages relative to a Saturday rest day's
+// kcal floor). The active day's target also varies sensibly with the day
+// type, since getDayTypeMacros already applies kcalMult / carbMult / fatMult.
+function _m6GetActiveDayTargets() {
+  try {
+    var profile = (typeof getGoalProfile === 'function') ? getGoalProfile() : null;
+    if (!profile || !profile.lockedAt) return null;
+    var day = (typeof activeDay !== 'undefined' && PROGRAM[activeDay]) ? PROGRAM[activeDay] : null;
+    if (!day) return null;
+    var dayTargets = (typeof getDayTypeMacros === 'function') ? getDayTypeMacros(profile, day.nutriType) : null;
+    if (!dayTargets) return null;
+    return {
+      kcal:    dayTargets.targetKcal,
+      protein: dayTargets.proteinG,
+      carbs:   dayTargets.carbsG,
+      fat:     dayTargets.fatG
+    };
+  } catch (e) { return null; }
+}
+
+// Returns a rounded percentage string (e.g. '32%') or null when inputs
+// don't compute. Used by _m2RenderMacroStrip when goal-aware display is on.
+function _m6PercentOfTarget(value, target) {
+  if (typeof value !== 'number' || typeof target !== 'number') return null;
+  if (!isFinite(value) || !isFinite(target)) return null;
+  if (target <= 0) return null;
+  return Math.round((value / target) * 100) + '%';
+}
+
+// ─── M6: Legacy retirement gate ────────────────────────────────────────────
+// Returns true if the legacy "Meal Templates" entry should be HIDDEN on
+// the Fuel tab. Locked rule:
+//   - Hide when the active day has an Origin lunch selection.
+//   - Show otherwise (the legacy entry is the fallback for users who have
+//     not yet engaged the M-arc menu, OR for users actively looking for
+//     breakfast / dinner / snacks).
+//
+// The rule is REVERSIBLE: removing the lunch selection brings the legacy
+// entry back. No persistent state in M6.
+function _m6ShouldHideLegacyMealTemplates() {
+  try {
+    var day = (typeof activeDay !== 'undefined' && PROGRAM[activeDay]) ? PROGRAM[activeDay] : null;
+    if (!day) return false;
+    if (typeof getOriginLunchSelection !== 'function') return false;
+    var sel = getOriginLunchSelection(day.day);
+    return !!sel;
+  } catch (e) { return false; }
+}
+
+// Renders the slim "Meal Templates (other slots)" entry that takes the
+// place of the legacy entry when it is hidden. Opens openMealEngineSheet
+// after setting _m6State.engineSheetSlotFilter as an advisory hint. The
+// engine sheet does not currently consume the hint, but it is plumbed for
+// a future patch and is safe to set.
+function renderMealTemplatesOtherSlotsEntry() {
+  var card = el('div', { style: {
+    background: 'var(--bg-card-nested)',
+    border: '1px solid var(--border-default)',
+    borderRadius: '10px',
+    padding: '12px 14px', marginBottom: '12px', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px'
+  }, onclick: function () {
+    try {
+      _m6State.engineSheetSlotFilter = 'non-lunch';
+      if (typeof openMealEngineSheet === 'function') openMealEngineSheet();
+    } catch (e) { /* non-fatal */ }
+  } });
+  var left = el('div', { style: { flex: '1', minWidth: '0' } });
+  left.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '10px',
+    color: 'var(--text-muted)',
+    letterSpacing: '0.22em', textTransform: 'uppercase', fontWeight: '700'
+  } }, 'Meal Templates (other slots)'));
+  left.appendChild(el('div', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '11px',
+    color: 'var(--text-tertiary)', marginTop: '3px', lineHeight: '1.4'
+  } }, 'Breakfast, dinner, and snacks. Lunch lives in Origin Lunches.'));
+  card.appendChild(left);
+  card.appendChild(el('span', { style: {
+    fontFamily: "'DM Mono', monospace", fontSize: '16px',
+    color: 'var(--text-disabled)', flexShrink: '0'
+  } }, '\u203a'));
+  return card;
+}
+
+// ─── M6: Shopping header swap-state suffix ─────────────────────────────────
+// Returns a string suffix to append to the "{N items}" header line in the
+// Origin shopping section. Returns combinations of " \u00b7 week locked"
+// and " \u00b7 with swaps" depending on state. Empty string when neither
+// applies.
+function _m6ShoppingHeaderSuffix() {
+  var suffix = '';
+  try {
+    if (typeof isWeekLocked === 'function' && isWeekLocked()) suffix += ' \u00b7 week locked';
+  } catch (e) { /* non-fatal */ }
+  try {
+    if (typeof _m3GetAllSwaps === 'function') {
+      var swaps = _m3GetAllSwaps();
+      for (var d = 1; d <= 7; d++) {
+        if (swaps[String(d)]) { suffix += ' \u00b7 with swaps'; break; }
+      }
+    }
+  } catch (e) { /* non-fatal */ }
+  return suffix;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// End M6 block.
+// ═══════════════════════════════════════════════════════════════════════════
+
+
+// ═══════════════════════════════════════════════════════════════════════════
 // MEAL ENGINE V2 START
 //
 // Session 2 foundation build. Data structures and pure functions for the
@@ -32552,7 +35227,30 @@ function renderNutrition() {
   mealEngineEntry.appendChild(el('span', { style: {
     fontFamily: "'DM Mono', monospace", fontSize: '16px', color: '#444', flexShrink: '0'
   } }, '\u203a'));
-  list.appendChild(mealEngineEntry);
+  // M6: partial legacy retirement. The legacy "Meal Templates" entry is
+  // hidden on the Fuel tab when the active day has an Origin lunch
+  // selection (the M-arc covers lunch); a slim "Meal Templates (other
+  // slots)" entry takes its place so the user still has access to
+  // breakfast / dinner / snacks. Reversible: removing the lunch selection
+  // brings the legacy entry back.
+  var _m6HideLegacy = false;
+  try { _m6HideLegacy = (typeof _m6ShouldHideLegacyMealTemplates === 'function') && _m6ShouldHideLegacyMealTemplates(); }
+  catch (e) { /* non-fatal */ }
+
+  if (!_m6HideLegacy) {
+    list.appendChild(mealEngineEntry);
+  } else {
+    try { list.appendChild(renderMealTemplatesOtherSlotsEntry()); } catch (e) { /* non-fatal */ }
+  }
+
+  // M2: Origin Lunches entry. Sits next to Meal Templates as a peer entry-
+  // point card. Opens the new picker sheet for the active day.
+  try { list.appendChild(renderOriginLunchEntry()); } catch (e) { /* non-fatal */ }
+
+  // M3: Week-lock entry. Sits below Origin Lunches. Hidden when there are
+  // no Origin selections and no existing lock. Renders the lock state, the
+  // count of locked/planned days, and a Lock/Unlock action.
+  try { list.appendChild(renderWeekLockEntry()); } catch (e) { /* non-fatal */ }
 
   // Reorganisation R1: water + shopping live on Fuel now. Water was its
   // own tab; now a compact card with quick-add buttons + tap-to-expand
@@ -36282,6 +38980,14 @@ function renderShopping() {
   // and the user can always recover even if they have excluded every day.
   con.appendChild(renderShoppingDayFilter());
 
+  // M3: Origin shopping section. Renders ABOVE the legacy fraser_meal_keep_*
+  // sections, populated from the current week's Origin Lunch selections.
+  // Hidden when there are no Origin selections.
+  try {
+    var _m3OriginSection = renderOriginShoppingSection();
+    if (_m3OriginSection) con.appendChild(_m3OriginSection);
+  } catch (e) { /* non-fatal */ }
+
   // Empty specifically because every program day is filtered out. Distinct
   // from "no meals planned" — the filter card above is the way to recover.
   if (getShoppingDayFilter().length === 0) {
@@ -36302,10 +39008,16 @@ function renderShopping() {
     return;
   }
 
+  // M3: amend the "no items at all" empty-state to also consider Origin
+  // selections. If Origin has items, the section above already renders;
+  // we skip the "Plan the Week" CTA so the user doesn't see a contradiction.
+  var _m3HasOrigin = false;
+  try { _m3HasOrigin = (typeof hasAnyOriginSelection === 'function') ? hasAnyOriginSelection() : false; } catch (e) { /* non-fatal */ }
+
   // No items at all means no plan / no meals — render a friendly empty
   // state instead of a bunch of empty headers, with a CTA back to plan
   // the week from the Nutrition tab.
-  if (totalItems === 0 && pantryCount === 0) {
+  if (totalItems === 0 && pantryCount === 0 && !_m3HasOrigin) {
     const empty = div({
       background: 'var(--bg-elevated)',
       border: '1px solid var(--border-subtle)',
@@ -37985,6 +40697,14 @@ try {
     } else {
       if (typeof openSettings === 'function') openSettings('goal_wizard');
     }
+  } else {
+    // M5: throughpath onboarding for the Origin Lunches menu. Fires only
+    // when the prior onboarding chain is fully resolved (goal profile
+    // locked, preferences set) AND the user has not yet engaged with the
+    // menu surface. The M5 detection function bakes in all those rules.
+    if (typeof shouldShowM5Tour === 'function' && shouldShowM5Tour()) {
+      if (typeof showM5Tour === 'function') showM5Tour();
+    }
   }
 } catch (e) {
   if (typeof console !== 'undefined') console.warn('First-launch routing skipped:', e);
@@ -38273,7 +40993,11 @@ const SYNC_KEY_PREFIXES = [
   'fraser_text_scale_v1',
   // Workout preferences — prompt-before-next-set is the kind of pacing toggle
   // a person sets once and expects everywhere.
-  'fraser_wm_prompt_next_v1'
+  'fraser_wm_prompt_next_v1',
+  // M2: Origin menu selections (flow.menu.origin.lunch.{day} = recipeId).
+  // First flow.* prefix to enter the sync whitelist; M3+ menu surfaces will
+  // share this prefix.
+  'flow.menu.'
 ];
 
 function isSyncableKey(key) {
