@@ -711,7 +711,7 @@
 //   1. Bump APP_VERSION here
 //   2. Bump CACHE_VERSION in service-worker.js to match
 //   3. mv fraser-final-complete.html index.html; git commit; git push
-const APP_VERSION = '2026.05.19.26';
+const APP_VERSION = '2026.05.19.30';
 
 let activeTab = 'today';
 let activeDay = 0; // will be set to today on init
@@ -4460,6 +4460,118 @@ function applyExerciseSwap(originalEx, swapData) {
 }
 
 
+// ═══ SKILL RUNG RESOLVER BEGIN ═══
+// Per-skill rung state and resolver. Sits alongside applyExerciseSwap (the
+// user-driven exercise swap) and is consulted FIRST during rendering. If an
+// exercise carries a skillId AND the user has a current rung set (or defaults
+// to rung 0), the resolver substitutes name/sets/reps/tempo/cues from the rung.
+// Phase 1A: data layer only, no render hook yet. Phase 1B turns this on.
+//
+// Storage key: flow.skill.<skillId>.currentRung -> rung id string
+// Default behaviour: missing key returns first rung (index 0).
+
+const SKILL_STORAGE_PREFIX = 'flow.skill.';
+
+function _skillStorageKey(skillId) {
+  return SKILL_STORAGE_PREFIX + skillId + '.currentRung';
+}
+
+// Returns the rung object for the user's current rung on a given skill.
+// Returns null if skillId is unknown. Defaults to the first rung when no
+// storage value is set or the stored rung id is no longer valid (e.g. the
+// rung was renamed in a future schema update).
+function getCurrentRung(skillId) {
+  if (!skillId || typeof SKILL_PROGRESSIONS === 'undefined') return null;
+  const skill = SKILL_PROGRESSIONS[skillId];
+  if (!skill || !Array.isArray(skill.rungs) || skill.rungs.length === 0) return null;
+  try {
+    const stored = (typeof localStorage !== 'undefined') ? localStorage.getItem(_skillStorageKey(skillId)) : null;
+    if (stored) {
+      const match = skill.rungs.find(function(r) { return r.id === stored; });
+      if (match) return match;
+    }
+  } catch (e) { /* localStorage unavailable, fall through */ }
+  return skill.rungs[0];
+}
+
+// Persists a rung selection for a skill. Returns true on success, false on
+// invalid skill or invalid rung id. Does not throw on storage failure.
+function setCurrentRung(skillId, rungId) {
+  if (!skillId || !rungId) return false;
+  if (typeof SKILL_PROGRESSIONS === 'undefined') return false;
+  const skill = SKILL_PROGRESSIONS[skillId];
+  if (!skill || !Array.isArray(skill.rungs)) return false;
+  const exists = skill.rungs.some(function(r) { return r.id === rungId; });
+  if (!exists) return false;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(_skillStorageKey(skillId), rungId);
+    }
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+// Advances the user one rung up the ladder. Returns true on advance, false
+// when already on the top rung or skill is unknown. Safe to call repeatedly.
+function advanceRung(skillId) {
+  const skill = SKILL_PROGRESSIONS && SKILL_PROGRESSIONS[skillId];
+  if (!skill) return false;
+  const current = getCurrentRung(skillId);
+  if (!current) return false;
+  const idx = skill.rungs.findIndex(function(r) { return r.id === current.id; });
+  if (idx < 0 || idx >= skill.rungs.length - 1) return false;
+  return setCurrentRung(skillId, skill.rungs[idx + 1].id);
+}
+
+// Regresses the user one rung down the ladder. Returns true on regress,
+// false when already on the bottom rung or skill is unknown.
+function regressRung(skillId) {
+  const skill = SKILL_PROGRESSIONS && SKILL_PROGRESSIONS[skillId];
+  if (!skill) return false;
+  const current = getCurrentRung(skillId);
+  if (!current) return false;
+  const idx = skill.rungs.findIndex(function(r) { return r.id === current.id; });
+  if (idx <= 0) return false;
+  return setCurrentRung(skillId, skill.rungs[idx - 1].id);
+}
+
+// Resolves a program exercise into its rung-substituted form. If the
+// exercise has no skillId or the skill is unknown, returns the original
+// exercise unchanged. Otherwise returns a shallow-copied exercise with
+// rung name/sets/reps/tempo/cues/primaryMuscles substituted, plus tags
+// (_skillRung, _skillRungIndex, _skillRungTotal, _originalName) for the UI
+// to surface a "RUNG 2/6" indicator. The original id is preserved so that
+// workout logs remain linked across rung changes.
+function applyExerciseSkillRung(originalEx) {
+  if (!originalEx || !originalEx.skillId) return originalEx;
+  if (typeof SKILL_PROGRESSIONS === 'undefined') return originalEx;
+  const skill = SKILL_PROGRESSIONS[originalEx.skillId];
+  if (!skill || !Array.isArray(skill.rungs) || skill.rungs.length === 0) return originalEx;
+  const rung = getCurrentRung(originalEx.skillId);
+  if (!rung) return originalEx;
+  const idx = skill.rungs.findIndex(function(r) { return r.id === rung.id; });
+  return Object.assign({}, originalEx, {
+    name: rung.name,
+    sets: rung.sets,
+    reps: rung.reps,
+    tempo: rung.tempo,
+    tempoDesc: rung.tempoDesc,
+    category: rung.category || originalEx.category,
+    primaryMuscles: rung.primaryMuscles || originalEx.primaryMuscles,
+    cues: rung.cues || originalEx.cues,
+    _skillRung: rung.id,
+    _skillRungIndex: idx,
+    _skillRungTotal: skill.rungs.length,
+    _skillLabel: skill.label,
+    _originalName: originalEx.name
+  });
+}
+// ═══ SKILL RUNG RESOLVER END ═══
+
+
+
 // ─── EXERCISE LEVEL TAG ───────────────────────────────────────────────────────
 // Tries to determine the difficulty tag for a PROGRAM exercise.
 // Returns 'beginner' | 'intermediate' | 'expert' | null.
@@ -4565,6 +4677,7 @@ function renderSwapSheet(originalEx, day, showAllLevels) {
       WebkitOverflowScrolling: 'touch',
       transform: 'translateY(100%)',
       transition: 'transform 0.28s cubic-bezier(0.32, 0.72, 0, 1)',
+      paddingTop: 'env(safe-area-inset-top, 0px)',
       paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 24px)'
     }
   });
@@ -4672,6 +4785,90 @@ function renderSwapSheet(originalEx, day, showAllLevels) {
     resetText.appendChild(el('div', {style: {fontSize: '11px', color: '#aaa', lineHeight: '1.4'}}, 'Currently swapped to ' + (currentSwap.name || 'custom') + '. Tap to revert.'));
     resetCard.appendChild(resetText);
     body.appendChild(resetCard);
+  }
+
+  // ── Phase 1B: Skill progression rung picker ────────────────────────────
+  // Shown when the exercise has a skillId AND is not currently swapped out.
+  // Lists every rung on the ladder, current one highlighted, tap any rung
+  // to set it as the new current rung. The rung picker is mutually exclusive
+  // with the reset card above (which only fires when swapped). Below this
+  // section the algorithmic swap alternatives still render, separated by a
+  // divider, so users can still swap entirely out of the skill if they want.
+  if (originalEx.skillId && !currentSwap && typeof SKILL_PROGRESSIONS !== 'undefined' && SKILL_PROGRESSIONS[originalEx.skillId]) {
+    const _skill = SKILL_PROGRESSIONS[originalEx.skillId];
+    const _curRung = (typeof getCurrentRung === 'function') ? getCurrentRung(originalEx.skillId) : null;
+    const _curRungId = _curRung ? _curRung.id : (_skill.rungs[0] && _skill.rungs[0].id);
+
+    const ladderHeader = div({marginBottom: '10px'});
+    ladderHeader.appendChild(el('div', {
+      style: {fontSize:'9px',color:'#b03bff',letterSpacing:'0.24em',textTransform:'uppercase',fontWeight:'700',marginBottom:'4px'}
+    }, '\u25c6 ' + _skill.label + ' Progression'));
+    if (_skill.description) {
+      ladderHeader.appendChild(el('div', {
+        style: {fontSize:'10px',color:'#aaa',lineHeight:'1.5'}
+      }, _skill.description));
+    }
+    body.appendChild(ladderHeader);
+
+    _skill.rungs.forEach(function(rung, idx) {
+      const isCurrent = rung.id === _curRungId;
+      const rungCard = el('button', {
+        class: 'btn',
+        style: {
+          width: '100%', textAlign: 'left', display: 'block',
+          background: isCurrent ? 'rgba(176,59,255,0.08)' : '#0e0e0e',
+          border: '1px solid ' + (isCurrent ? 'rgba(176,59,255,0.5)' : '#1a1a1a'),
+          padding: '10px 12px', borderRadius: '8px',
+          marginBottom: '6px', cursor: 'pointer'
+        },
+        onclick: function() {
+          if (rung.id === _curRungId) {
+            closeSwapSheet();
+            return;
+          }
+          if (typeof setCurrentRung === 'function') {
+            setCurrentRung(originalEx.skillId, rung.id);
+          }
+          closeSwapSheet();
+          if (typeof renderActiveTab === 'function') renderActiveTab();
+          if (typeof isWorkoutModeActive === 'function' && isWorkoutModeActive() && typeof wmRender === 'function') {
+            wmRender();
+          }
+        }
+      });
+
+      const row1 = div({display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px'});
+      row1.appendChild(el('span', {
+        style: {fontSize:'8px',color: isCurrent ? '#b03bff' : '#666',letterSpacing:'0.2em',fontWeight:'700'}
+      }, 'RUNG ' + (idx + 1) + '/' + _skill.rungs.length));
+      if (isCurrent) {
+        row1.appendChild(el('span', {
+          style: {fontSize:'8px',color:'#b03bff',letterSpacing:'0.18em',fontWeight:'700'}
+        }, '\u25cf CURRENT'));
+      }
+      rungCard.appendChild(row1);
+
+      rungCard.appendChild(el('div', {
+        class: 'bebas',
+        style: {fontSize:'17px',color: isCurrent ? '#e0e0e0' : '#bbb',letterSpacing:'0.04em',marginBottom:'3px',lineHeight:'1.1'}
+      }, rung.name));
+
+      rungCard.appendChild(el('div', {
+        style: {fontSize:'10px',color:'#888',marginBottom:'4px'}
+      }, rung.sets + ' \u00d7 ' + rung.reps + ' \u00b7 ' + rung.tempo));
+
+      if (rung.criteria) {
+        rungCard.appendChild(el('div', {
+          style: {fontSize:'10px',color:'#888',lineHeight:'1.4',fontStyle:'italic'}
+        }, rung.criteria));
+      }
+
+      body.appendChild(rungCard);
+    });
+
+    body.appendChild(el('div', {
+      style: {fontSize:'9px',color:'#666',letterSpacing:'0.2em',textTransform:'uppercase',fontWeight:'700',marginTop:'18px',marginBottom:'8px',textAlign:'center'}
+    }, 'Or swap to a different exercise'));
   }
 
   // Find alternatives
@@ -5024,6 +5221,7 @@ function renderHistorySheet(originalEx, dayAccent) {
       WebkitOverflowScrolling: 'touch',
       transform: 'translateY(100%)',
       transition: 'transform 0.28s cubic-bezier(0.32, 0.72, 0, 1)',
+      paddingTop: 'env(safe-area-inset-top, 0px)',
       paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 24px)'
     }
   });
@@ -5435,11 +5633,11 @@ const PROGRAM = [
     {id:"sprints",name:"Sprint Intervals",sets:6,reps:"40m",tempo:"Max effort",tempoDesc:"100% effort, walk back as rest",category:"Park",cues:["Absolute max effort each sprint","Walk back (~60–90 sec) as rest","Do AFTER lifting, not before"]}
   ]},
   {day:4,label:"Day 4",title:"Skills",subtitle:"Calisthenics · Muscle Control · Tension",accent:"#b03bff",nutriType:"low",exercises:[
-    {id:"muscleup",name:"Muscle-up Progressions",sets:4,reps:"3-5",tempo:"Explosive",tempoDesc:"Explosive pull, controlled transition, slow lower",category:"Park",cues:["If no muscle-up: work explosive chest-to-bar pull-ups","Transition is hardest — think 'hips to bar'","3 clean reps beats 8 sloppy ones"]},
-    {id:"planche",name:"Pseudo Planche Push-ups",sets:4,reps:"8",tempo:"2-1-2-0",tempoDesc:"2s lower, 1s hold, 2s press",category:"Park",cues:["Hands point backwards at hip level","Lean body weight forward significantly","Rigid plank throughout — no sagging"]},
-    {id:"lsit",name:"L-sit Holds",sets:4,reps:"15-20 sec",tempo:"Isometric",tempoDesc:"Build to 20 sec before adding sets",category:"Park",cues:["Press down hard — active depression","Legs straight and horizontal","Start with tuck L-sit if needed"]},
-    {id:"frontlever",name:"Front Lever Progressions",sets:4,reps:"10 sec",tempo:"Isometric",tempoDesc:"Quality holds at each progression",category:"Park",cues:["Start with tuck (knees to chest)","Tuck > advanced tuck > one leg > straddle > full","Hollow body position throughout"]},
-    {id:"pikepush",name:"Pike Push-ups",sets:3,reps:"12",tempo:"3-1-1-0",tempoDesc:"3s lower, 1s pause, 1s press",category:"Park",cues:["Inverted V — hips high, head low","More vertical torso = more shoulder-dominant","Elevate feet to increase difficulty"]},
+    {id:"muscleup",skillId:"muscleup",name:"Muscle-up Progressions",sets:4,reps:"3-5",tempo:"Explosive",tempoDesc:"Explosive pull, controlled transition, slow lower",category:"Park",cues:["If no muscle-up: work explosive chest-to-bar pull-ups","Transition is hardest — think 'hips to bar'","3 clean reps beats 8 sloppy ones"]},
+    {id:"planche",skillId:"planche",name:"Pseudo Planche Push-ups",sets:4,reps:"8",tempo:"2-1-2-0",tempoDesc:"2s lower, 1s hold, 2s press",category:"Park",cues:["Hands point backwards at hip level","Lean body weight forward significantly","Rigid plank throughout — no sagging"]},
+    {id:"lsit",skillId:"lsit",name:"L-sit Holds",sets:4,reps:"15-20 sec",tempo:"Isometric",tempoDesc:"Build to 20 sec before adding sets",category:"Park",cues:["Press down hard — active depression","Legs straight and horizontal","Start with tuck L-sit if needed"]},
+    {id:"frontlever",skillId:"frontlever",name:"Front Lever Progressions",sets:4,reps:"10 sec",tempo:"Isometric",tempoDesc:"Quality holds at each progression",category:"Park",cues:["Start with tuck (knees to chest)","Tuck > advanced tuck > one leg > straddle > full","Hollow body position throughout"]},
+    {id:"pikepush",skillId:"hspu",name:"Pike Push-ups",sets:3,reps:"12",tempo:"3-1-1-0",tempoDesc:"3s lower, 1s pause, 1s press",category:"Park",cues:["Inverted V — hips high, head low","More vertical torso = more shoulder-dominant","Elevate feet to increase difficulty"]},
     {id:"bardips",name:"Bar Dips",sets:3,reps:"15",tempo:"2-0-1-0",tempoDesc:"2s lower, 1s press",category:"Park",cues:["Upright = tricep focus, leaned forward = chest","Lower until shoulders at elbow height","Progress to weighted once 15 feels easy"]}
   ]},
   {day:5,label:"Day 5",title:"Full Body",subtitle:"Compound Strength · Power",accent:"#ff3b7b",nutriType:"high",exercises:[
@@ -5803,7 +6001,7 @@ const CALISTHENICS_TEMPLATES = {
   ]},
 
   legs: {day:3,label:"Day 3",title:"Legs",subtitle:"Pistol Progression · Jumps · Glutes",accent:"#ff7b3b",nutriType:"high",exercises:[
-    {id:"cali_pistol",name:"Pistol Squat (or assisted)",primaryMuscles:["quadriceps","glutes"],sets:4,reps:"4-6 each",tempo:"3-1-2-0",tempoDesc:"3s lower, 1s pause, 2s drive · use TRX or pole if needed",category:"Park/Home"},
+    {id:"cali_pistol",skillId:"pistol",name:"Pistol Squat (or assisted)",primaryMuscles:["quadriceps","glutes"],sets:4,reps:"4-6 each",tempo:"3-1-2-0",tempoDesc:"3s lower, 1s pause, 2s drive · use TRX or pole if needed",category:"Park/Home"},
     {id:"cali_bulgarian",dbId:"Split_Squat_with_Dumbbells",name:"Bulgarian Split Squat",sets:4,reps:"8-12 each",tempo:"2-1-1-0",tempoDesc:"2s lower, 1s pause, 1s drive · bodyweight",category:"Park/Home"},
     {id:"cali_jumpsq",dbId:"Freehand_Jump_Squat",name:"Jump Squat",sets:4,reps:"8-10",tempo:"Explosive",tempoDesc:"Down → max-effort vertical jump · land soft",category:"Park/Home"},
     {id:"cali_glutebridge",dbId:"Single_Leg_Glute_Bridge",name:"Single-Leg Glute Bridge",sets:4,reps:"12-15 each",tempo:"2-2-1-0",tempoDesc:"2s lower, 2s squeeze, 1s drive",category:"Home"},
@@ -5813,11 +6011,11 @@ const CALISTHENICS_TEMPLATES = {
   ]},
 
   skills: {day:4,label:"Day 4",title:"Skills",subtitle:"Levers · Planches · Density",accent:"#b03bff",nutriType:"low",exercises:[
-    {id:"cali_handstand",name:"Handstand Hold (free)",primaryMuscles:["shoulders","abdominals"],sets:5,reps:"max time",tempo:"Isometric",tempoDesc:"Toward free-standing · use wall to start",category:"Park/Home"},
-    {id:"cali_lsit",name:"L-Sit Hold",primaryMuscles:["abdominals","triceps"],sets:4,reps:"max time",tempo:"Isometric",tempoDesc:"Tuck L-sit → one leg → full · press down hard",category:"Park"},
-    {id:"cali_planche",name:"Tuck Planche (or Frog Stand)",primaryMuscles:["shoulders","chest"],sets:4,reps:"max time",tempo:"Isometric",tempoDesc:"Frog → tuck → advanced tuck → straddle progression",category:"Park/Home"},
-    {id:"cali_lever",name:"Front Lever Tuck (or Negative)",primaryMuscles:["lats","abdominals"],sets:4,reps:"max time",tempo:"Isometric or 5s negative",tempoDesc:"Tuck → adv tuck → one leg → full · hollow body throughout",category:"Park"},
-    {id:"cali_mu_neg",dbId:"Muscle_Up",name:"Muscle-Up (or 5s negative)",primaryMuscles:["lats","chest","triceps"],sets:3,reps:"3-5",tempo:"Explosive up, slow down",tempoDesc:"Explosive transition · build to 1 clean rep",category:"Park"},
+    {id:"cali_handstand",skillId:"handstand",name:"Handstand Hold (free)",primaryMuscles:["shoulders","abdominals"],sets:5,reps:"max time",tempo:"Isometric",tempoDesc:"Toward free-standing · use wall to start",category:"Park/Home"},
+    {id:"cali_lsit",skillId:"lsit",name:"L-Sit Hold",primaryMuscles:["abdominals","triceps"],sets:4,reps:"max time",tempo:"Isometric",tempoDesc:"Tuck L-sit → one leg → full · press down hard",category:"Park"},
+    {id:"cali_planche",skillId:"planche",name:"Tuck Planche (or Frog Stand)",primaryMuscles:["shoulders","chest"],sets:4,reps:"max time",tempo:"Isometric",tempoDesc:"Frog → tuck → advanced tuck → straddle progression",category:"Park/Home"},
+    {id:"cali_lever",skillId:"frontlever",name:"Front Lever Tuck (or Negative)",primaryMuscles:["lats","abdominals"],sets:4,reps:"max time",tempo:"Isometric or 5s negative",tempoDesc:"Tuck → adv tuck → one leg → full · hollow body throughout",category:"Park"},
+    {id:"cali_mu_neg",skillId:"muscleup",dbId:"Muscle_Up",name:"Muscle-Up (or 5s negative)",primaryMuscles:["lats","chest","triceps"],sets:3,reps:"3-5",tempo:"Explosive up, slow down",tempoDesc:"Explosive transition · build to 1 clean rep",category:"Park"},
     {id:"cali_archpush",name:"Archer Push-Up",primaryMuscles:["chest","triceps"],sets:3,reps:"4-6 each",tempo:"3-1-1-0",tempoDesc:"3s lower to one side, 1s pause, 1s press",category:"Park/Home"},
     {id:"cali_hollow",dbId:"Plank",name:"Hollow Body Hold",sets:3,reps:"30-45 sec",tempo:"Isometric",tempoDesc:"Lower back pressed flat, arms overhead",category:"Home"}
   ]},
@@ -5832,6 +6030,1181 @@ const CALISTHENICS_TEMPLATES = {
     {id:"cali_fb_hollow",dbId:"Plank",name:"Hollow Body Hold",sets:3,reps:"30-45 sec",tempo:"Isometric",tempoDesc:"Lower back flat, core engaged",category:"Home"}
   ]}
 };
+
+
+// ═══ SKILL PROGRESSIONS BEGIN ═══
+// Per-skill progression ladders for high-end calisthenics moves. Unlike the
+// program-wide experience-level variant system (EXERCISE_VARIANTS_BY_ID), this
+// is per-skill: a user can be on rung 4 of muscle-up while still on rung 1 of
+// planche. Each rung carries its own sets/reps/tempo/cues plus a criteria
+// string describing what the user needs to hit before advancing.
+//
+// Used by:
+//   applyExerciseSkillRung(originalEx) substitutes rung data into an
+//   exercise that carries a skillId. Phase 1A defines the data layer; the
+//   render hook and rung-picker UI ship in Phase 1B.
+//
+// Storage:
+//   flow.skill.<skillId>.currentRung stores the rung id (e.g. 'planche_tuck').
+//   Defaults to the first rung when no value is stored.
+
+const SKILL_PROGRESSIONS = {
+
+  planche: {
+    skillId: 'planche',
+    label: 'Planche',
+    description: 'Static hold parallel to floor, arms straight, hands on ground.',
+    rungs: [
+      {
+        id: 'planche_lean',
+        name: 'Planche Lean',
+        sets: 3, reps: '20-30 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Push-up position, shoulders far forward over hands, hold the lean.',
+        category: 'Park/Home',
+        primaryMuscles: ['shoulders', 'core'],
+        cues: [
+          'Hands rotated slightly outward to protect wrists',
+          'Lean forward until heels lift naturally off floor',
+          'Hollow body, glutes squeezed, ribs down',
+          'Active scapular protraction, push the floor away'
+        ],
+        criteria: 'Hold 30 sec x 3 clean sets before advancing to Tuck Planche.'
+      },
+      {
+        id: 'planche_tuck',
+        name: 'Tuck Planche',
+        sets: 4, reps: '10-15 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Knees pulled tight to chest, body lifted off floor on straight arms.',
+        category: 'Park/Home',
+        primaryMuscles: ['shoulders', 'core'],
+        cues: [
+          'Knees tight to chest, hips up at shoulder height',
+          'Protract scapula hard, no shoulder shrug',
+          'Hollow body throughout, never sag',
+          'Parallettes are friendlier on wrists than floor'
+        ],
+        criteria: 'Hold 15 sec x 3 clean sets before advancing to Advanced Tuck.'
+      },
+      {
+        id: 'planche_advtuck',
+        name: 'Advanced Tuck Planche',
+        sets: 4, reps: '8-12 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Knees still bent but back rounded and flat, parallel to floor.',
+        category: 'Park/Home',
+        primaryMuscles: ['shoulders', 'core'],
+        cues: [
+          'Back parallel to floor, not pike-shaped',
+          'Knees still tucked but hips drop level with shoulders',
+          'Push hard through palms, lock elbows',
+          'This is where straight-arm strength starts building seriously'
+        ],
+        criteria: 'Hold 12 sec x 3 clean sets before advancing to Straddle.'
+      },
+      {
+        id: 'planche_straddle',
+        name: 'Straddle Planche',
+        sets: 4, reps: '5-10 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Legs straight and wide, body parallel to floor.',
+        category: 'Park/Home',
+        primaryMuscles: ['shoulders', 'core', 'lower back'],
+        cues: [
+          'Legs as wide as flexibility allows, knees locked',
+          'Toes pointed, glutes squeezed',
+          'Hardest is keeping shoulders forward enough as legs extend',
+          'Start with half lay (one leg tucked) if straddle is too much'
+        ],
+        criteria: 'Hold 10 sec x 3 clean sets before advancing to Full.'
+      },
+      {
+        id: 'planche_full',
+        name: 'Full Planche',
+        sets: 4, reps: '3-8 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Legs straight together, body fully parallel to floor.',
+        category: 'Park/Home',
+        primaryMuscles: ['shoulders', 'core', 'lower back', 'glutes'],
+        cues: [
+          'Body and legs form one straight line parallel to floor',
+          'Squeeze glutes and inner thighs to keep legs together',
+          'Point toes, lock everything',
+          'Half lay first, then close legs across multiple sessions'
+        ],
+        criteria: 'Hold 8 sec x 3 clean sets before adding weight.'
+      },
+      {
+        id: 'planche_weighted',
+        name: 'Weighted Planche',
+        sets: 3, reps: '3-5 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Full planche with added load on lower back.',
+        category: 'Park/Home',
+        primaryMuscles: ['shoulders', 'core', 'lower back', 'glutes'],
+        cues: [
+          'Start with 2.5 kg plate, build slowly',
+          'Form is non-negotiable, drop weight before form',
+          'Pause planche pushups also live at this rung',
+          'Long-term: 10kg weighted holds = world-class'
+        ],
+        criteria: 'Keep adding load while form holds. No upper bound.'
+      }
+    ]
+  },
+
+  frontlever: {
+    skillId: 'frontlever',
+    label: 'Front Lever',
+    description: 'Static hold hanging from bar, body horizontal facing up.',
+    rungs: [
+      {
+        id: 'fl_tuck',
+        name: 'Tuck Front Lever',
+        sets: 4, reps: '10-15 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Hang from bar, knees pulled to chest, back parallel to floor.',
+        category: 'Park',
+        primaryMuscles: ['lats', 'core'],
+        cues: [
+          'Pull straight arms down toward your hips to lift legs',
+          'Knees tight to chest, back parallel to floor',
+          'Hollow body, ribs down, no sagging hips',
+          'Squeeze lats hard, this is a lat exercise first'
+        ],
+        criteria: 'Hold 15 sec x 3 clean sets before advancing to Advanced Tuck.'
+      },
+      {
+        id: 'fl_advtuck',
+        name: 'Advanced Tuck Front Lever',
+        sets: 4, reps: '8-12 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Knees stay bent but hips open, back parallel to floor.',
+        category: 'Park',
+        primaryMuscles: ['lats', 'core'],
+        cues: [
+          'Knees still tucked but hips push back away from chest',
+          'Back stays parallel to floor as load increases',
+          'Active scapular depression, no shrug',
+          'Bigger lever arm than tuck, harder hold'
+        ],
+        criteria: 'Hold 12 sec x 3 clean sets before advancing to One-Leg.'
+      },
+      {
+        id: 'fl_oneleg',
+        name: 'One-Leg Front Lever',
+        sets: 4, reps: '6-10 sec each',
+        tempo: 'Isometric',
+        tempoDesc: 'One leg straight in lever, other tucked. Hold each side.',
+        category: 'Park',
+        primaryMuscles: ['lats', 'core'],
+        cues: [
+          'Straight leg straight and parallel to floor',
+          'Tucked leg knee to chest, ankle near glute',
+          'Train both sides equally, the weak side sets the pace',
+          'Hardest part is keeping the straight leg from drifting'
+        ],
+        criteria: 'Hold 10 sec each side x 3 clean sets before advancing to Straddle.'
+      },
+      {
+        id: 'fl_straddle',
+        name: 'Straddle Front Lever',
+        sets: 4, reps: '5-8 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Both legs straight and wide, body parallel to floor.',
+        category: 'Park',
+        primaryMuscles: ['lats', 'core', 'glutes'],
+        cues: [
+          'Legs spread wide, toes pointed',
+          'Hollow body and active scapular depression',
+          'Bigger jump than one-leg, expect to drop hold times',
+          'Glutes engaged to keep hips level with shoulders'
+        ],
+        criteria: 'Hold 8 sec x 3 clean sets before advancing to Full.'
+      },
+      {
+        id: 'fl_full',
+        name: 'Full Front Lever',
+        sets: 4, reps: '3-6 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Legs straight together, body fully parallel to floor.',
+        category: 'Park',
+        primaryMuscles: ['lats', 'core', 'glutes'],
+        cues: [
+          'Whole body one rigid line, parallel to floor',
+          'Squeeze inner thighs to keep legs together',
+          'Point toes, lock knees',
+          'Negatives from inverted hang build this rung fastest'
+        ],
+        criteria: 'Hold 6 sec x 3 clean sets before adding weight.'
+      },
+      {
+        id: 'fl_weighted',
+        name: 'Weighted Front Lever',
+        sets: 3, reps: '3-5 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Full front lever with ankle weights or weight belt.',
+        category: 'Park',
+        primaryMuscles: ['lats', 'core'],
+        cues: [
+          'Start with 1-2 kg ankle weights',
+          'Pause front lever rows also live at this rung',
+          'Form is non-negotiable, drop weight before form',
+          'Long-term: 10kg weighted = world-class'
+        ],
+        criteria: 'Keep adding load while form holds. No upper bound.'
+      }
+    ]
+  },
+
+  backlever: {
+    skillId: 'backlever',
+    label: 'Back Lever',
+    description: 'Static hold hanging from bar, body horizontal facing down.',
+    rungs: [
+      {
+        id: 'bl_tuck',
+        name: 'Tuck Back Lever',
+        sets: 4, reps: '10-15 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Inverted hang, lower body forward into tucked horizontal.',
+        category: 'Park',
+        primaryMuscles: ['shoulders', 'biceps', 'chest'],
+        cues: [
+          'Start from inverted hang, lower slowly forward into tuck',
+          'Knees tight to chest, back parallel to floor facing down',
+          'Watch biceps strain, do not push through tendinitis',
+          'Pronated grip is harder on shoulders, supinated easier'
+        ],
+        criteria: 'Hold 15 sec x 3 clean sets before advancing to Advanced Tuck.'
+      },
+      {
+        id: 'bl_advtuck',
+        name: 'Advanced Tuck Back Lever',
+        sets: 4, reps: '8-12 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Knees bent but back flat, parallel to floor.',
+        category: 'Park',
+        primaryMuscles: ['shoulders', 'biceps', 'chest', 'lower back'],
+        cues: [
+          'Knees still tucked but hips drop level with shoulders',
+          'Back flat and parallel, not piked',
+          'Heavy bicep tendon load, warm up thoroughly',
+          'Arch back slightly, glutes engaged'
+        ],
+        criteria: 'Hold 12 sec x 3 clean sets before advancing to One-Leg.'
+      },
+      {
+        id: 'bl_oneleg',
+        name: 'One-Leg Back Lever',
+        sets: 4, reps: '6-10 sec each',
+        tempo: 'Isometric',
+        tempoDesc: 'One leg straight in lever, other tucked.',
+        category: 'Park',
+        primaryMuscles: ['shoulders', 'biceps', 'chest', 'lower back'],
+        cues: [
+          'Straight leg locked, foot pointed',
+          'Tucked leg knee high near chest',
+          'Train both sides, the weak side sets the pace',
+          'Negatives are excellent training here'
+        ],
+        criteria: 'Hold 10 sec each side x 3 clean sets before advancing to Straddle.'
+      },
+      {
+        id: 'bl_straddle',
+        name: 'Straddle Back Lever',
+        sets: 4, reps: '5-8 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Legs straight and wide, body parallel to floor facing down.',
+        category: 'Park',
+        primaryMuscles: ['shoulders', 'biceps', 'chest', 'glutes'],
+        cues: [
+          'Legs straight and wide, glutes engaged',
+          'Slight arch through lower back, head neutral',
+          'Bicep load is heavy here, build elbow tendons first',
+          'Pronated grip is the technical full version'
+        ],
+        criteria: 'Hold 8 sec x 3 clean sets before advancing to Full.'
+      },
+      {
+        id: 'bl_full',
+        name: 'Full Back Lever',
+        sets: 4, reps: '3-6 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Legs together and straight, body parallel facing down.',
+        category: 'Park',
+        primaryMuscles: ['shoulders', 'biceps', 'chest', 'lower back', 'glutes'],
+        cues: [
+          'Whole body one rigid line, parallel to floor',
+          'Inner thighs squeezed, toes pointed',
+          'Pronated grip is the standard, supinated as deload',
+          'Negatives from inverted hang train this rung effectively'
+        ],
+        criteria: 'Hold 6 sec x 3 clean sets before adding weight.'
+      },
+      {
+        id: 'bl_weighted',
+        name: 'Weighted Back Lever',
+        sets: 3, reps: '3-5 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Full back lever with ankle weights or belt.',
+        category: 'Park',
+        primaryMuscles: ['shoulders', 'biceps', 'chest', 'lower back'],
+        cues: [
+          'Start with 1-2 kg ankle weights',
+          'Heavy elbow tendon stress, build slowly',
+          'Form is non-negotiable, drop weight before form',
+          'Pair with bicep curls to protect tendons'
+        ],
+        criteria: 'Keep adding load while form holds. No upper bound.'
+      }
+    ]
+  },
+
+  flag: {
+    skillId: 'flag',
+    label: 'Human Flag',
+    description: 'Static hold sideways on vertical pole, body horizontal.',
+    rungs: [
+      {
+        id: 'flag_vertpull',
+        name: 'Vertical Pole Pulls',
+        sets: 4, reps: '6-8',
+        tempo: '2-1-2-0',
+        tempoDesc: 'Pull body sideways toward pole, lower controlled.',
+        category: 'Park',
+        primaryMuscles: ['lats', 'shoulders', 'obliques'],
+        cues: [
+          'Hands stacked on pole, top hand pulls, bottom hand pushes',
+          'Build grip endurance first, flags are grip-limited',
+          'Pull until shoulders touch pole, controlled return',
+          'Train both sides, switch top hand each set'
+        ],
+        criteria: 'Sets feel comfortable before advancing to Chamber.'
+      },
+      {
+        id: 'flag_chamber',
+        name: 'Chamber Hold',
+        sets: 4, reps: '8-15 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Body vertical, legs tucked tight, sideways grip on pole.',
+        category: 'Park',
+        primaryMuscles: ['lats', 'shoulders', 'obliques'],
+        cues: [
+          'Body vertical alongside pole, knees pulled to chest',
+          'Top hand pulls down hard, bottom hand pushes up',
+          'Press chest forward, head neutral',
+          'Build the wedge tension, that drives every flag'
+        ],
+        criteria: 'Hold 15 sec x 3 clean sets each side before advancing.'
+      },
+      {
+        id: 'flag_vertflag',
+        name: 'Vertical Flag',
+        sets: 4, reps: '6-10 sec each',
+        tempo: 'Isometric',
+        tempoDesc: 'Body fully vertical, legs straight up alongside pole.',
+        category: 'Park',
+        primaryMuscles: ['lats', 'shoulders', 'obliques', 'core'],
+        cues: [
+          'Legs extend straight up, body inline with pole',
+          'Stronger leverage than horizontal but still demanding',
+          'Press through both arms aggressively',
+          'Train both sides equally'
+        ],
+        criteria: 'Hold 10 sec each side x 3 clean sets before advancing to Tuck.'
+      },
+      {
+        id: 'flag_tuck',
+        name: 'Tuck Flag',
+        sets: 4, reps: '5-10 sec each',
+        tempo: 'Isometric',
+        tempoDesc: 'Body sideways from pole, knees pulled to chest.',
+        category: 'Park',
+        primaryMuscles: ['lats', 'shoulders', 'obliques', 'core'],
+        cues: [
+          'Body horizontal, knees tight to chest',
+          'Press wedge hard, top arm pulls, bottom arm pushes',
+          'Hips align with shoulders, no sag',
+          'Big lever arm jump from vertical flag'
+        ],
+        criteria: 'Hold 10 sec each side x 3 clean sets before advancing to Straddle.'
+      },
+      {
+        id: 'flag_straddle',
+        name: 'Straddle Flag',
+        sets: 4, reps: '4-8 sec each',
+        tempo: 'Isometric',
+        tempoDesc: 'Body sideways from pole, legs straight and wide.',
+        category: 'Park',
+        primaryMuscles: ['lats', 'shoulders', 'obliques', 'glutes'],
+        cues: [
+          'Legs spread wide, body fully horizontal',
+          'Press wedge with everything you have',
+          'Glutes and inner thighs engaged',
+          'Closer to full than it looks, dont rush past'
+        ],
+        criteria: 'Hold 8 sec each side x 3 clean sets before advancing to Full.'
+      },
+      {
+        id: 'flag_full',
+        name: 'Full Human Flag',
+        sets: 4, reps: '3-6 sec each',
+        tempo: 'Isometric',
+        tempoDesc: 'Body sideways from pole, legs together and straight.',
+        category: 'Park',
+        primaryMuscles: ['lats', 'shoulders', 'obliques', 'glutes'],
+        cues: [
+          'Body fully horizontal, legs together and locked',
+          'Inner thighs squeezed, toes pointed',
+          'Train both sides, the weak side sets the pace',
+          'World-class is 10 sec holds and flag pull-ups'
+        ],
+        criteria: 'Hold 6 sec each side x 3 clean sets. Keep extending after.'
+      }
+    ]
+  },
+
+  muscleup: {
+    skillId: 'muscleup',
+    label: 'Muscle-Up',
+    description: 'Pull-up transitioning over the bar into a dip position.',
+    rungs: [
+      {
+        id: 'mu_band',
+        name: 'Band Assisted Muscle-Up',
+        sets: 3, reps: '4-6',
+        tempo: 'Explosive up, slow down',
+        tempoDesc: 'Resistance band looped on bar, foot in band, full muscle-up motion.',
+        category: 'Park',
+        primaryMuscles: ['lats', 'chest', 'triceps'],
+        cues: [
+          'Band takes about 15-25% bodyweight',
+          'Practice the transition specifically, not just the pull',
+          'Pull bar to lower chest height before transition',
+          'Lean forward over bar as elbows pass'
+        ],
+        criteria: 'Hit 6 clean reps x 3 sets before removing band.'
+      },
+      {
+        id: 'mu_negative',
+        name: 'Muscle-Up Negative',
+        sets: 3, reps: '3-5',
+        tempo: 'Slow descent',
+        tempoDesc: 'Jump or push to top of bar, slow controlled lower through transition.',
+        category: 'Park',
+        primaryMuscles: ['lats', 'chest', 'triceps'],
+        cues: [
+          'Start at top in dip position above bar',
+          'Lower controlled through the transition zone',
+          'Five seconds of lowering minimum',
+          'Builds the transition under tension'
+        ],
+        criteria: 'Hit 5 reps at 5-sec descent x 3 sets before strict.'
+      },
+      {
+        id: 'mu_strict',
+        name: 'Strict Muscle-Up',
+        sets: 4, reps: '3-5',
+        tempo: 'Explosive up, controlled down',
+        tempoDesc: 'No kip, no swing, clean transition from dead hang.',
+        category: 'Park',
+        primaryMuscles: ['lats', 'chest', 'triceps'],
+        cues: [
+          'False grip helps, wrists over the bar',
+          'Pull EXPLOSIVELY to lower chest',
+          'Lean forward as elbows pass, transition is technique not strength',
+          'Catch in dip position with chest over bar'
+        ],
+        criteria: 'Hit 5 strict reps x 3 sets before adding weight.'
+      },
+      {
+        id: 'mu_weighted',
+        name: 'Weighted Muscle-Up',
+        sets: 4, reps: '3-5',
+        tempo: 'Explosive up, controlled down',
+        tempoDesc: 'Strict bar muscle-up with weight belt or dumbbell between feet.',
+        category: 'Park',
+        primaryMuscles: ['lats', 'chest', 'triceps'],
+        cues: [
+          'Start with 2.5-5 kg, build slowly',
+          'Form before load, drop weight if transition gets sloppy',
+          'Weight belt is cleaner than DB-between-feet',
+          'Long-term goal: bodyweight or more added'
+        ],
+        criteria: 'Hit 5 reps at current load x 3 sets, then bump load.'
+      },
+      {
+        id: 'mu_ring',
+        name: 'Ring Muscle-Up',
+        sets: 4, reps: '3-5',
+        tempo: 'Explosive up, controlled down',
+        tempoDesc: 'Same motion on rings instead of bar, false grip critical.',
+        category: 'Park',
+        primaryMuscles: ['lats', 'chest', 'triceps'],
+        cues: [
+          'False grip is non-negotiable, train it first',
+          'Rings give wrist freedom but demand stability',
+          'Catch in support position with arms locked',
+          'Much harder than bar version'
+        ],
+        criteria: 'Hit 5 strict reps x 3 sets before adding weight.'
+      },
+      {
+        id: 'mu_ringweighted',
+        name: 'Weighted Ring Muscle-Up',
+        sets: 3, reps: '3-5',
+        tempo: 'Explosive up, controlled down',
+        tempoDesc: 'Ring muscle-up with weight belt or dumbbell between feet.',
+        category: 'Park',
+        primaryMuscles: ['lats', 'chest', 'triceps'],
+        cues: [
+          'Start light, ring stability suffers with weight',
+          'Pause variants live here too, hold at transition',
+          'Catch position must be perfect, arms locked',
+          'Iron Cross territory is the next conversation'
+        ],
+        criteria: 'Keep adding load while form holds. Pause variants when ready.'
+      }
+    ]
+  },
+
+  hspu: {
+    skillId: 'hspu',
+    label: 'Handstand Push-Up',
+    description: 'Vertical push-up inverted, hands on floor, body upside down.',
+    rungs: [
+      {
+        id: 'hspu_pike',
+        name: 'Pike Push-Up',
+        sets: 4, reps: '8-12',
+        tempo: '3-1-1-0',
+        tempoDesc: '3s lower, 1s pause, 1s press. Hips high, body in inverted V.',
+        category: 'Park/Home',
+        primaryMuscles: ['shoulders', 'triceps'],
+        cues: [
+          'Hips high, head low, inverted V shape',
+          'Lower head toward floor between hands',
+          'More vertical torso = more shoulder load',
+          'Press back to start, do not collapse arms'
+        ],
+        criteria: 'Hit 12 reps x 3 sets before advancing to Elevated Pike.'
+      },
+      {
+        id: 'hspu_elev',
+        name: 'Elevated Pike Push-Up',
+        sets: 4, reps: '6-10',
+        tempo: '3-1-1-0',
+        tempoDesc: 'Feet on box or bench, body more vertical, deeper press.',
+        category: 'Park/Home',
+        primaryMuscles: ['shoulders', 'triceps'],
+        cues: [
+          'Feet on box or bench, body angle steeper',
+          'Higher elevation = more vertical = harder',
+          'Lower until head taps floor or mat',
+          'Bridge between pike and full HSPU'
+        ],
+        criteria: 'Hit 10 reps x 3 sets at chest-height box before advancing.'
+      },
+      {
+        id: 'hspu_wall',
+        name: 'Wall Handstand Push-Up',
+        sets: 4, reps: '4-8',
+        tempo: '3-1-1-0',
+        tempoDesc: 'Kick into handstand against wall, lower and press.',
+        category: 'Park/Home',
+        primaryMuscles: ['shoulders', 'triceps'],
+        cues: [
+          'Hands shoulder-width, fingers spread',
+          'Lower head between hands until it taps floor',
+          'Press through palms, push the floor away',
+          'Heels touch wall for stability, no swinging'
+        ],
+        criteria: 'Hit 8 reps x 3 sets before advancing to Free HSPU.'
+      },
+      {
+        id: 'hspu_free',
+        name: 'Free HSPU',
+        sets: 4, reps: '3-6',
+        tempo: '3-1-1-0',
+        tempoDesc: 'Freestanding handstand push-up, no wall.',
+        category: 'Park/Home',
+        primaryMuscles: ['shoulders', 'triceps', 'core'],
+        cues: [
+          'Free handstand balance must be solid first',
+          'Tiny shift of hips compensates for press',
+          'Lower under control, do not crash',
+          'Balance failure is more common than strength failure'
+        ],
+        criteria: 'Hit 6 reps x 3 sets before advancing to Deficit.'
+      },
+      {
+        id: 'hspu_deficit',
+        name: 'Deficit HSPU',
+        sets: 4, reps: '3-6',
+        tempo: '3-1-1-0',
+        tempoDesc: 'Hands on parallettes or blocks, deeper range of motion.',
+        category: 'Park/Home',
+        primaryMuscles: ['shoulders', 'triceps', 'core'],
+        cues: [
+          'Hands on raised blocks, lower head below hand level',
+          'Pause at bottom, no bounce',
+          'Wall or free, both work',
+          'Extreme shoulder stretch under load, warm up well'
+        ],
+        criteria: 'Hit 6 deep reps x 3 sets before advancing to One-Arm.'
+      },
+      {
+        id: 'hspu_oahspu',
+        name: 'One-Arm HSPU',
+        sets: 3, reps: '1-3 each',
+        tempo: 'Slow and controlled',
+        tempoDesc: 'Single-arm handstand push-up, the elite end of the ladder.',
+        category: 'Park/Home',
+        primaryMuscles: ['shoulders', 'triceps', 'core'],
+        cues: [
+          'Wall-supported first, free is a separate skill',
+          'Tiny ROM at first, build slowly',
+          'Train both sides, the weak side sets the pace',
+          'Years of work, not months'
+        ],
+        criteria: 'Build to 3 clean reps each side. No upper bound.'
+      }
+    ]
+  },
+
+  pistol: {
+    skillId: 'pistol',
+    label: 'Pistol Squat',
+    description: 'Single-leg squat with opposite leg extended forward.',
+    rungs: [
+      {
+        id: 'pistol_skater',
+        name: 'Skater Squat',
+        sets: 4, reps: '6-10 each',
+        tempo: '3-1-1-0',
+        tempoDesc: '3s lower, 1s pause, 1s drive. Rear knee touches ground softly.',
+        category: 'Park/Home',
+        primaryMuscles: ['quadriceps', 'glutes'],
+        cues: [
+          'Standing leg forward, rear leg trails behind',
+          'Lower rear knee to ground softly, no slam',
+          'Arms forward for counterbalance',
+          'Builds the depth-and-balance pattern without full pistol load'
+        ],
+        criteria: 'Hit 10 reps each side x 3 sets before advancing.'
+      },
+      {
+        id: 'pistol_assist',
+        name: 'Assisted Pistol Squat',
+        sets: 4, reps: '5-8 each',
+        tempo: '3-1-2-0',
+        tempoDesc: '3s lower, 1s pause, 2s drive. Hold TRX or pole for assistance.',
+        category: 'Park/Home',
+        primaryMuscles: ['quadriceps', 'glutes'],
+        cues: [
+          'Use TRX, pole, or wall for light upper-body assist',
+          'Free leg straight out front, hips drop between heels',
+          'Heel stays down, do not rise on toes',
+          'Counterweight (small DB) shifts center of mass forward, easier'
+        ],
+        criteria: 'Hit 8 reps each side x 3 clean sets before unassisted.'
+      },
+      {
+        id: 'pistol_strict',
+        name: 'Strict Pistol Squat',
+        sets: 4, reps: '4-6 each',
+        tempo: '3-1-2-0',
+        tempoDesc: '3s lower, 1s pause, 2s drive. No assistance, no momentum.',
+        category: 'Park/Home',
+        primaryMuscles: ['quadriceps', 'glutes'],
+        cues: [
+          'Heel stays planted, do not lift to toe',
+          'Free leg parallel to floor at bottom',
+          'Counterweight in front (DB at chest) makes balance easier',
+          'Drive through whole foot, not just heel'
+        ],
+        criteria: 'Hit 6 reps each side x 3 sets before adding weight.'
+      },
+      {
+        id: 'pistol_weighted',
+        name: 'Weighted Pistol Squat',
+        sets: 4, reps: '4-6 each',
+        tempo: '3-1-2-0',
+        tempoDesc: 'Pistol with dumbbell or kettlebell at chest.',
+        category: 'Park/Home',
+        primaryMuscles: ['quadriceps', 'glutes'],
+        cues: [
+          'DB at chest doubles as counterweight, easier balance',
+          'Start 5 kg, build slowly',
+          'Form before load, depth before height',
+          'Goblet position is friendliest'
+        ],
+        criteria: 'Hit 6 reps each side x 3 sets at load before bumping.'
+      },
+      {
+        id: 'pistol_dragon',
+        name: 'Dragon Pistol Squat',
+        sets: 3, reps: '3-5 each',
+        tempo: '3-1-2-0',
+        tempoDesc: 'Free leg wraps under standing leg into a twisted position.',
+        category: 'Park/Home',
+        primaryMuscles: ['quadriceps', 'glutes', 'adductors'],
+        cues: [
+          'Free leg threads behind and under standing leg',
+          'Demands hip mobility and ankle range, not just strength',
+          'Train both sides, mobility differs side to side',
+          'Slow build, do not force the position'
+        ],
+        criteria: 'Hit 5 reps each side x 3 clean sets. Keep refining after.'
+      }
+    ]
+  },
+
+  lsit: {
+    skillId: 'lsit',
+    label: 'L-Sit',
+    description: 'Seated hold with legs straight and parallel to floor.',
+    rungs: [
+      {
+        id: 'lsit_tuck',
+        name: 'Tuck L-Sit',
+        sets: 4, reps: '15-25 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Hands flat on floor or parallettes, knees pulled to chest.',
+        category: 'Park/Home',
+        primaryMuscles: ['core', 'triceps', 'hip flexors'],
+        cues: [
+          'Press DOWN HARD, active scapular depression',
+          'Knees tight to chest, ankles lifted off floor',
+          'Arms locked, no bend at elbows',
+          'Parallettes are friendlier on wrists'
+        ],
+        criteria: 'Hold 25 sec x 3 clean sets before advancing to One-Leg.'
+      },
+      {
+        id: 'lsit_oneleg',
+        name: 'One-Leg L-Sit',
+        sets: 4, reps: '10-20 sec each',
+        tempo: 'Isometric',
+        tempoDesc: 'One leg straight and parallel to floor, other tucked.',
+        category: 'Park/Home',
+        primaryMuscles: ['core', 'triceps', 'hip flexors'],
+        cues: [
+          'Straight leg parallel to floor, toes pointed',
+          'Other knee stays tight to chest',
+          'Train both sides, switch each set',
+          'Hip flexor strength is often the bottleneck'
+        ],
+        criteria: 'Hold 20 sec each side x 3 clean sets before advancing.'
+      },
+      {
+        id: 'lsit_full',
+        name: 'Full L-Sit',
+        sets: 4, reps: '10-15 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Both legs straight and parallel to floor, lifted up.',
+        category: 'Park/Home',
+        primaryMuscles: ['core', 'triceps', 'hip flexors'],
+        cues: [
+          'Both legs parallel to floor, locked straight',
+          'Press shoulders down hard',
+          'Hamstring flexibility matters here',
+          'Posterior pelvic tilt locks the position'
+        ],
+        criteria: 'Hold 15 sec x 3 clean sets before advancing to Advanced.'
+      },
+      {
+        id: 'lsit_advanced',
+        name: 'Advanced L-Sit',
+        sets: 4, reps: '8-12 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Legs raised above parallel toward V-sit territory.',
+        category: 'Park/Home',
+        primaryMuscles: ['core', 'triceps', 'hip flexors'],
+        cues: [
+          'Legs raised 30-45 degrees above parallel',
+          'Body leans slightly back as legs rise',
+          'Bridge to V-sit, harder hip flexor work',
+          'Hand position shifts forward to balance'
+        ],
+        criteria: 'Hold 12 sec x 3 clean sets before advancing to V-Sit.'
+      },
+      {
+        id: 'lsit_vsit',
+        name: 'V-Sit',
+        sets: 4, reps: '5-10 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Legs raised vertically into V shape, hands on floor.',
+        category: 'Park/Home',
+        primaryMuscles: ['core', 'triceps', 'hip flexors'],
+        cues: [
+          'Legs vertical or near-vertical, body in V',
+          'Compression strength is the main demand',
+          'Body leans back substantially',
+          'Bridge to manna ladder if you keep going'
+        ],
+        criteria: 'Hold 10 sec x 3 clean sets. Next is the Manna ladder.'
+      }
+    ]
+  },
+
+  manna: {
+    skillId: 'manna',
+    label: 'Manna',
+    description: 'Advanced gymnastics hold beyond V-sit, legs near or past head.',
+    rungs: [
+      {
+        id: 'manna_vsit',
+        name: 'V-Sit',
+        sets: 4, reps: '5-10 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Legs vertical, body in V shape, hands on floor.',
+        category: 'Park/Home',
+        primaryMuscles: ['core', 'triceps', 'shoulders'],
+        cues: [
+          'Legs vertical, hands flat on floor beside hips',
+          'Lean back substantially, balance over hands',
+          'Strong shoulder depression required',
+          'Foundation for everything above'
+        ],
+        criteria: 'Hold 10 sec x 3 clean sets before advancing.'
+      },
+      {
+        id: 'manna_rangedv',
+        name: 'Ranged V-Sit',
+        sets: 4, reps: '3-8 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Legs past vertical briefly, moving toward shoulders.',
+        category: 'Park/Home',
+        primaryMuscles: ['core', 'triceps', 'shoulders'],
+        cues: [
+          'Legs pass through vertical and travel toward shoulders',
+          'Shoulder mobility is often the bottleneck',
+          'Active shoulder depression non-negotiable',
+          'Build slowly, do not force the lean'
+        ],
+        criteria: 'Hold 8 sec x 3 clean sets before advancing.'
+      },
+      {
+        id: 'manna_partial',
+        name: 'Partial Manna',
+        sets: 4, reps: '3-6 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Legs travel above shoulders toward parallel to floor.',
+        category: 'Park/Home',
+        primaryMuscles: ['core', 'triceps', 'shoulders'],
+        cues: [
+          'Legs above shoulder line, body leaning back further',
+          'Hand position shifts back as body leans',
+          'Extreme shoulder mobility required',
+          'Many lifters never reach this rung'
+        ],
+        criteria: 'Hold 6 sec x 3 clean sets before advancing.'
+      },
+      {
+        id: 'manna_full',
+        name: 'Full Manna',
+        sets: 3, reps: '3-5 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Feet near or past head, body fully inverted-leaning.',
+        category: 'Park/Home',
+        primaryMuscles: ['core', 'triceps', 'shoulders'],
+        cues: [
+          'Feet near or past head level',
+          'Body forms a wide reverse U over the hands',
+          'Years of dedicated training, gymnast territory',
+          'Compression and shoulder mobility limits, not pure strength'
+        ],
+        criteria: 'Hold 5 sec x 3 clean sets. Lifetime project after that.'
+      }
+    ]
+  },
+
+  dragonflag: {
+    skillId: 'dragonflag',
+    label: 'Dragon Flag',
+    description: 'Lying on bench, body lifted into horizontal line on shoulders.',
+    rungs: [
+      {
+        id: 'dflag_tuck',
+        name: 'Tuck Dragon Flag',
+        sets: 4, reps: '6-10',
+        tempo: '3-1-1-0',
+        tempoDesc: 'Lying on bench, hands grip behind head, knees tucked, lift hips.',
+        category: 'Park/Home',
+        primaryMuscles: ['abdominals', 'lower back', 'lats'],
+        cues: [
+          'Grip something solid above head, pole or bench',
+          'Lift hips off bench, only shoulders touch',
+          'Knees tucked to chest, body angled up',
+          'Builds the core load pattern without full lever arm'
+        ],
+        criteria: 'Hit 10 reps x 3 clean sets before advancing.'
+      },
+      {
+        id: 'dflag_straddle',
+        name: 'Straddle Dragon Flag',
+        sets: 4, reps: '5-8',
+        tempo: '3-1-1-0',
+        tempoDesc: 'Legs wide and straight, body lifted into straight line.',
+        category: 'Park/Home',
+        primaryMuscles: ['abdominals', 'lower back', 'lats'],
+        cues: [
+          'Legs straight and wide, body forms straight line',
+          'Shoulders are the only contact, hips up',
+          'Lower controlled, no slamming',
+          'Inner thighs and lower back work hard'
+        ],
+        criteria: 'Hit 8 reps x 3 clean sets before advancing.'
+      },
+      {
+        id: 'dflag_full',
+        name: 'Full Dragon Flag',
+        sets: 4, reps: '4-8',
+        tempo: '3-1-1-0',
+        tempoDesc: 'Legs together and straight, body straight line off shoulders.',
+        category: 'Park/Home',
+        primaryMuscles: ['abdominals', 'lower back', 'lats', 'glutes'],
+        cues: [
+          'Body straight from shoulders to toes',
+          'Inner thighs squeezed, toes pointed',
+          'Slow eccentric is where strength builds',
+          'Bruce Lee was famous for this'
+        ],
+        criteria: 'Hit 8 reps x 3 clean sets before adding weight.'
+      },
+      {
+        id: 'dflag_weighted',
+        name: 'Weighted Dragon Flag',
+        sets: 3, reps: '4-6',
+        tempo: '3-1-1-0',
+        tempoDesc: 'Dragon flag with ankle weights or plate on chest.',
+        category: 'Park/Home',
+        primaryMuscles: ['abdominals', 'lower back', 'lats'],
+        cues: [
+          'Ankle weights or plate on chest, 2-5 kg start',
+          'Lower back load is heavy, build slowly',
+          'Form before load, drop weight if hips sag',
+          'Elite end of straight-body core work'
+        ],
+        criteria: 'Keep adding load while form holds. No upper bound.'
+      }
+    ]
+  },
+
+  handstand: {
+    skillId: 'handstand',
+    label: 'Handstand',
+    description: 'Inverted hold, body vertical, balanced on hands.',
+    rungs: [
+      {
+        id: 'hs_wallplank',
+        name: 'Wall Plank',
+        sets: 4, reps: '20-40 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Feet on wall, body horizontal, hands on floor close to wall.',
+        category: 'Park/Home',
+        primaryMuscles: ['shoulders', 'core'],
+        cues: [
+          'Feet at hip height on wall, body horizontal',
+          'Hands close to wall, fingers spread',
+          'Active shoulders, push the floor away',
+          'Builds shoulder endurance under load'
+        ],
+        criteria: 'Hold 40 sec x 3 clean sets before advancing.'
+      },
+      {
+        id: 'hs_pike',
+        name: 'Pike Hold',
+        sets: 4, reps: '15-30 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Hands and feet on floor, hips high, body folded.',
+        category: 'Park/Home',
+        primaryMuscles: ['shoulders', 'core'],
+        cues: [
+          'Hips as high as possible, head between arms',
+          'Press through hands, no shoulder shrug',
+          'Hamstrings allow it, do not bend knees',
+          'Builds the vertical pressing pattern'
+        ],
+        criteria: 'Hold 30 sec x 3 clean sets before advancing.'
+      },
+      {
+        id: 'hs_wall',
+        name: 'Wall Handstand',
+        sets: 4, reps: '30-60 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Kick up against wall, heels touching, body vertical.',
+        category: 'Park/Home',
+        primaryMuscles: ['shoulders', 'core', 'wrists'],
+        cues: [
+          'Hands shoulder-width, fingers spread',
+          'Belly to wall is better than back to wall',
+          'Active shoulders, push the floor away',
+          'Look between hands, not at floor'
+        ],
+        criteria: 'Hold 60 sec x 3 clean sets before advancing.'
+      },
+      {
+        id: 'hs_chest',
+        name: 'Chest-to-Wall Handstand',
+        sets: 4, reps: '30-60 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Face wall, walk feet up, body vertical with chest near wall.',
+        category: 'Park/Home',
+        primaryMuscles: ['shoulders', 'core', 'wrists'],
+        cues: [
+          'Walk up from downward dog into chest-to-wall',
+          'Closer body shape to free handstand than belly-to-wall',
+          'Builds the open-shoulder shape under load',
+          'Heels touch wall for stability'
+        ],
+        criteria: 'Hold 60 sec x 3 clean sets before advancing.'
+      },
+      {
+        id: 'hs_free',
+        name: 'Free Handstand',
+        sets: 5, reps: '10-30 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Freestanding handstand, no wall.',
+        category: 'Park/Home',
+        primaryMuscles: ['shoulders', 'core', 'wrists'],
+        cues: [
+          'Tiny finger and wrist adjustments control balance',
+          'Bail to a cartwheel, do not crash backward',
+          'Stack hips over shoulders over wrists',
+          'Practice daily for fastest progress'
+        ],
+        criteria: 'Hold 30 sec x 3 clean sets before pushing for extended.'
+      },
+      {
+        id: 'hs_freeext',
+        name: 'Extended Free Handstand',
+        sets: 4, reps: '30-60 sec',
+        tempo: 'Isometric',
+        tempoDesc: 'Freestanding handstand held for extended duration.',
+        category: 'Park/Home',
+        primaryMuscles: ['shoulders', 'core', 'wrists'],
+        cues: [
+          'Endurance and precision, not just strength',
+          'Press handstands and one-arm work live beyond here',
+          'Wrist conditioning is critical at this volume',
+          'Daily practice, multiple short sessions beats one long one'
+        ],
+        criteria: 'Hold 60 sec x 3 clean sets. Press handstand next.'
+      }
+    ]
+  },
+
+  oapush: {
+    skillId: 'oapush',
+    label: 'One-Arm Push-Up',
+    description: 'Push-up performed on a single arm.',
+    rungs: [
+      {
+        id: 'oap_archer',
+        name: 'Archer Push-Up',
+        sets: 4, reps: '5-8 each',
+        tempo: '3-1-1-0',
+        tempoDesc: '3s lower, 1s pause, 1s press. Lower toward one hand, other arm extended straight.',
+        category: 'Park/Home',
+        primaryMuscles: ['chest', 'triceps', 'shoulders'],
+        cues: [
+          'Hands wide, lower toward one hand',
+          'Working arm bends, other arm stays straight as support',
+          'Hips stay level, no twisting',
+          'Train both sides, weak side sets the pace'
+        ],
+        criteria: 'Hit 8 reps each side x 3 clean sets before advancing.'
+      },
+      {
+        id: 'oap_uneven',
+        name: 'Uneven Push-Up',
+        sets: 4, reps: '5-8 each',
+        tempo: '3-1-1-0',
+        tempoDesc: '3s lower, 1s pause, 1s press. One hand on raised surface, other on floor.',
+        category: 'Park/Home',
+        primaryMuscles: ['chest', 'triceps', 'shoulders'],
+        cues: [
+          'Working hand on floor, support hand on block or ball',
+          'Most weight loads the working arm',
+          'Higher support = less assistance from off-arm',
+          'Builds the unilateral load pattern'
+        ],
+        criteria: 'Hit 8 reps each side x 3 clean sets at chest-height before advancing.'
+      },
+      {
+        id: 'oap_assist',
+        name: 'Assisted OAP',
+        sets: 4, reps: '4-6 each',
+        tempo: '3-1-1-0',
+        tempoDesc: '3s lower, 1s pause, 1s press. Off-arm provides minimal balance only.',
+        category: 'Park/Home',
+        primaryMuscles: ['chest', 'triceps', 'shoulders'],
+        cues: [
+          'Off-arm rests on block or wall, fingertip support only',
+          'Working arm carries nearly all bodyweight',
+          'Wide stance, body angled, no twist',
+          'Bridge between archer and full OAP'
+        ],
+        criteria: 'Hit 6 reps each side x 3 clean sets before unassisted.'
+      },
+      {
+        id: 'oap_tuck',
+        name: 'Tucked OAP',
+        sets: 3, reps: '3-5 each',
+        tempo: '3-1-1-0',
+        tempoDesc: 'Knees on floor, single arm push-up motion.',
+        category: 'Park/Home',
+        primaryMuscles: ['chest', 'triceps', 'shoulders'],
+        cues: [
+          'Knees on floor, off-arm behind back or at side',
+          'Reduces load to about 60% of full OAP',
+          'Wide stance for stability',
+          'Closer to strict OAP than archer is'
+        ],
+        criteria: 'Hit 5 reps each side x 3 clean sets before advancing.'
+      },
+      {
+        id: 'oap_strict',
+        name: 'Strict OAP',
+        sets: 4, reps: '3-5 each',
+        tempo: '3-1-1-0',
+        tempoDesc: 'Full one-arm push-up, off-hand behind back.',
+        category: 'Park/Home',
+        primaryMuscles: ['chest', 'triceps', 'shoulders'],
+        cues: [
+          'Feet wide for stability',
+          'Off-arm behind back, no support',
+          'Hips stay square, no twisting',
+          'Slow eccentric is where strength builds'
+        ],
+        criteria: 'Hit 5 reps each side x 3 sets before adding weight.'
+      },
+      {
+        id: 'oap_weighted',
+        name: 'Weighted OAP',
+        sets: 3, reps: '3-5 each',
+        tempo: '3-1-1-0',
+        tempoDesc: 'One-arm push-up with weight plate on back.',
+        category: 'Park/Home',
+        primaryMuscles: ['chest', 'triceps', 'shoulders'],
+        cues: [
+          'Weight plate on back, 5-10 kg start',
+          'Stable stance, no twist under load',
+          'Form before load, drop weight if hips rotate',
+          'Long-term: bodyweight added is world-class'
+        ],
+        criteria: 'Keep adding load while form holds. No upper bound.'
+      }
+    ]
+  }
+
+};
+// ═══ SKILL PROGRESSIONS END ═══
+
 
 
 // ─── ENDURANCE TEMPLATES ──────────────────────────────────────────────────
@@ -7815,7 +9188,12 @@ function wmGetExercise(exIndex) {
   if (idx == null || idx < 0 || idx >= day.exercises.length) return null;
   const originalEx = day.exercises[idx];
   const swaps = getSwapsForDay(currentSwapWeekId(), day.day);
-  return applyExerciseSwap(originalEx, swaps[originalEx.id]);
+  // Phase 1B: resolve skill rung BEFORE user swap. If exercise has skillId,
+  // applyExerciseSkillRung substitutes name/sets/reps/tempo/cues from the
+  // user's current rung. applyExerciseSwap then layers any explicit swap on
+  // top, which preserves the swap-wins-over-rung priority.
+  const skillResolved = (typeof applyExerciseSkillRung === 'function') ? applyExerciseSkillRung(originalEx) : originalEx;
+  return applyExerciseSwap(skillResolved, swaps[originalEx.id]);
 }
 
 // Get swap-applied array of all exercises for a given day. Used by
@@ -7824,7 +9202,10 @@ function wmGetExercise(exIndex) {
 function wmGetExercisesForDay(day) {
   if (!day || !day.exercises) return [];
   const swaps = getSwapsForDay(currentSwapWeekId(), day.day);
-  return day.exercises.map(originalEx => applyExerciseSwap(originalEx, swaps[originalEx.id]));
+  return day.exercises.map(function(originalEx) {
+    const skillResolved = (typeof applyExerciseSkillRung === 'function') ? applyExerciseSkillRung(originalEx) : originalEx;
+    return applyExerciseSwap(skillResolved, swaps[originalEx.id]);
+  });
 }
 
 // Revert the swap for the currently-active WM exercise. Clears the swap from
@@ -12797,7 +14178,8 @@ function _r1BuildSheetOverlay(title, _unused) {
   } });
   var hdr = el('div', { style: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '14px 18px', background: 'var(--bg-card)',
+    padding: 'calc(env(safe-area-inset-top, 0px) + 14px) 18px 14px',
+    background: 'var(--bg-card)',
     borderBottom: '1px solid var(--border-default)'
   } });
   hdr.appendChild(el('div', { style: {
@@ -16250,8 +17632,12 @@ function renderWorkout() {
   if (_progNotice) list.appendChild(_progNotice);
 
   day.exercises.forEach(originalEx => {
-    // Apply any user swap for this week+day+exercise
-    const ex = applyExerciseSwap(originalEx, swaps[originalEx.id]);
+    // Phase 1B: resolve skill rung BEFORE user swap. Skill rung substitutes
+    // name/sets/reps/tempo/cues from the user's current rung when the
+    // exercise has a skillId. The subsequent swap layer wins over the rung
+    // when the user has explicitly swapped to a different exercise.
+    const skillResolved = (typeof applyExerciseSkillRung === 'function') ? applyExerciseSkillRung(originalEx) : originalEx;
+    const ex = applyExerciseSwap(skillResolved, swaps[originalEx.id]);
     const isOpen = expandedEx===originalEx.id;
     const exLog = wLog[originalEx.id] || {};
     const filled = (exLog.sets||[]).filter(s=>s&&s.reps).length;
@@ -16293,6 +17679,16 @@ function renderWorkout() {
             title: 'Advanced variant — original was: ' + (ex._originalName || 'standard'),
             style:{fontSize:'7px',color:'#b03bff',background:'rgba(176,59,255,0.08)',border:'1px solid rgba(176,59,255,0.3)',padding:'2px 5px',borderRadius:'3px',letterSpacing:'0.1em',fontWeight:'700'}
           }, '▰▰▰ Advanced') : null,
+          // ── Skill progression rung badge ──
+          // Surfaces when the exercise has been resolved to a specific rung
+          // on its skill ladder (e.g. Planche rung 2 of 6). Hidden when the
+          // user has swapped out of the skill entirely, since the rung is
+          // then moot. Uses the skill day accent (purple) to mirror the
+          // calisthenics visual language.
+          (ex._skillRung && !ex._swapped) ? el('span',{
+            title: ex._skillLabel + ' progression · rung ' + (ex._skillRungIndex + 1) + ' of ' + ex._skillRungTotal + ' · tap swap to change',
+            style:{fontSize:'7px',color:'#b03bff',background:'rgba(176,59,255,0.08)',border:'1px solid rgba(176,59,255,0.3)',padding:'2px 5px',borderRadius:'3px',letterSpacing:'0.1em',fontWeight:'700'}
+          }, 'RUNG ' + (ex._skillRungIndex + 1) + '/' + ex._skillRungTotal) : null,
           filled>0 ? el('span',{style:{fontSize:'7px',color:'var(--status-success)',letterSpacing:'0.1em'}},filled + '/' + ex.sets + ' \u2713') : null,
           suggestion ? el('span',{class:'progress-chip progress-chip-up',style:{fontSize:'8px'}},'\u2191 Progress') : (rawSuggestion && rawSuggestion.reason === 'repeat' ? el('span',{class:'progress-chip progress-chip-hold',style:{fontSize:'8px'},title:'Didn\'t hit top reps last session — hold weight'},'\u2192 Hold') : null)
         ),
@@ -25797,6 +27193,7 @@ function _m2BuildSheet() {
     borderRadius: '20px 20px 0 0',
     maxHeight: '88vh', overflowY: 'auto', WebkitOverflowScrolling: 'touch',
     transform: 'translateY(100%)', transition: 'transform 0.28s cubic-bezier(0.32,0.72,0,1)',
+    paddingTop: 'env(safe-area-inset-top, 0px)',
     paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 24px)'
   } });
   inner.appendChild(div({
@@ -27340,7 +28737,7 @@ function _m5RenderStep(host, step) {
 
   // Skip-tour link (top-right). Sets the flag and dismisses immediately.
   var skipBtn = el('div', { style: {
-    position: 'absolute', top: '16px', right: '20px',
+    position: 'absolute', top: 'calc(env(safe-area-inset-top, 0px) + 16px)', right: '20px',
     fontFamily: "'DM Mono', monospace", fontSize: '11px',
     color: 'var(--text-muted)', cursor: 'pointer',
     padding: '6px 10px', letterSpacing: '0.06em',
@@ -28603,6 +30000,7 @@ function renderMealEngineSheet() {
     background: '#080808', borderTop: '1px solid #1a1a1a', borderRadius: '20px 20px 0 0',
     maxHeight: '88vh', overflowY: 'auto', WebkitOverflowScrolling: 'touch',
     transform: 'translateY(100%)', transition: 'transform 0.28s cubic-bezier(0.32,0.72,0,1)',
+    paddingTop: 'env(safe-area-inset-top, 0px)',
     paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 24px)'
   } });
   inner.appendChild(div({ width: '40px', height: '4px', background: '#3a3a3a', borderRadius: '2px', margin: '10px auto' }));
@@ -39496,7 +40894,7 @@ function openSubstitutionsModal(item, subs) {
       position: 'fixed', top: '0', left: '0', right: '0', bottom: '0',
       background: 'rgba(0,0,0,0.85)',
       display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-      zIndex: '10001', padding: '40px 16px 16px', overflow: 'auto'
+      zIndex: '10001', padding: 'calc(env(safe-area-inset-top, 0px) + 40px) 16px 16px', overflow: 'auto'
     }
   });
   const modal = el('div',{
@@ -39508,7 +40906,7 @@ function openSubstitutionsModal(item, subs) {
   });
   const closeBtn = el('button',{
     style:{
-      position:'absolute', top:'48px', right:'24px',
+      position:'absolute', top:'calc(env(safe-area-inset-top, 0px) + 48px)', right:'24px',
       background:'transparent', border:'none', color:'#888',
       width:'32px', height:'32px', fontSize:'22px',
       cursor:'pointer', lineHeight:'1', padding:'0', zIndex:'5'
