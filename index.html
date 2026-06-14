@@ -215,9 +215,22 @@
     --status-info:    #3bdfff;
 
     /* Radii */
-    --radius-card:  10px;
-    --radius-chip:  4px;
+    /* Stage 0.5 design language foundation. The UI voice is the native
+       system stack (SF Pro on iOS), display moments are Bebas, and DM Mono
+       is demoted to tabular data only. Two radii, 4px spacing grid, one
+       interactive accent. */
+    --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+    --font-display: 'Bebas Neue', var(--font-ui);
+    --font-data: 'DM Mono', ui-monospace, 'SF Mono', monospace;
+    --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+    --space-5: 20px; --space-6: 24px; --space-7: 32px; --space-8: 40px;
+    --radius-card:  12px;
+    --radius-control: 8px;
+    --radius-chip:  6px;
     --radius-pill:  999px;
+    --accent: #3bdfff;
+    --t-fast: 160ms ease-out;
+    --t-med: 220ms ease-out;
 
     /* Card padding — used across swap modal */
     --pad-card: 12px 14px;
@@ -406,7 +419,7 @@
   .progress-chip-up   { color: var(--accent-primary); border-color: var(--accent-primary-border); background: var(--accent-primary-soft); }
   .progress-chip-down { color: var(--status-warning); border-color: rgba(251,191,36,0.30);       background: rgba(251,191,36,0.08); }
   .progress-chip-hold { color: var(--text-tertiary); border-color: var(--border-default);        background: var(--bg-elevated); }
-  html,body{height:100%;background:var(--bg-base);color:var(--text-primary);font-family:'DM Mono','Courier New',monospace;overscroll-behavior:none}
+  html,body{height:100%;background:var(--bg-base);color:var(--text-primary);font-family:var(--font-ui);overscroll-behavior:none}
   /* ─── ACCESSIBILITY / INPUT BEHAVIOR ──────────────────────────────────
      touch-action:manipulation kills the 300ms double-tap-zoom delay on
      iOS Safari. Combined with the viewport meta's user-scalable=no, this
@@ -441,13 +454,13 @@
   .bebas{font-family:'Bebas Neue',sans-serif}
   input[type=number]{-moz-appearance:textfield}
   input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none}
-  .set-input{background:#0d0d0d;border:1px solid #1e1e1e;color:#ebebeb;padding:7px 5px;border-radius:4px;width:100%;text-align:center;font-family:'DM Mono',monospace;font-size:12px;outline:none;transition:border-color 0.2s}
+  .set-input{background:#0d0d0d;border:1px solid #1e1e1e;color:#ebebeb;padding:7px 5px;border-radius:4px;width:100%;text-align:center;font-variant-numeric:tabular-nums;font-family:'DM Mono',monospace;font-size:12px;outline:none;transition:border-color 0.2s}
   .card{transition:background 0.15s;cursor:pointer}
   .card:active{background:#111!important}
   .pill{transition:all 0.18s}
   .pill:active{filter:brightness(1.15)}
-  .tb{background:none;border:none;cursor:pointer;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:0.15em;text-transform:uppercase;padding:10px 12px;transition:color 0.2s;white-space:nowrap}
-  .btn{cursor:pointer;transition:all 0.18s;border:none;font-family:'DM Mono',monospace}
+  .tb{background:none;border:none;cursor:pointer;font-family:var(--font-ui);font-size:10px;letter-spacing:0.15em;text-transform:uppercase;padding:10px 12px;transition:color 0.2s;white-space:nowrap}
+  .btn{cursor:pointer;transition:all 0.18s;border:none;font-family:var(--font-ui)}
   .btn:active{filter:brightness(1.15);transform:scale(0.97)}
   #app{max-width:500px;margin:0 auto;min-height:100vh;padding-bottom:env(safe-area-inset-bottom,20px)}
   .header{padding:env(safe-area-inset-top,20px) 18px 0;border-bottom:1px solid #161616;position:sticky;top:0;background:#080808;z-index:100}
@@ -590,6 +603,15 @@
     /* Hide everything below the shopping content (was duplicated below tabs) */
     .footnote, footer { display: none !important; }
   }
+
+  /* Stage 0.5: press affordance for interactive elements. Scale plus a
+     slight opacity dip on touch, mirroring native iOS button behaviour. */
+  .pressable { transition: transform var(--t-fast), opacity var(--t-fast); }
+  .pressable:active { transform: scale(0.97); opacity: 0.85; }
+  .font-data { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+  @media (prefers-reduced-motion: reduce) {
+    .pressable, .pressable:active { transition: none; transform: none; }
+  }
 </style>
 </head>
 <body>
@@ -610,18 +632,18 @@
   <div class="header">
     <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:6px;padding-top:8px">
       <div>
-        <div id="header-program-label" style="font-size:9px;letter-spacing:0.25em;color:#333;text-transform:uppercase;margin-bottom:2px">FLOW Tracker</div>
-        <div class="bebas" style="font-size:28px;letter-spacing:0.05em;line-height:1">TRAIN + FUEL</div>
+        <div id="header-program-label" style="font-size:10px;letter-spacing:0.08em;color:var(--text-footnote);text-transform:uppercase;font-weight:600;margin-bottom:2px">FLOW Tracker</div>
+        <div style="font-family:var(--font-ui);font-size:24px;font-weight:700;letter-spacing:-0.02em;line-height:1.1">Train + Fuel</div>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
-        <button class="btn" onclick="changeWeek(-1)" style="background:none;border:1px solid #1e1e1e;color:#555;padding:4px 10px;border-radius:4px;font-size:14px">‹</button>
-        <span id="week-label" style="font-size:9px;color:#888;letter-spacing:0.12em;text-transform:uppercase;min-width:90px;text-align:center;font-weight:600;font-family:'DM Mono',monospace">— —</span>
-        <button class="btn" onclick="changeWeek(1)" style="background:none;border:1px solid #1e1e1e;color:#555;padding:4px 10px;border-radius:4px;font-size:14px">›</button>
-        <button class="btn" id="settings-gear" onclick="openSettings()" aria-label="Settings" style="background:none;border:1px solid #1e1e1e;color:#666;padding:4px 8px;border-radius:4px;font-size:14px;margin-left:4px">⚙</button>
+        <button class="btn pressable" onclick="changeWeek(-1)" style="background:none;border:1px solid #1e1e1e;color:#555;padding:4px 10px;border-radius:var(--radius-control);font-size:14px">‹</button>
+        <span id="week-label" style="font-size:11px;color:#888;letter-spacing:0.04em;min-width:90px;text-align:center;font-weight:500;font-family:var(--font-data);font-variant-numeric:tabular-nums">— —</span>
+        <button class="btn pressable" onclick="changeWeek(1)" style="background:none;border:1px solid #1e1e1e;color:#555;padding:4px 10px;border-radius:var(--radius-control);font-size:14px">›</button>
+        <button class="btn pressable" id="settings-gear" onclick="openSettings()" aria-label="Settings" style="background:none;border:1px solid #1e1e1e;color:#666;padding:4px 8px;border-radius:var(--radius-control);font-size:14px;margin-left:4px">⚙</button>
       </div>
     </div>
     <!-- Active section name (replaces old top tab bar) -->
-    <div id="active-section-label" style="font-size:9px;letter-spacing:0.32em;color:#666;text-transform:uppercase;font-weight:700;padding-bottom:6px"></div>
+    <div id="active-section-label" style="font-size:11px;letter-spacing:0.08em;color:#666;text-transform:uppercase;font-weight:600;padding-bottom:6px"></div>
   </div>
 
   <!-- DAY SELECTOR -->
@@ -640,7 +662,7 @@
   <div id="sleep-priority-banner" style="display:none;margin-top:8px"></div>
 
   <!-- DAY BANNER -->
-  <div id="day-banner" style="margin:10px 18px;padding:14px 16px;background:#0e0e0e;border-radius:10px;display:flex;justify-content:space-between;align-items:center"></div>
+  <div id="day-banner" style="margin:10px 18px;padding:14px 16px;background:#0e0e0e;border-radius:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"></div>
 
   <!-- TAB CONTENTS -->
   <!-- Reorganisation R1: four-tab structure. Today and Body are new mounts;
@@ -711,7 +733,7 @@
 //   1. Bump APP_VERSION here
 //   2. Bump CACHE_VERSION in service-worker.js to match
 //   3. mv fraser-final-complete.html index.html; git commit; git push
-const APP_VERSION = '2026.05.19.33';
+const APP_VERSION = '2026.05.19.37';
 
 let activeTab = 'today';
 let activeDay = 0; // will be set to today on init
@@ -4039,7 +4061,7 @@ const EXERCISE_DB_BY_ID = (() => {
 // Coverage: 62 of 750 db exercises (8.3%). Fundamental movements only —
 // exercises without entries here will show the database's name + muscles
 // + equipment but no curated cues. Future sessions extend to ~188 (top 25%).
-const CURATED_CUES = {"Barbell_Bench_Press_-_Medium_Grip":{"setup":"Eyes under the bar. Retract and depress shoulder blades. Plant feet, drive into floor.","cues":["Squeeze the bar to engage lats and stabilize","Bar path is a slight diagonal \u2014 touches lower chest, not collarbone","Tuck elbows roughly 45 degrees from torso, not flared at 90","Drive feet through floor on press to maintain tension"]},"Dumbbell_Bench_Press":{"setup":"Sit at edge of bench with dumbbells on knees. Use leg drive to kick them up as you lie back.","cues":["Start with dumbbells over chest, palms forward","Lower until elbows reach bench height \u2014 full stretch on chest","Press up and slightly together, no clanking at top","Keep shoulder blades pinned to bench throughout"]},"Incline_Dumbbell_Press":{"setup":"Set bench to 30-45 degrees. Higher angle shifts more work to shoulders.","cues":["Bench too steep loses chest emphasis \u2014 30 degrees is the sweet spot","Lower dumbbells to upper chest, not collarbone","Keep wrists stacked over elbows throughout","Don't lock out fully \u2014 keep tension on upper chest"]},"Decline_Barbell_Bench_Press":{"setup":"Hook feet securely. Bench angle 15-30 degrees.","cues":["Touch bar to lower sternum, not nipple line","Shorter range than flat bench \u2014 heavier weight typical","Keep tight core to prevent shifting on bench","Spotter recommended \u2014 bar can pin you if feet slip"]},"Pushups":{"setup":"Hands shoulder-width, slightly wider. Body in straight line head to heels.","cues":["Tuck elbows ~45 degrees \u2014 flared elbows beat up shoulders","Lower until chest nearly touches floor \u2014 partial reps don't count","Squeeze glutes and brace core to keep body rigid","Push through whole hand, not just heel of palm"]},"Dips_-_Triceps_Version":{"setup":"Stay vertical (no forward lean) for triceps emphasis. Bars roughly shoulder width.","cues":["Keep torso upright \u2014 leaning forward shifts work to chest","Lower until shoulders are level with elbows (not lower)","Squeeze triceps hard at top \u2014 don't slam joint into lockout","Add weight via belt or dumbbell between feet when bodyweight is easy"]},"Cable_Chest_Press":{"setup":"Stand or kneel with cables at chest height. Stagger stance for stability.","cues":["Press handles together at full extension for chest squeeze","Keep shoulder blades retracted \u2014 don't let them roll forward","Cables provide constant tension \u2014 slow eccentric pays off","Lean torso slightly forward to align with cable angle"]},"Dumbbell_Flyes":{"setup":"Lie flat. Slight bend in elbows \u2014 locked at this angle throughout.","cues":["Don't turn flyes into press \u2014 elbows stay slightly bent the whole time","Lower until you feel chest stretch, NOT shoulder pain","Squeeze chest at top, dumbbells almost touching","Lighter weight than you think \u2014 flyes are stretch and squeeze, not load"]},"Standing_Military_Press":{"setup":"Bar racked on front delts. Feet hip-width. Glutes and core tight.","cues":["Squeeze glutes hard \u2014 prevents lower back arching as bar passes head","Bar travels straight up, head moves THROUGH the bar at top","Don't lean back \u2014 that turns it into incline bench press","Tuck elbows slightly under bar at start, not flared wide"]},"Dumbbell_Shoulder_Press":{"setup":"Seated with back support. Dumbbells at ear height, palms forward.","cues":["Don't slam dumbbells together at top \u2014 keep tension on delts","Press in slight arc, not straight line \u2014 meets over face, not in front","Lower under control to ear level \u2014 no bouncing","Keep wrists straight, not bent backward"]},"Seated_Dumbbell_Press":{"setup":"Bench at 80-90 degrees. Feet flat for stability.","cues":["Press up and slightly together \u2014 engages more delt fibers","Don't lock out fully if shoulders are sensitive","Drive elbows up under the dumbbells, not behind","Brace core \u2014 don't arch lower back into the bench"]},"Arnold_Dumbbell_Press":{"setup":"Start with dumbbells at chest, palms facing you (curl position).","cues":["Rotate palms outward as you press \u2014 full ROM on shoulders","Reverse the rotation on descent \u2014 palms face you at bottom","Don't rush the rotation \u2014 feel each part of the lift","Lighter weight than standard press due to extra ROM"]},"Side_Lateral_Raise":{"setup":"Stand tall, slight forward lean, dumbbells at sides.","cues":["Lead with the elbow, not the hand \u2014 pinky slightly higher than thumb","Raise to shoulder height max \u2014 going higher recruits traps","Slight bend in elbows \u2014 don't lock them straight","Lighter than ego allows \u2014 momentum kills the lateral"]},"Cable_Seated_Lateral_Raise":{"setup":"Cable pulley at low setting. Sit sideways to machine.","cues":["Cable tension is constant \u2014 you feel it the whole rep","Raise to shoulder height, don't shrug at top","Slow eccentric \u2014 cable returns are the most productive part","Cross-body grip from far cable means longer ROM than DBs"]},"Front_Dumbbell_Raise":{"setup":"Stand tall. Dumbbells at thighs, palms facing back.","cues":["Raise to shoulder height \u2014 going higher loses tension","Alternate arms or do both \u2014 both work fine","Don't swing or use momentum \u2014 use lighter weight","Slight elbow bend, never locked straight"]},"Face_Pull":{"setup":"Cable at face height with rope. Step back so there's tension at start.","cues":["Pull rope ENDS to your ears \u2014 separate hands at finish","Lead with elbows high and back, not hands","Squeeze rear delts and traps at end of pull","Light weight \u2014 this is a corrective, not a strength move"]},"Bent_Over_Dumbbell_Rear_Delt_Raise_With_Head_On_Bench":{"setup":"Forehead on incline bench. Dumbbells hanging straight down.","cues":["Lead with elbows up and out, NOT hands","Raise until upper arms are parallel to floor","Squeeze shoulder blades together at top","Light weight \u2014 rear delts are small, momentum cheats"]},"Tricep_Dumbbell_Kickback":{"setup":"Hinge at hips, torso parallel to floor. Upper arm pinned to side.","cues":["Upper arm doesn't move \u2014 only forearm extends","Squeeze triceps hard at lockout, hold for a beat","Don't use momentum \u2014 light weight, slow tempo","Keep wrist neutral, not bent down"]},"Lying_Triceps_Press":{"setup":"Lie flat. Bar over chest, narrow grip. Slight angle back from straight up.","cues":["Lower bar to forehead or just behind it \u2014 not to chest","Elbows track straight \u2014 don't flare them out","Use EZ bar if straight bar bothers wrists","Stop set when elbows start drifting outward \u2014 form failure"]},"Close-Grip_Barbell_Bench_Press":{"setup":"Hands shoulder-width apart on bar. Tuck elbows tight to torso.","cues":["Grip just inside shoulder-width \u2014 narrower hurts wrists","Elbows tucked tight \u2014 drives triceps emphasis","Bar touches lower chest, like regular bench","If wrists ache, you're too narrow \u2014 widen slightly"]},"Triceps_Pushdown":{"setup":"Cable at top. Stand close, slight forward lean, elbows pinned to sides.","cues":["Elbows stay glued to ribs \u2014 they don't move forward","Full extension at bottom \u2014 squeeze triceps hard","Rope attachment allows wider finish \u2014 better squeeze than bar","Don't lean over the bar \u2014 stand tall, use upper-body weight as anchor only"]},"Standing_Overhead_Barbell_Triceps_Extension":{"setup":"Bar overhead, elbows close to head. Arms vertical at start.","cues":["Elbows stay pointed at ceiling \u2014 don't flare out","Lower bar behind head with control \u2014 full triceps stretch","Press straight up to lockout, not forward","Use EZ bar to save wrists if straight bar bothers you"]},"Chin-Up":{"setup":"Underhand grip, hands shoulder-width. Hang with arms fully extended.","cues":["Pull with the elbows down and back, not just arms","Chin clears the bar \u2014 full ROM","Keep core braced \u2014 no leg swinging","Lower under control, full hang at bottom each rep"]},"Pullups":{"setup":"Overhand grip, slightly wider than shoulders. Full hang at bottom.","cues":["Squeeze shoulder blades together as you pull","Pull chest toward bar \u2014 not just chin over","Slight backward lean is fine \u2014 kipping (swinging) is not","Negative reps build strength \u2014 slow descent, full extension"]},"Wide-Grip_Lat_Pulldown":{"setup":"Grip wider than shoulders, palms forward. Knees secured under pad.","cues":["Lean back ~15 degrees, lock that angle for whole set","Pull bar to upper chest, NOT behind neck","Lead with elbows down and out \u2014 squeeze lats at finish","Slow return \u2014 full stretch overhead between reps"]},"Bent_Over_Barbell_Row":{"setup":"Hinge at hips to ~45 degrees. Bar hangs from shoulders, neutral spine.","cues":["Hinge from hips, not from waist \u2014 chest stays up, lower back flat","Pull bar to lower chest / upper abdomen","Squeeze shoulder blades together at top of pull","Don't use legs to bounce the weight \u2014 keep torso angle locked"]},"One-Arm_Dumbbell_Row":{"setup":"Knee and hand on bench. Back flat, parallel to floor.","cues":["Pull dumbbell to hip, not armpit \u2014 lat emphasis","Don't rotate torso to swing weight up \u2014 strict form","Full stretch at bottom \u2014 let lat lengthen","Squeeze at top, hold for half-second"]},"Seated_Cable_Rows":{"setup":"Knees slightly bent. Spine neutral, not slumped.","cues":["Pull handles to lower chest / upper abdomen","Squeeze shoulder blades together \u2014 chest pushes forward","Don't rock \u2014 torso stays roughly upright","Slow return \u2014 full stretch with arms extended, no slumping"]},"T-Bar_Row_with_Handle":{"setup":"Straddle bar. Hinge to ~45 degrees. Neutral spine.","cues":["Pull handles to lower chest, elbows tracking back","Keep chest up \u2014 don't let it collapse forward","Heavy compound row \u2014 focus on form over load","Squeeze hard at top before slow descent"]},"Barbell_Shrug":{"setup":"Bar in front, shoulder-width grip. Stand tall.","cues":["Pure vertical movement \u2014 no rotation, no rolling","Shrug straight up to ears, hold for a beat","Don't rotate shoulders \u2014 that's an old, joint-stressing technique","Heavy is fine \u2014 traps respond to load"]},"Barbell_Curl":{"setup":"Stand tall. Bar at thighs, shoulder-width grip, palms up.","cues":["Elbows pinned to sides \u2014 they don't move forward","Squeeze biceps hard at top, don't let bar rest on chest","No swinging \u2014 momentum cheats the muscle","Lower under control \u2014 full extension at bottom"]},"Dumbbell_Bicep_Curl":{"setup":"Stand or sit tall. Dumbbells at sides, palms forward.","cues":["Curl one or both \u2014 alternating prevents momentum cheating","Supinate as you curl \u2014 palms rotate from neutral to up","Squeeze at top, hold for a beat","Lower slowly, don't drop \u2014 eccentric is half the work"]},"Alternate_Hammer_Curl":{"setup":"Stand tall. Dumbbells at sides, palms facing in (neutral grip).","cues":["Palms stay neutral the whole rep \u2014 no rotation","Targets brachialis and brachioradialis, not just biceps","Slight body rock is fine, swinging is not","Heavier than supinated curls \u2014 neutral grip is stronger"]},"Preacher_Curl":{"setup":"Chest tight against pad, armpits at top of pad. Arms locked on pad.","cues":["Don't fully extend arms at bottom \u2014 protects elbows","Squeeze hard at top, hold briefly","Lighter than standing curls \u2014 preacher removes momentum","EZ bar saves wrists vs straight bar"]},"Concentration_Curls":{"setup":"Seated, elbow braced against inner thigh. Dumbbell hangs straight down.","cues":["Elbow stays anchored to thigh \u2014 no movement from there","Slow tempo \u2014 biceps love time under tension","Squeeze peak hard at top","Lighter weight \u2014 strict form is the whole point"]},"Barbell_Squat":{"setup":"Bar on traps (or low-bar on rear delts). Feet shoulder-width, slight toe-out.","cues":["Brace core hard before unracking \u2014 like preparing for a punch","Sit DOWN, not back \u2014 knees track over toes","Hit at LEAST parallel \u2014 thighs to floor or below","Drive through heels and mid-foot, not toes"]},"Split_Squat_with_Dumbbells":{"setup":"Rear foot elevated on bench (Bulgarian style). Front foot ~2 feet ahead.","cues":["Front knee tracks over front foot \u2014 don't cave in","Most weight on FRONT foot \u2014 back foot is balance only","Back knee descends straight down toward floor","Brutal but effective \u2014 single-leg work fixes imbalances"]},"Goblet_Squat":{"setup":"Hold dumbbell or kettlebell at chest, elbows tucked under.","cues":["Weight at chest creates natural counterbalance \u2014 easier to hit depth","Drive elbows between knees at bottom \u2014 opens hips","Excellent for learning squat pattern before barbell loading","Stay tall through torso \u2014 don't fold forward"]},"Bodyweight_Squat":{"setup":"Feet shoulder-width, toes slightly out. Hands forward for counterbalance.","cues":["Sit between your heels \u2014 full depth if mobility allows","Knees track over toes, don't cave inward","Chest up, neutral spine throughout","Foundation for all squat variations \u2014 master this first"]},"Leg_Press":{"setup":"Feet shoulder-width on platform, mid-height. Lower back pressed into pad.","cues":["Don't lock knees out at top \u2014 keep tension on quads","Lower until thighs touch torso (or ROM limit)","Lower back NEVER leaves pad \u2014 that hurts your back","Foot position changes emphasis: high = glutes/hams, low = quads"]},"Hack_Squat":{"setup":"Shoulders under pads. Feet shoulder-width on platform.","cues":["Quad-dominant \u2014 unlike free squats, this isolates more","Full depth \u2014 let thighs touch calves if mobility allows","Drive through whole foot, not just toes","Don't lock knees at top"]},"Barbell_Deadlift":{"setup":"Bar over mid-foot. Shins ~1 inch from bar. Shoulder-width grip.","cues":["Pull SLACK out of bar before lifting \u2014 no jerking","Push the floor away \u2014 drive through whole foot","Hips and shoulders rise together \u2014 no morning-gooding","Lockout is hips through, not lean back \u2014 squeeze glutes"]},"Romanian_Deadlift":{"setup":"Bar at hip level (rack pull start). Soft knees, neutral spine.","cues":["Push hips BACK \u2014 not down \u2014 until you feel hamstring stretch","Bar stays close to legs the whole way \u2014 drag it down","Knees stay slightly bent \u2014 don't bend more on descent","Squeeze glutes to drive bar back up \u2014 no jerking"]},"Sumo_Deadlift":{"setup":"Wide stance, toes turned out 30-45 degrees. Hands inside knees.","cues":["Knees push out HARD \u2014 track over toes throughout","More upright torso than conventional \u2014 hip-dominant","Drive feet into floor and OUT, like spreading floor apart","Better for tall lifters or those with long torso"]},"Stiff-Legged_Barbell_Deadlift":{"setup":"Bar on floor. Soft knees \u2014 locked at this angle throughout.","cues":["Knees stay slightly bent \u2014 don't straighten them on descent","Push hips back, hinge from hips not waist","Bar stays close to legs the whole way","Lower than RDL \u2014 true stiff-leg goes to floor, not knee height"]},"Good_Morning":{"setup":"Bar high on traps (like high-bar squat). Soft knees.","cues":["Hinge at hips \u2014 like RDL but bar is on your back","Lighter weight than you think \u2014 heavy good mornings tweak backs","Stop when torso parallel to floor (or earlier if mobility limits)","Drive hips forward to return \u2014 squeeze glutes hard"]},"Barbell_Hip_Thrust":{"setup":"Upper back on bench. Bar over hips, padded. Feet flat, shins vertical at top.","cues":["Drive through HEELS, not toes","Squeeze glutes HARD at lockout \u2014 that's the whole point","Chin tucked at top, ribs down \u2014 don't arch lower back","Full ROM \u2014 touch hips to floor between reps"]},"Barbell_Glute_Bridge":{"setup":"Lying on floor, knees bent, feet flat. Bar over hips, padded.","cues":["Same form as hip thrust but smaller ROM","Drive heels into floor, squeeze glutes at top","Don't arch lower back \u2014 tuck chin and ribs","Pause at top for 1-2 seconds for max activation"]},"Barbell_Walking_Lunge":{"setup":"Bar on traps like back squat. Feet hip-width.","cues":["Step long enough that front shin stays vertical at bottom","Back knee descends to within an inch of floor","Drive through front HEEL to step forward","Don't rush \u2014 control each rep, especially the descent"]},"Dumbbell_Lunges":{"setup":"Dumbbells at sides. Stand tall.","cues":["Keep torso UPRIGHT \u2014 leaning forward stresses lower back","Step length determines emphasis: long = glutes, short = quads","Front knee tracks over middle of foot, not collapsing in","Drive through whole front foot to return"]},"Step-up_with_Knee_Raise":{"setup":"Box at knee height. Stand close to box.","cues":["Drive through front foot ONLY \u2014 don't push off rear toe","Bring rear knee up to hip height at top for added challenge","Step DOWN under control \u2014 eccentric matters","Box height = quad emphasis (low) or glute emphasis (high)"]},"Leg_Extensions":{"setup":"Knees aligned with machine pivot. Pads on shins, just above ankles.","cues":["Squeeze quads HARD at top \u2014 pause for a beat","Don't hyperextend knees \u2014 full extension is fine, force is not","Slow descent \u2014 eccentric is gold for quad growth","Avoid jerking the weight \u2014 light enough for clean reps"]},"Lying_Leg_Curls":{"setup":"Knees just past edge of pad. Pads on lower calves.","cues":["Hips stay pressed into pad \u2014 don't lift them to cheat","Squeeze hamstrings at top \u2014 full curl","Slow eccentric \u2014 hamstrings respond to time under tension","Point or flex toes to bias different parts of hamstrings"]},"Standing_Calf_Raises":{"setup":"Balls of feet on platform, heels free to drop.","cues":["FULL ROM \u2014 heels drop below platform, rise to highest point","Pause at top, squeeze calves","Slow descent \u2014 calves love eccentric load","Heavy is fine \u2014 calves are dense, respond to load"]},"Plank":{"setup":"Forearms on floor, elbows under shoulders. Body in straight line.","cues":["Squeeze glutes and abs \u2014 don't let hips sag","Tuck chin slightly, neutral spine head to heels","Quality over time \u2014 30 seconds of perfect beats 2 minutes of broken","Breathe normally \u2014 no holding breath"]},"Hanging_Leg_Raise":{"setup":"Hang from bar, full extension. Slight forward swing minimized.","cues":["Lift knees to chest (or legs to bar for advanced)","Slight pelvic tilt at top \u2014 not just hip flexors","No swinging \u2014 control means real ab work","Lower under control \u2014 eccentric matters"]},"Crunches":{"setup":"Lying on back, knees bent, hands behind head or crossed on chest.","cues":["Lift shoulder blades off floor \u2014 that's the whole ROM","Don't pull on neck \u2014 hands are light support only","Exhale on the way up, fully contract abs","Slow return \u2014 don't bounce off floor"]},"Russian_Twist":{"setup":"Sit, lean back to ~45 degrees. Feet up or on floor. Weight at chest.","cues":["Rotate from torso, not arms","Touch weight to floor on each side \u2014 full rotation","Keep torso angle locked \u2014 don't bob up and down","Feet up = harder, feet on floor = easier"]},"Pallof_Press_With_Rotation":{"setup":"Cable at chest height. Stand sideways, weight at chest.","cues":["RESIST rotation \u2014 that's the whole exercise","Press straight out from chest, hold, return","Don't let the cable pull your torso toward the machine","Light weight \u2014 anti-rotation is endurance, not max strength"]},"Power_Clean":{"setup":"Bar over mid-foot, shoulder-width grip. Hips lower than shoulders.","cues":["First pull (off floor): controlled, like deadlift to knee","Second pull (jump): explosive triple extension \u2014 ankles, knees, hips","Catch in front-rack: elbows snap forward and high","TECHNICAL LIFT \u2014 learn from a coach before loading heavy"]},"Clean_and_Press":{"setup":"Combines power clean with overhead press.","cues":["Catch the clean clean before pressing \u2014 don't blend the lifts","Use leg drive for the press \u2014 push press is acceptable","Lockout overhead with biceps by ears","Heavy compound \u2014 full-body loading. Form first, load later."]},"Front_Squat_Clean_Grip":{"setup":"Bar racked on front delts, elbows high, fingertip grip.","cues":["Elbows up THROUGHOUT \u2014 if elbows drop, bar follows","More upright torso than back squat","Crossed-arm grip is acceptable if mobility limits clean grip","Lighter than back squat \u2014 quad-dominant"]},"cali_pistol":{"setup":"Stand on one leg. Free leg extended forward. Hold a counterweight (light DB) or use a TRX/pole for assistance.","cues":["Lower SLOWLY \u2014 the eccentric is where strength builds","Keep heel down throughout, do not rise onto toes","Counterweight in front shifts your COG and makes balance easier","Drive through full foot to return, not just heel"]},"cali_archpullup":{"setup":"Hang from bar wider than shoulder-width. Both hands grip but most weight loads ONE arm.","cues":["Pull to ONE side \u2014 working arm bends, other stays straight","Squeeze the working lat at top","Lower controlled \u2014 don't let working arm snap to extension","Build unilateral strength toward one-arm pull-up"]},"cali_jumpsq":{"setup":"Stand shoulder-width. Hands free for arm swing.","cues":["Quarter-squat down, then EXPLODE up","Use arm swing for vertical drive","Land soft \u2014 absorb through bent knees","Quality over height \u2014 power output drops with fatigue"]},"cali_wallsit":{"setup":"Back flat against wall. Slide down until thighs parallel to floor.","cues":["Knees stay over ankles, not collapsed inward","Press lower back into wall \u2014 no gap","Hands free or arms folded \u2014 no resting them on thighs","Quality time matters \u2014 30 sec of true parallel beats 60 sec at 45 degrees"]},"cali_cossack":{"setup":"Wide stance, feet pointed forward. Shift to one side.","cues":["Working leg bends deeply, other leg stays straight","Heel of working leg stays planted","Straight leg's toe points up to feel hamstring stretch","Builds mobility AND strength in same movement"]},"cali_handstand":{"setup":"Kick up against wall, hands shoulder-width about a foot from wall.","cues":["Active shoulders \u2014 push the floor away","Stack hips over shoulders, feet pointed","Squeeze glutes and abs to lock body into one line","Look between hands, not at the floor"]},"cali_lsit":{"setup":"Sit between parallel bars or floor. Hands flat, arms straight, push body up.","cues":["Press DOWN HARD \u2014 active depression of shoulders","Legs straight and parallel to floor (or tucked if learning)","Lock arms, don't bend elbows","Build from tuck \u2014> one leg \u2014> full L over weeks"]},"cali_planche":{"setup":"Start in push-up position. Lean shoulders FAR forward over hands.","cues":["Hands rotated outward (fingers point back or sideways)","Lean forward until heels lift off floor naturally","Hollow body \u2014 abs and glutes squeezed","Progress: tuck \u2014> advanced tuck \u2014> straddle \u2014> full"]},"cali_lever":{"setup":"Hang from bar in active position. Lean back as you pull legs up.","cues":["Pull straight arms DOWN toward your body to lift legs","Hollow body throughout \u2014 abs locked, ribs down","Start tucked, then progress to advanced tuck and beyond","Negative reps (lower from inverted hang) build strength"]},"cali_archpush":{"setup":"Push-up position with hands wider than normal. Slight side shift.","cues":["Lower toward ONE hand \u2014 working arm bends, other stays straighter","Keep core tight \u2014 don't twist or sag","Lighter side hand supports balance, not body weight","Builds toward one-arm push-up"]},"cali_pseudo":{"setup":"Push-up position with hands at hip level, fingers pointed back (or sideways).","cues":["Lean shoulders forward over wrists","Body forms straight line, hollow body","Hands rotated to take wrist pressure off","Builds planche strength without full body weight load yet"]},"cali_handstandpu":{"setup":"Kick into handstand against wall. Lower head toward floor.","cues":["Lower until head taps mat between hands","Press back up with full body tension","Wrist mobility matters \u2014 warm up shoulders and wrists","Tripod from negative-only reps first if weak"]},"cali_dragonflag":{"setup":"Lie on a mat with hands gripping a fixed object behind your head (bench leg, pole, or secured bar).","cues":["Initiate the lift with lats and core, not hip flexors","Keep the whole body in one rigid line, hollow body shape throughout","Progress through tuck, then straddle, then straight body","Negatives (lower from inverted hang) build strength faster than full reps for most"]},"cali_backlever":{"setup":"Hang from rings or a bar. Pull up, rotate forward into inverted hang, then lower toward horizontal.","cues":["Keep elbows soft (slightly bent) until tendons are ready for full lockout","Pronate the grip (palms down), supinated grip risks the biceps tendons","Progress: tuck, advanced tuck, straddle, then straight body","Wrist and bicep tendinopathy risk is real, ramp the load slowly"]},"cali_flag":{"setup":"Vertical pole or wall bars. Hands stacked, top hand pushing the pole away, bottom hand pulling it toward you.","cues":["Top arm pushes, bottom arm pulls, that opposing tension is the flag","Lats and obliques do the work, not the shoulders","Progress: foot up, chamber, tuck flag, then full straight body","Switch sides every set, imbalances build fast on this one"]},"cali_oapush":{"setup":"Push-up position. Working hand directly under shoulder, free hand out wide for balance.","cues":["Working hand directly under the shoulder of the working side","Tighten the whole body, squeeze glutes and abs","Lower with control, eccentric strength is what builds the OAP","Build from elevated (hand on bench) before going flat on the floor"]},"end_z2":{"cues":["Conversational pace \u2014 you can speak in full sentences","Nose-breathing test: if you can breathe through nose only, you're at Z2","Don't chase pace \u2014 chase the EFFORT and breathing","Builds aerobic engine \u2014 the most valuable adaptation for any endurance athlete"]},"end_threshold":{"cues":["Hard but sustainable \u2014 'comfortably uncomfortable'","Should be able to speak short phrases, not full sentences","Right at lactate threshold \u2014 not all-out, not easy","Holds the pace where you can stay just below 'redline'"]},"end_intervals":{"cues":["Work intervals are 95-100% effort","Rest matters as much as work \u2014 recover fully between","Quality > volume \u2014 stop when intensity drops","Best done well-fueled and well-rested"]},"sport_sprint":{"cues":["Full effort \u2014 sprints aren't 'fast jogging'","Walk back as rest \u2014 90 sec minimum","6-10 reps is enough \u2014 quality first","Warm up THOROUGHLY \u2014 hamstring pulls love cold sprints"]},"sport_agility":{"cues":["Quality cuts > volume","Plant on the outside foot, drive off it","Stay low \u2014 chest down, hips down","Quick feet, sharp angles \u2014 like you're playing your sport"]}};
+const CURATED_CUES = {"Barbell_Bench_Press_-_Medium_Grip":{"setup":"Eyes under the bar. Retract and depress shoulder blades. Plant feet, drive into floor.","cues":["Squeeze the bar to engage lats and stabilize","Bar path is a slight diagonal \u2014 touches lower chest, not collarbone","Tuck elbows roughly 45 degrees from torso, not flared at 90","Drive feet through floor on press to maintain tension"]},"Dumbbell_Bench_Press":{"setup":"Sit at edge of bench with dumbbells on knees. Use leg drive to kick them up as you lie back.","cues":["Start with dumbbells over chest, palms forward","Lower until elbows reach bench height \u2014 full stretch on chest","Press up and slightly together, no clanking at top","Keep shoulder blades pinned to bench throughout"]},"Incline_Dumbbell_Press":{"setup":"Set bench to 30-45 degrees. Higher angle shifts more work to shoulders.","cues":["Bench too steep loses chest emphasis \u2014 30 degrees is the sweet spot","Lower dumbbells to upper chest, not collarbone","Keep wrists stacked over elbows throughout","Don't lock out fully \u2014 keep tension on upper chest"]},"Decline_Barbell_Bench_Press":{"setup":"Hook feet securely. Bench angle 15-30 degrees.","cues":["Touch bar to lower sternum, not nipple line","Shorter range than flat bench \u2014 heavier weight typical","Keep tight core to prevent shifting on bench","Spotter recommended \u2014 bar can pin you if feet slip"]},"Pushups":{"setup":"Hands shoulder-width, slightly wider. Body in straight line head to heels.","cues":["Tuck elbows ~45 degrees \u2014 flared elbows beat up shoulders","Lower until chest nearly touches floor \u2014 partial reps don't count","Squeeze glutes and brace core to keep body rigid","Push through whole hand, not just heel of palm"]},"Dips_-_Triceps_Version":{"setup":"Stay vertical (no forward lean) for triceps emphasis. Bars roughly shoulder width.","cues":["Keep torso upright \u2014 leaning forward shifts work to chest","Lower until shoulders are level with elbows (not lower)","Squeeze triceps hard at top \u2014 don't slam joint into lockout","Add weight via belt or dumbbell between feet when bodyweight is easy"]},"Cable_Chest_Press":{"setup":"Stand or kneel with cables at chest height. Stagger stance for stability.","cues":["Press handles together at full extension for chest squeeze","Keep shoulder blades retracted \u2014 don't let them roll forward","Cables provide constant tension \u2014 slow eccentric pays off","Lean torso slightly forward to align with cable angle"]},"Dumbbell_Flyes":{"setup":"Lie flat. Slight bend in elbows \u2014 locked at this angle throughout.","cues":["Don't turn flyes into press \u2014 elbows stay slightly bent the whole time","Lower until you feel chest stretch, NOT shoulder pain","Squeeze chest at top, dumbbells almost touching","Lighter weight than you think \u2014 flyes are stretch and squeeze, not load"]},"Standing_Military_Press":{"setup":"Bar racked on front delts. Feet hip-width. Glutes and core tight.","cues":["Squeeze glutes hard \u2014 prevents lower back arching as bar passes head","Bar travels straight up, head moves THROUGH the bar at top","Don't lean back \u2014 that turns it into incline bench press","Tuck elbows slightly under bar at start, not flared wide"]},"Dumbbell_Shoulder_Press":{"setup":"Seated with back support. Dumbbells at ear height, palms forward.","cues":["Don't slam dumbbells together at top \u2014 keep tension on delts","Press in slight arc, not straight line \u2014 meets over face, not in front","Lower under control to ear level \u2014 no bouncing","Keep wrists straight, not bent backward"]},"Seated_Dumbbell_Press":{"setup":"Bench at 80-90 degrees. Feet flat for stability.","cues":["Press up and slightly together \u2014 engages more delt fibers","Don't lock out fully if shoulders are sensitive","Drive elbows up under the dumbbells, not behind","Brace core \u2014 don't arch lower back into the bench"]},"Arnold_Dumbbell_Press":{"setup":"Start with dumbbells at chest, palms facing you (curl position).","cues":["Rotate palms outward as you press \u2014 full ROM on shoulders","Reverse the rotation on descent \u2014 palms face you at bottom","Don't rush the rotation \u2014 feel each part of the lift","Lighter weight than standard press due to extra ROM"]},"Side_Lateral_Raise":{"setup":"Stand tall, slight forward lean, dumbbells at sides.","cues":["Lead with the elbow, not the hand \u2014 pinky slightly higher than thumb","Raise to shoulder height max \u2014 going higher recruits traps","Slight bend in elbows \u2014 don't lock them straight","Lighter than ego allows \u2014 momentum kills the lateral"]},"Cable_Seated_Lateral_Raise":{"setup":"Cable pulley at low setting. Sit sideways to machine.","cues":["Cable tension is constant \u2014 you feel it the whole rep","Raise to shoulder height, don't shrug at top","Slow eccentric \u2014 cable returns are the most productive part","Cross-body grip from far cable means longer ROM than DBs"]},"Front_Dumbbell_Raise":{"setup":"Stand tall. Dumbbells at thighs, palms facing back.","cues":["Raise to shoulder height \u2014 going higher loses tension","Alternate arms or do both \u2014 both work fine","Don't swing or use momentum \u2014 use lighter weight","Slight elbow bend, never locked straight"]},"Face_Pull":{"setup":"Cable at face height with rope. Step back so there's tension at start.","cues":["Pull rope ENDS to your ears \u2014 separate hands at finish","Lead with elbows high and back, not hands","Squeeze rear delts and traps at end of pull","Light weight \u2014 this is a corrective, not a strength move"]},"Bent_Over_Dumbbell_Rear_Delt_Raise_With_Head_On_Bench":{"setup":"Forehead on incline bench. Dumbbells hanging straight down.","cues":["Lead with elbows up and out, NOT hands","Raise until upper arms are parallel to floor","Squeeze shoulder blades together at top","Light weight \u2014 rear delts are small, momentum cheats"]},"Tricep_Dumbbell_Kickback":{"setup":"Hinge at hips, torso parallel to floor. Upper arm pinned to side.","cues":["Upper arm doesn't move \u2014 only forearm extends","Squeeze triceps hard at lockout, hold for a beat","Don't use momentum \u2014 light weight, slow tempo","Keep wrist neutral, not bent down"]},"Lying_Triceps_Press":{"setup":"Lie flat. Bar over chest, narrow grip. Slight angle back from straight up.","cues":["Lower bar to forehead or just behind it \u2014 not to chest","Elbows track straight \u2014 don't flare them out","Use EZ bar if straight bar bothers wrists","Stop set when elbows start drifting outward \u2014 form failure"]},"Close-Grip_Barbell_Bench_Press":{"setup":"Hands shoulder-width apart on bar. Tuck elbows tight to torso.","cues":["Grip just inside shoulder-width \u2014 narrower hurts wrists","Elbows tucked tight \u2014 drives triceps emphasis","Bar touches lower chest, like regular bench","If wrists ache, you're too narrow \u2014 widen slightly"]},"Triceps_Pushdown":{"setup":"Cable at top. Stand close, slight forward lean, elbows pinned to sides.","cues":["Elbows stay glued to ribs \u2014 they don't move forward","Full extension at bottom \u2014 squeeze triceps hard","Rope attachment allows wider finish \u2014 better squeeze than bar","Don't lean over the bar \u2014 stand tall, use upper-body weight as anchor only"]},"Standing_Overhead_Barbell_Triceps_Extension":{"setup":"Bar overhead, elbows close to head. Arms vertical at start.","cues":["Elbows stay pointed at ceiling \u2014 don't flare out","Lower bar behind head with control \u2014 full triceps stretch","Press straight up to lockout, not forward","Use EZ bar to save wrists if straight bar bothers you"]},"Chin-Up":{"setup":"Underhand grip, hands shoulder-width. Hang with arms fully extended.","cues":["Pull with the elbows down and back, not just arms","Chin clears the bar \u2014 full ROM","Keep core braced \u2014 no leg swinging","Lower under control, full hang at bottom each rep"]},"Pullups":{"setup":"Overhand grip, slightly wider than shoulders. Full hang at bottom.","cues":["Squeeze shoulder blades together as you pull","Pull chest toward bar \u2014 not just chin over","Slight backward lean is fine \u2014 kipping (swinging) is not","Negative reps build strength \u2014 slow descent, full extension"]},"Wide-Grip_Lat_Pulldown":{"setup":"Grip wider than shoulders, palms forward. Knees secured under pad.","cues":["Lean back ~15 degrees, lock that angle for whole set","Pull bar to upper chest, NOT behind neck","Lead with elbows down and out \u2014 squeeze lats at finish","Slow return \u2014 full stretch overhead between reps"]},"Bent_Over_Barbell_Row":{"setup":"Hinge at hips to ~45 degrees. Bar hangs from shoulders, neutral spine.","cues":["Hinge from hips, not from waist \u2014 chest stays up, lower back flat","Pull bar to lower chest / upper abdomen","Squeeze shoulder blades together at top of pull","Don't use legs to bounce the weight \u2014 keep torso angle locked"]},"One-Arm_Dumbbell_Row":{"setup":"Knee and hand on bench. Back flat, parallel to floor.","cues":["Pull dumbbell to hip, not armpit \u2014 lat emphasis","Don't rotate torso to swing weight up \u2014 strict form","Full stretch at bottom \u2014 let lat lengthen","Squeeze at top, hold for half-second"]},"Seated_Cable_Rows":{"setup":"Knees slightly bent. Spine neutral, not slumped.","cues":["Pull handles to lower chest / upper abdomen","Squeeze shoulder blades together \u2014 chest pushes forward","Don't rock \u2014 torso stays roughly upright","Slow return \u2014 full stretch with arms extended, no slumping"]},"T-Bar_Row_with_Handle":{"setup":"Straddle bar. Hinge to ~45 degrees. Neutral spine.","cues":["Pull handles to lower chest, elbows tracking back","Keep chest up \u2014 don't let it collapse forward","Heavy compound row \u2014 focus on form over load","Squeeze hard at top before slow descent"]},"Barbell_Shrug":{"setup":"Bar in front, shoulder-width grip. Stand tall.","cues":["Pure vertical movement \u2014 no rotation, no rolling","Shrug straight up to ears, hold for a beat","Don't rotate shoulders \u2014 that's an old, joint-stressing technique","Heavy is fine \u2014 traps respond to load"]},"Barbell_Curl":{"setup":"Stand tall. Bar at thighs, shoulder-width grip, palms up.","cues":["Elbows pinned to sides \u2014 they don't move forward","Squeeze biceps hard at top, don't let bar rest on chest","No swinging \u2014 momentum cheats the muscle","Lower under control \u2014 full extension at bottom"]},"Dumbbell_Bicep_Curl":{"setup":"Stand or sit tall. Dumbbells at sides, palms forward.","cues":["Curl one or both \u2014 alternating prevents momentum cheating","Supinate as you curl \u2014 palms rotate from neutral to up","Squeeze at top, hold for a beat","Lower slowly, don't drop \u2014 eccentric is half the work"]},"Alternate_Hammer_Curl":{"setup":"Stand tall. Dumbbells at sides, palms facing in (neutral grip).","cues":["Palms stay neutral the whole rep \u2014 no rotation","Targets brachialis and brachioradialis, not just biceps","Slight body rock is fine, swinging is not","Heavier than supinated curls \u2014 neutral grip is stronger"]},"Preacher_Curl":{"setup":"Chest tight against pad, armpits at top of pad. Arms locked on pad.","cues":["Don't fully extend arms at bottom \u2014 protects elbows","Squeeze hard at top, hold briefly","Lighter than standing curls \u2014 preacher removes momentum","EZ bar saves wrists vs straight bar"]},"Concentration_Curls":{"setup":"Seated, elbow braced against inner thigh. Dumbbell hangs straight down.","cues":["Elbow stays anchored to thigh \u2014 no movement from there","Slow tempo \u2014 biceps love time under tension","Squeeze peak hard at top","Lighter weight \u2014 strict form is the whole point"]},"Barbell_Squat":{"setup":"Bar on traps (or low-bar on rear delts). Feet shoulder-width, slight toe-out.","cues":["Brace core hard before unracking \u2014 like preparing for a punch","Sit DOWN, not back \u2014 knees track over toes","Hit at LEAST parallel \u2014 thighs to floor or below","Drive through heels and mid-foot, not toes"]},"Split_Squat_with_Dumbbells":{"setup":"Rear foot elevated on bench (Bulgarian style). Front foot ~2 feet ahead.","cues":["Front knee tracks over front foot \u2014 don't cave in","Most weight on FRONT foot \u2014 back foot is balance only","Back knee descends straight down toward floor","Brutal but effective \u2014 single-leg work fixes imbalances"]},"Goblet_Squat":{"setup":"Hold dumbbell or kettlebell at chest, elbows tucked under.","cues":["Weight at chest creates natural counterbalance \u2014 easier to hit depth","Drive elbows between knees at bottom \u2014 opens hips","Excellent for learning squat pattern before barbell loading","Stay tall through torso \u2014 don't fold forward"]},"Bodyweight_Squat":{"setup":"Feet shoulder-width, toes slightly out. Hands forward for counterbalance.","cues":["Sit between your heels \u2014 full depth if mobility allows","Knees track over toes, don't cave inward","Chest up, neutral spine throughout","Foundation for all squat variations \u2014 master this first"]},"Leg_Press":{"setup":"Feet shoulder-width on platform, mid-height. Lower back pressed into pad.","cues":["Don't lock knees out at top \u2014 keep tension on quads","Lower until thighs touch torso (or ROM limit)","Lower back NEVER leaves pad \u2014 that hurts your back","Foot position changes emphasis: high = glutes/hams, low = quads"]},"Hack_Squat":{"setup":"Shoulders under pads. Feet shoulder-width on platform.","cues":["Quad-dominant \u2014 unlike free squats, this isolates more","Full depth \u2014 let thighs touch calves if mobility allows","Drive through whole foot, not just toes","Don't lock knees at top"]},"Barbell_Deadlift":{"setup":"Bar over mid-foot. Shins ~1 inch from bar. Shoulder-width grip.","cues":["Pull SLACK out of bar before lifting \u2014 no jerking","Push the floor away \u2014 drive through whole foot","Hips and shoulders rise together \u2014 no morning-gooding","Lockout is hips through, not lean back \u2014 squeeze glutes"]},"Romanian_Deadlift":{"setup":"Bar at hip level (rack pull start). Soft knees, neutral spine.","cues":["Push hips BACK \u2014 not down \u2014 until you feel hamstring stretch","Bar stays close to legs the whole way \u2014 drag it down","Knees stay slightly bent \u2014 don't bend more on descent","Squeeze glutes to drive bar back up \u2014 no jerking"]},"Sumo_Deadlift":{"setup":"Wide stance, toes turned out 30-45 degrees. Hands inside knees.","cues":["Knees push out HARD \u2014 track over toes throughout","More upright torso than conventional \u2014 hip-dominant","Drive feet into floor and OUT, like spreading floor apart","Better for tall lifters or those with long torso"]},"Stiff-Legged_Barbell_Deadlift":{"setup":"Bar on floor. Soft knees \u2014 locked at this angle throughout.","cues":["Knees stay slightly bent \u2014 don't straighten them on descent","Push hips back, hinge from hips not waist","Bar stays close to legs the whole way","Lower than RDL \u2014 true stiff-leg goes to floor, not knee height"]},"Good_Morning":{"setup":"Bar high on traps (like high-bar squat). Soft knees.","cues":["Hinge at hips \u2014 like RDL but bar is on your back","Lighter weight than you think \u2014 heavy good mornings tweak backs","Stop when torso parallel to floor (or earlier if mobility limits)","Drive hips forward to return \u2014 squeeze glutes hard"]},"Barbell_Hip_Thrust":{"setup":"Upper back on bench. Bar over hips, padded. Feet flat, shins vertical at top.","cues":["Drive through HEELS, not toes","Squeeze glutes HARD at lockout \u2014 that's the whole point","Chin tucked at top, ribs down \u2014 don't arch lower back","Full ROM \u2014 touch hips to floor between reps"]},"Barbell_Glute_Bridge":{"setup":"Lying on floor, knees bent, feet flat. Bar over hips, padded.","cues":["Same form as hip thrust but smaller ROM","Drive heels into floor, squeeze glutes at top","Don't arch lower back \u2014 tuck chin and ribs","Pause at top for 1-2 seconds for max activation"]},"Barbell_Walking_Lunge":{"setup":"Bar on traps like back squat. Feet hip-width.","cues":["Step long enough that front shin stays vertical at bottom","Back knee descends to within an inch of floor","Drive through front HEEL to step forward","Don't rush \u2014 control each rep, especially the descent"]},"Dumbbell_Lunges":{"setup":"Dumbbells at sides. Stand tall.","cues":["Keep torso UPRIGHT \u2014 leaning forward stresses lower back","Step length determines emphasis: long = glutes, short = quads","Front knee tracks over middle of foot, not collapsing in","Drive through whole front foot to return"]},"Step-up_with_Knee_Raise":{"setup":"Box at knee height. Stand close to box.","cues":["Drive through front foot ONLY \u2014 don't push off rear toe","Bring rear knee up to hip height at top for added challenge","Step DOWN under control \u2014 eccentric matters","Box height = quad emphasis (low) or glute emphasis (high)"]},"Leg_Extensions":{"setup":"Knees aligned with machine pivot. Pads on shins, just above ankles.","cues":["Squeeze quads HARD at top \u2014 pause for a beat","Don't hyperextend knees \u2014 full extension is fine, force is not","Slow descent \u2014 eccentric is gold for quad growth","Avoid jerking the weight \u2014 light enough for clean reps"]},"Lying_Leg_Curls":{"setup":"Knees just past edge of pad. Pads on lower calves.","cues":["Hips stay pressed into pad \u2014 don't lift them to cheat","Squeeze hamstrings at top \u2014 full curl","Slow eccentric \u2014 hamstrings respond to time under tension","Point or flex toes to bias different parts of hamstrings"]},"Standing_Calf_Raises":{"setup":"Balls of feet on platform, heels free to drop.","cues":["FULL ROM \u2014 heels drop below platform, rise to highest point","Pause at top, squeeze calves","Slow descent \u2014 calves love eccentric load","Heavy is fine \u2014 calves are dense, respond to load"]},"Plank":{"setup":"Forearms on floor, elbows under shoulders. Body in straight line.","cues":["Squeeze glutes and abs \u2014 don't let hips sag","Tuck chin slightly, neutral spine head to heels","Quality over time \u2014 30 seconds of perfect beats 2 minutes of broken","Breathe normally \u2014 no holding breath"]},"Hanging_Leg_Raise":{"setup":"Hang from bar, full extension. Slight forward swing minimized.","cues":["Lift knees to chest (or legs to bar for advanced)","Slight pelvic tilt at top \u2014 not just hip flexors","No swinging \u2014 control means real ab work","Lower under control \u2014 eccentric matters"]},"Crunches":{"setup":"Lying on back, knees bent, hands behind head or crossed on chest.","cues":["Lift shoulder blades off floor \u2014 that's the whole ROM","Don't pull on neck \u2014 hands are light support only","Exhale on the way up, fully contract abs","Slow return \u2014 don't bounce off floor"]},"Russian_Twist":{"setup":"Sit, lean back to ~45 degrees. Feet up or on floor. Weight at chest.","cues":["Rotate from torso, not arms","Touch weight to floor on each side \u2014 full rotation","Keep torso angle locked \u2014 don't bob up and down","Feet up = harder, feet on floor = easier"]},"Pallof_Press_With_Rotation":{"setup":"Cable at chest height. Stand sideways, weight at chest.","cues":["RESIST rotation \u2014 that's the whole exercise","Press straight out from chest, hold, return","Don't let the cable pull your torso toward the machine","Light weight \u2014 anti-rotation is endurance, not max strength"]},"Power_Clean":{"setup":"Bar over mid-foot, shoulder-width grip. Hips lower than shoulders.","cues":["First pull (off floor): controlled, like deadlift to knee","Second pull (jump): explosive triple extension \u2014 ankles, knees, hips","Catch in front-rack: elbows snap forward and high","TECHNICAL LIFT \u2014 learn from a coach before loading heavy"]},"Clean_and_Press":{"setup":"Combines power clean with overhead press.","cues":["Catch the clean clean before pressing \u2014 don't blend the lifts","Use leg drive for the press \u2014 push press is acceptable","Lockout overhead with biceps by ears","Heavy compound \u2014 full-body loading. Form first, load later."]},"Front_Squat_Clean_Grip":{"setup":"Bar racked on front delts, elbows high, fingertip grip.","cues":["Elbows up THROUGHOUT \u2014 if elbows drop, bar follows","More upright torso than back squat","Crossed-arm grip is acceptable if mobility limits clean grip","Lighter than back squat \u2014 quad-dominant"]},"cali_pistol":{"setup":"Stand on one leg. Free leg extended forward. Hold a counterweight (light DB) or use a TRX/pole for assistance.","cues":["Lower SLOWLY \u2014 the eccentric is where strength builds","Keep heel down throughout, do not rise onto toes","Counterweight in front shifts your COG and makes balance easier","Drive through full foot to return, not just heel"]},"cali_archpullup":{"setup":"Hang from bar wider than shoulder-width. Both hands grip but most weight loads ONE arm.","cues":["Pull to ONE side \u2014 working arm bends, other stays straight","Squeeze the working lat at top","Lower controlled \u2014 don't let working arm snap to extension","Build unilateral strength toward one-arm pull-up"]},"cali_jumpsq":{"setup":"Stand shoulder-width. Hands free for arm swing.","cues":["Quarter-squat down, then EXPLODE up","Use arm swing for vertical drive","Land soft \u2014 absorb through bent knees","Quality over height \u2014 power output drops with fatigue"]},"cali_wallsit":{"setup":"Back flat against wall. Slide down until thighs parallel to floor.","cues":["Knees stay over ankles, not collapsed inward","Press lower back into wall \u2014 no gap","Hands free or arms folded \u2014 no resting them on thighs","Quality time matters \u2014 30 sec of true parallel beats 60 sec at 45 degrees"]},"cali_cossack":{"setup":"Wide stance, feet pointed forward. Shift to one side.","cues":["Working leg bends deeply, other leg stays straight","Heel of working leg stays planted","Straight leg's toe points up to feel hamstring stretch","Builds mobility AND strength in same movement"]},"cali_handstand":{"setup":"Kick up against wall, hands shoulder-width about a foot from wall.","cues":["Active shoulders \u2014 push the floor away","Stack hips over shoulders, feet pointed","Squeeze glutes and abs to lock body into one line","Look between hands, not at the floor"]},"cali_lsit":{"setup":"Sit between parallel bars or floor. Hands flat, arms straight, push body up.","cues":["Press DOWN HARD \u2014 active depression of shoulders","Legs straight and parallel to floor (or tucked if learning)","Lock arms, don't bend elbows","Build from tuck \u2014> one leg \u2014> full L over weeks"]},"cali_planche":{"setup":"Start in push-up position. Lean shoulders FAR forward over hands.","cues":["Hands rotated outward (fingers point back or sideways)","Lean forward until heels lift off floor naturally","Hollow body \u2014 abs and glutes squeezed","Progress: tuck \u2014> advanced tuck \u2014> straddle \u2014> full"]},"cali_lever":{"setup":"Hang from bar in active position. Lean back as you pull legs up.","cues":["Pull straight arms DOWN toward your body to lift legs","Hollow body throughout \u2014 abs locked, ribs down","Start tucked, then progress to advanced tuck and beyond","Negative reps (lower from inverted hang) build strength"]},"cali_archpush":{"setup":"Push-up position with hands wider than normal. Slight side shift.","cues":["Lower toward ONE hand \u2014 working arm bends, other stays straighter","Keep core tight \u2014 don't twist or sag","Lighter side hand supports balance, not body weight","Builds toward one-arm push-up"]},"cali_pseudo":{"setup":"Push-up position with hands at hip level, fingers pointed back (or sideways).","cues":["Lean shoulders forward over wrists","Body forms straight line, hollow body","Hands rotated to take wrist pressure off","Builds planche strength without full body weight load yet"]},"cali_diapush":{"setup":"Standard push-up position with hands directly under the chest, thumbs and index fingers touching to form a diamond shape.","cues":["Elbows track at roughly 45 degrees from torso, not flared, not pinned","Chest touches the back of the hands, full ROM is what makes this a tricep builder","Body stays in one rigid plank line, no piking the hips up","Wrists sore? Use fists or push-up handles, the diamond hand position loads the wrist joint harder than a normal push-up"]},"cali_handstandpu":{"setup":"Kick into handstand against wall. Lower head toward floor.","cues":["Lower until head taps mat between hands","Press back up with full body tension","Wrist mobility matters \u2014 warm up shoulders and wrists","Tripod from negative-only reps first if weak"]},"cali_dragonflag":{"setup":"Lie on a mat with hands gripping a fixed object behind your head (bench leg, pole, or secured bar).","cues":["Initiate the lift with lats and core, not hip flexors","Keep the whole body in one rigid line, hollow body shape throughout","Progress through tuck, then straddle, then straight body","Negatives (lower from inverted hang) build strength faster than full reps for most"]},"cali_backlever":{"setup":"Hang from rings or a bar. Pull up, rotate forward into inverted hang, then lower toward horizontal.","cues":["Keep elbows soft (slightly bent) until tendons are ready for full lockout","Pronate the grip (palms down), supinated grip risks the biceps tendons","Progress: tuck, advanced tuck, straddle, then straight body","Wrist and bicep tendinopathy risk is real, ramp the load slowly"]},"cali_flag":{"setup":"Vertical pole or wall bars. Hands stacked, top hand pushing the pole away, bottom hand pulling it toward you.","cues":["Top arm pushes, bottom arm pulls, that opposing tension is the flag","Lats and obliques do the work, not the shoulders","Progress: foot up, chamber, tuck flag, then full straight body","Switch sides every set, imbalances build fast on this one"]},"cali_oapush":{"setup":"Push-up position. Working hand directly under shoulder, free hand out wide for balance.","cues":["Working hand directly under the shoulder of the working side","Tighten the whole body, squeeze glutes and abs","Lower with control, eccentric strength is what builds the OAP","Build from elevated (hand on bench) before going flat on the floor"]},"end_z2":{"cues":["Conversational pace \u2014 you can speak in full sentences","Nose-breathing test: if you can breathe through nose only, you're at Z2","Don't chase pace \u2014 chase the EFFORT and breathing","Builds aerobic engine \u2014 the most valuable adaptation for any endurance athlete"]},"end_threshold":{"cues":["Hard but sustainable \u2014 'comfortably uncomfortable'","Should be able to speak short phrases, not full sentences","Right at lactate threshold \u2014 not all-out, not easy","Holds the pace where you can stay just below 'redline'"]},"end_intervals":{"cues":["Work intervals are 95-100% effort","Rest matters as much as work \u2014 recover fully between","Quality > volume \u2014 stop when intensity drops","Best done well-fueled and well-rested"]},"sport_sprint":{"cues":["Full effort \u2014 sprints aren't 'fast jogging'","Walk back as rest \u2014 90 sec minimum","6-10 reps is enough \u2014 quality first","Warm up THOROUGHLY \u2014 hamstring pulls love cold sprints"]},"sport_agility":{"cues":["Quality cuts > volume","Plant on the outside foot, drive off it","Stay low \u2014 chest down, hips down","Quick feet, sharp angles \u2014 like you're playing your sport"]}};
 
 // ─── HAND-CURATED TOP ALTERNATIVES ────────────────────────────────────────────
 // For each curated exercise, 1-3 hand-picked alternatives ranked by movement
@@ -4476,6 +4498,36 @@ function _skillStorageKey(skillId) {
   return SKILL_STORAGE_PREFIX + skillId + '.currentRung';
 }
 
+// ═══ EQUIPMENT CONTEXT (Stage 3.5) ═══
+// A global, persisted context that re-expresses the current session with a
+// chosen implement without changing training intent. Three values:
+//   'default' - today's behaviour, untouched (the safe default)
+//   'bar'     - prefer the bar variant where an exercise defines one
+//   'rings'   - prefer the ring variant; harder variants step the rung back
+// Only exercises carrying an `equip` object respond to this; everything else
+// renders exactly as before. Stored at flow.equipContext.
+const EQUIP_CONTEXT_KEY = 'flow.equipContext';
+const EQUIP_CONTEXTS = ['default', 'bar', 'rings'];
+
+function getEquipContext() {
+  try {
+    const stored = (typeof localStorage !== 'undefined') ? localStorage.getItem(EQUIP_CONTEXT_KEY) : null;
+    if (stored && EQUIP_CONTEXTS.indexOf(stored) >= 0) return stored;
+  } catch (e) { /* localStorage unavailable, fall through */ }
+  return 'default';
+}
+
+function setEquipContext(ctx) {
+  if (EQUIP_CONTEXTS.indexOf(ctx) < 0) return false;
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(EQUIP_CONTEXT_KEY, ctx);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+// ═══ EQUIPMENT CONTEXT END ═══
+
 // Returns the rung object for the user's current rung on a given skill.
 // Returns null if skillId is unknown. Defaults to the first rung when no
 // storage value is set or the stored rung id is no longer valid (e.g. the
@@ -4545,28 +4597,68 @@ function regressRung(skillId) {
 // to surface a "RUNG 2/6" indicator. The original id is preserved so that
 // workout logs remain linked across rung changes.
 function applyExerciseSkillRung(originalEx) {
-  if (!originalEx || !originalEx.skillId) return originalEx;
-  if (typeof SKILL_PROGRESSIONS === 'undefined') return originalEx;
+  if (!originalEx || !originalEx.skillId) return applyEquipmentContext(originalEx);
+  if (typeof SKILL_PROGRESSIONS === 'undefined') return applyEquipmentContext(originalEx);
   const skill = SKILL_PROGRESSIONS[originalEx.skillId];
-  if (!skill || !Array.isArray(skill.rungs) || skill.rungs.length === 0) return originalEx;
+  if (!skill || !Array.isArray(skill.rungs) || skill.rungs.length === 0) return applyEquipmentContext(originalEx);
   const rung = getCurrentRung(originalEx.skillId);
-  if (!rung) return originalEx;
-  const idx = skill.rungs.findIndex(function(r) { return r.id === rung.id; });
-  return Object.assign({}, originalEx, {
-    name: rung.name,
-    sets: rung.sets,
-    reps: rung.reps,
-    tempo: rung.tempo,
-    tempoDesc: rung.tempoDesc,
-    category: rung.category || originalEx.category,
-    primaryMuscles: rung.primaryMuscles || originalEx.primaryMuscles,
-    cues: rung.cues || originalEx.cues,
-    _skillRung: rung.id,
+  if (!rung) return applyEquipmentContext(originalEx);
+  let idx = skill.rungs.findIndex(function(r) { return r.id === rung.id; });
+
+  // Equipment context (Stage 3.5): a harder implement variant (e.g. rings)
+  // can carry a rungShift that steps the displayed rung back so the user
+  // starts at an honest difficulty. Shift is clamped to the ladder bounds.
+  const ctx = (typeof getEquipContext === 'function') ? getEquipContext() : 'default';
+  const equipVariant = (originalEx.equip && originalEx.equip[ctx]) ? originalEx.equip[ctx] : null;
+  let shiftNote = null;
+  if (equipVariant && typeof equipVariant.rungShift === 'number' && equipVariant.rungShift !== 0) {
+    const shifted = Math.max(0, Math.min(skill.rungs.length - 1, idx + equipVariant.rungShift));
+    if (shifted !== idx) {
+      idx = shifted;
+      shiftNote = equipVariant.note || null;
+    }
+  }
+  const effRung = skill.rungs[idx];
+
+  const resolved = Object.assign({}, originalEx, {
+    name: (equipVariant && equipVariant.name) ? equipVariant.name : effRung.name,
+    sets: effRung.sets,
+    reps: effRung.reps,
+    tempo: effRung.tempo,
+    tempoDesc: effRung.tempoDesc,
+    category: effRung.category || originalEx.category,
+    primaryMuscles: effRung.primaryMuscles || originalEx.primaryMuscles,
+    cues: effRung.cues || originalEx.cues,
+    _skillRung: effRung.id,
     _skillRungIndex: idx,
     _skillRungTotal: skill.rungs.length,
     _skillLabel: skill.label,
     _originalName: originalEx.name
   });
+  if (equipVariant) {
+    resolved._equipContext = ctx;
+    if (shiftNote) resolved._equipNote = shiftNote;
+    else if (equipVariant.note) resolved._equipNote = equipVariant.note;
+  }
+  return resolved;
+}
+
+// Applies equipment context to a non-skill exercise (rename plus optional
+// note). Skill exercises handle equipment inline in applyExerciseSkillRung
+// so the rung-shift can interact with the ladder. Returns the exercise
+// unchanged when no equip data matches the active context.
+function applyEquipmentContext(ex) {
+  if (!ex || !ex.equip) return ex;
+  const ctx = (typeof getEquipContext === 'function') ? getEquipContext() : 'default';
+  const variant = ex.equip[ctx];
+  if (!variant) return ex;
+  const out = Object.assign({}, ex, {
+    name: variant.name || ex.name,
+    _equipContext: ctx,
+    _originalName: ex._originalName || ex.name
+  });
+  if (variant.note) out._equipNote = variant.note;
+  return out;
 }
 // ═══ SKILL RUNG RESOLVER END ═══
 
@@ -5610,14 +5702,14 @@ function renderCustomExerciseForm(originalEx, day) {
 const PROGRAM = [
   {day:1,label:"Day 1",title:"Push",subtitle:"Chest · Shoulders · Triceps",accent:"#e8ff3b",nutriType:"mod",exercises:[
     {id:"bench",name:"Barbell Bench Press",sets:4,reps:"6-8",tempo:"3-1-1-0",tempoDesc:"3s down, 1s pause at chest, 1s press, 0s at top",category:"Gym",cues:["Retract and depress scapula before unracking","Tuck elbows ~45 degrees from torso","Drive feet into floor throughout","Bar touches lower chest, not collarbone"]},
-    {id:"dips",name:"Weighted Dips",sets:4,reps:"8-10",tempo:"3-0-1-0",tempoDesc:"3s lowering, no pause, 1s press",category:"Gym",cues:["Slight forward lean for chest emphasis","Lower until shoulders below elbows","Add weight via belt or dumbbell between feet"]},
+    {id:"dips",name:"Weighted Dips",sets:4,reps:"8-10",tempo:"3-0-1-0",tempoDesc:"3s lowering, no pause, 1s press",category:"Gym",cues:["Slight forward lean for chest emphasis","Lower until shoulders below elbows","Add weight via belt or dumbbell between feet"],equip:{bar:{name:"Weighted Bar Dips"},rings:{name:"Ring Dips",note:"Rings add major instability. Drop the weight and expect fewer reps than your bar dip."}}},
     {id:"dbshoulder",name:"Dumbbell Shoulder Press",sets:3,reps:"10-12",tempo:"2-1-1-0",tempoDesc:"2s lowering, 1s pause, 1s press",category:"Gym",cues:["Start at ear level, palms forward","Press in a slight arc, not straight up","Don't fully lock out — keep tension on delts"]},
     {id:"laterals",name:"Cable Lateral Raises",sets:3,reps:"15",tempo:"1-2-2-0",tempoDesc:"1s lift, 2s hold at top, 2s lowering",category:"Gym",cues:["Lead with elbow, not hand","Raise to just above shoulder height","Squeeze and hold at top for full 2 seconds"]},
     {id:"tricep",name:"Tricep Pushdowns",sets:3,reps:"12",tempo:"2-1-1-0",tempoDesc:"2s return, 1s pause, 1s push",category:"Gym",cues:["Keep elbows pinned to sides","Full extension at bottom — squeeze hard","Rope attachment gives better range than bar"]},
     {id:"pushupfinisher",name:"Push-up Finisher",dbId:"Pushups",sets:2,reps:"Max",tempo:"1-0-1-0",tempoDesc:"Go to failure",category:"Park",cues:["Full range — chest touches ground","Go to true failure each set","Rest 90 sec between sets"]}
   ]},
   {day:2,label:"Day 2",title:"Pull",subtitle:"Back · Biceps · Core",accent:"#3bffe8",nutriType:"mod",exercises:[
-    {id:"wpullups",name:"Weighted Pull-ups",sets:5,reps:"5",tempo:"3-1-1-0",tempoDesc:"3s lowering, 1s dead hang, 1s pull",category:"Park/Gym",cues:["Full dead hang at bottom — no shortcutting","Pull elbows down and back","Chin fully clears bar at top","Think 'elbows to hips' not 'pull up'"]},
+    {id:"wpullups",name:"Weighted Pull-ups",sets:5,reps:"5",tempo:"3-1-1-0",tempoDesc:"3s lowering, 1s dead hang, 1s pull",category:"Park/Gym",cues:["Full dead hang at bottom — no shortcutting","Pull elbows down and back","Chin fully clears bar at top","Think 'elbows to hips' not 'pull up'"],equip:{bar:{name:"Weighted Pull-ups"},rings:{name:"Weighted Ring Pull-ups",note:"Rings rotate freely, so the grip works harder. Same load is fine once you adapt."}}},
     {id:"bbrow",name:"Barbell Rows",dbId:"Bent_Over_Barbell_Row",sets:4,reps:"8",tempo:"1-1-2-0",tempoDesc:"1s pull, 1s hold, 2s lower",category:"Gym",cues:["Hinge at hips to roughly 45 degrees","Bar to lower chest/upper abdomen","Squeeze shoulder blades together at top"]},
     {id:"ringrow",name:"Ring Rows / Cable Rows",dbId:"Seated_Cable_Rows",sets:3,reps:"12",tempo:"1-2-3-0",tempoDesc:"1s pull, 2s hold, 3s slow return",category:"Park/Gym",cues:["Pull handles to lower chest","Keep torso still — don't rock","Focus on lats and mid-back, not arms"]},
     {id:"facepulls",name:"Face Pulls",sets:3,reps:"15",tempo:"1-2-2-0",tempoDesc:"1s pull, 2s hold, 2s return",category:"Gym",cues:["Cable at face height","External rotate at end — 'double bicep' position","Never skip — keeps shoulders healthy"]},
@@ -5633,16 +5725,16 @@ const PROGRAM = [
     {id:"sprints",name:"Sprint Intervals",sets:6,reps:"40m",tempo:"Max effort",tempoDesc:"100% effort, walk back as rest",category:"Park",cues:["Absolute max effort each sprint","Walk back (~60–90 sec) as rest","Do AFTER lifting, not before"]}
   ]},
   {day:4,label:"Day 4",title:"Skills",subtitle:"Calisthenics · Muscle Control · Tension",accent:"#b03bff",nutriType:"low",exercises:[
-    {id:"muscleup",skillId:"muscleup",name:"Muscle-up Progressions",sets:4,reps:"3-5",tempo:"Explosive",tempoDesc:"Explosive pull, controlled transition, slow lower",category:"Park",cues:["If no muscle-up: work explosive chest-to-bar pull-ups","Transition is hardest — think 'hips to bar'","3 clean reps beats 8 sloppy ones"]},
-    {id:"planche",skillId:"planche",name:"Pseudo Planche Push-ups",sets:4,reps:"8",tempo:"2-1-2-0",tempoDesc:"2s lower, 1s hold, 2s press",category:"Park",cues:["Hands point backwards at hip level","Lean body weight forward significantly","Rigid plank throughout — no sagging"]},
+    {id:"muscleup",skillId:"muscleup",name:"Muscle-up Progressions",sets:4,reps:"3-5",tempo:"Explosive",tempoDesc:"Explosive pull, controlled transition, slow lower",category:"Park",cues:["If no muscle-up: work explosive chest-to-bar pull-ups","Transition is hardest — think 'hips to bar'","3 clean reps beats 8 sloppy ones"],equip:{bar:{name:"Bar Muscle-up Progressions"},rings:{name:"Ring Muscle-up Progressions",rungShift:-1,note:"Rings: starting one rung back. The ring transition is harder and less forgiving than the bar."}}},
+    {id:"planche",skillId:"planchepush",name:"Pseudo Planche Push-ups",sets:4,reps:"8",tempo:"2-1-2-0",tempoDesc:"2s lower, 1s hold, 2s press",category:"Park",cues:["Hands point backwards at hip level","Lean body weight forward significantly","Rigid plank throughout — no sagging"]},
     {id:"lsit",skillId:"lsit",name:"L-sit Holds",sets:4,reps:"15-20 sec",tempo:"Isometric",tempoDesc:"Build to 20 sec before adding sets",category:"Park",cues:["Press down hard — active depression","Legs straight and horizontal","Start with tuck L-sit if needed"]},
     {id:"frontlever",skillId:"frontlever",name:"Front Lever Progressions",sets:4,reps:"10 sec",tempo:"Isometric",tempoDesc:"Quality holds at each progression",category:"Park",cues:["Start with tuck (knees to chest)","Tuck > advanced tuck > one leg > straddle > full","Hollow body position throughout"]},
     {id:"pikepush",skillId:"hspu",name:"Pike Push-ups",sets:3,reps:"12",tempo:"3-1-1-0",tempoDesc:"3s lower, 1s pause, 1s press",category:"Park",cues:["Inverted V — hips high, head low","More vertical torso = more shoulder-dominant","Elevate feet to increase difficulty"]},
-    {id:"bardips",name:"Bar Dips",sets:3,reps:"15",tempo:"2-0-1-0",tempoDesc:"2s lower, 1s press",category:"Park",cues:["Upright = tricep focus, leaned forward = chest","Lower until shoulders at elbow height","Progress to weighted once 15 feels easy"]}
+    {id:"bardips",name:"Bar Dips",sets:3,reps:"15",tempo:"2-0-1-0",tempoDesc:"2s lower, 1s press",category:"Park",cues:["Upright = tricep focus, leaned forward = chest","Lower until shoulders at elbow height","Progress to weighted once 15 feels easy"],equip:{bar:{name:"Bar Dips"},rings:{name:"Ring Dips",note:"Rings add major instability. Expect fewer clean reps than parallel bars."}}}
   ]},
   {day:5,label:"Day 5",title:"Full Body",subtitle:"Compound Strength · Power",accent:"#ff3b7b",nutriType:"high",exercises:[
     {id:"deadlift",name:"Deadlift",sets:4,reps:"5",tempo:"1-1-3-0",tempoDesc:"1s drive, 1s hold at top, 3s lower",category:"Gym",cues:["Shoulders over bar, bar over mid-foot","Engage lats before pulling — 'protect your armpits'","Drive floor away — don't think 'pull'","Lock out hips and knees simultaneously"]},
-    {id:"bwpullups",name:"Pull-ups (Bodyweight)",sets:4,reps:"8",tempo:"2-1-2-0",tempoDesc:"2s pull, 1s hold chin over bar, 2s lower",category:"Park/Gym",cues:["Full dead hang every rep","Controlled pull — no kipping today","2-sec lowering for lat time under tension"]},
+    {id:"bwpullups",name:"Pull-ups (Bodyweight)",sets:4,reps:"8",tempo:"2-1-2-0",tempoDesc:"2s pull, 1s hold chin over bar, 2s lower",category:"Park/Gym",cues:["Full dead hang every rep","Controlled pull — no kipping today","2-sec lowering for lat time under tension"],equip:{bar:{name:"Pull-ups (Bodyweight)"},rings:{name:"Ring Pull-ups",note:"Rings let the wrists rotate naturally, easier on the elbows, harder on grip."}}},
     {id:"dbbench",name:"Dumbbell Bench Press",sets:3,reps:"10",tempo:"3-1-1-0",tempoDesc:"3s lower, 1s pause, 1s press",category:"Gym",cues:["Greater range than barbell — use it","Press in slight arc, dumbbells together at top","Neutral grip is easier on shoulders"]},
     {id:"bulgariansplit",name:"Bulgarian Split Squat",sets:3,reps:"10 each",tempo:"3-1-1-0",tempoDesc:"3s lower, 1s pause, 1s drive",category:"Gym",cues:["Rear foot elevated on bench, laces down","Front foot far enough — shin stays vertical","Lower straight down, not forward","Front heel drives into floor to stand"]},
     {id:"plank",name:"Plank Variations",sets:3,reps:"45 sec",tempo:"Isometric",tempoDesc:"Standard > side > RKC plank",category:"Gym",cues:["RKC: squeeze glutes, abs, quads, fists","Don't let hips sag or pike up","Progress to weighted when 45 sec feels easy"]},
@@ -5989,16 +6081,29 @@ const CALISTHENICS_TEMPLATES = {
   // 1x/week each. The keys (push/pull/legs/skills/fullBody) are retained
   // because TRAINING_SPLITS and TEMPLATE_INDEX index by these names. Only
   // the content under each key is rewritten.
-  push: {day:1,label:"Day 1",title:"Straight Arm",subtitle:"Planche · Front Lever · Handstand Practice",accent:"#b03bff",nutriType:"mod",exercises:[
+  push: {day:1,label:"Day 1",title:"Straight Arm",subtitle:"Planche · Front Lever · Handstand Practice",accent:"#b03bff",nutriType:"mod",warmUp:[
+    {name:"Wrist circles + push-ups",duration:"60 sec",cue:"Both directions, then load palms forward and back. Builds tendon resilience for planche and handstand loads"},
+    {name:"Scapular push-ups",duration:"10 reps",cue:"Protract and retract in plank position. Isolates serratus and rhomboids"},
+    {name:"Scapular pull-ups",duration:"10 reps",cue:"Active hang, pull shoulders down without bending elbows"},
+    {name:"Shoulder dislocates",duration:"10 reps",cue:"Band or dowel, start wide and narrow grip as shoulders open"},
+    {name:"Cat-cow + thoracic rotations",duration:"60 sec",cue:"Thoracic mobility transfers directly to handstand and lever positions"},
+    {name:"Planche lean (light)",duration:"20 sec",cue:"One sub-working set to prime the working positions"}
+  ],exercises:[
     {id:"cali_handstand",skillId:"handstand",name:"Handstand Practice",primaryMuscles:["shoulders","abdominals"],sets:4,reps:"max time",tempo:"Isometric",tempoDesc:"5-10 min freeplay warmup · wall to free-standing · low CNS prep",category:"Park/Home"},
     {id:"cali_planche",skillId:"planche",name:"Planche Progression",primaryMuscles:["shoulders","chest"],sets:4,reps:"8-15 sec",tempo:"Isometric",tempoDesc:"Hardest rung you can hold cleanly · 3-4 min rest between holds",category:"Park/Home"},
-    {id:"cali_lever",skillId:"frontlever",name:"Front Lever Progression",primaryMuscles:["lats","abdominals"],sets:3,reps:"8-15 sec",tempo:"Isometric",tempoDesc:"Hardest rung you can hold · hollow body throughout",category:"Park"},
-    {id:"cali_pseudo",name:"Pseudo-Planche Push-Up",primaryMuscles:["shoulders","chest"],sets:3,reps:"5-8",tempo:"3-1-1-0",tempoDesc:"Hands at hip level, lean forward · planche-specific dynamic",category:"Park/Home"},
+    {id:"cali_lever",skillId:"frontlever",name:"Front Lever Progression",equip:{bar:{name:"Front Lever Progression"},rings:{name:"Ring Front Lever Progression",rungShift:0,note:"Rings allow natural scapular rotation. Similar difficulty to the bar."}},primaryMuscles:["lats","abdominals"],sets:3,reps:"8-15 sec",tempo:"Isometric",tempoDesc:"Hardest rung you can hold · hollow body throughout",category:"Park"},
+    {id:"cali_pseudo",skillId:"planchepush",name:"Pseudo-Planche Push-Up",primaryMuscles:["shoulders","chest"],sets:3,reps:"5-8",tempo:"3-1-1-0",tempoDesc:"Hands at hip level, lean forward · planche-specific dynamic",category:"Park/Home"},
     {id:"cali_scappull",dbId:"Scapular_Pull-Up",name:"Scapular Pull-Up",sets:3,reps:"8-10",tempo:"1-2-1-0",tempoDesc:"1s pull, 2s squeeze scapula, 1s relax · shoulder prep",category:"Park"},
     {id:"cali_hollow",dbId:"Plank",name:"Hollow Body Hold",sets:3,reps:"30-45 sec",tempo:"Isometric",tempoDesc:"Lower back pressed flat, arms overhead",category:"Home"}
   ]},
 
-  pull: {day:2,label:"Day 2",title:"Bent Arm",subtitle:"Muscle-Up · HSPU · Weighted Vertical",accent:"#e8ff3b",nutriType:"high",exercises:[
+  pull: {day:2,label:"Day 2",title:"Bent Arm",subtitle:"Muscle-Up · HSPU · Weighted Vertical",accent:"#e8ff3b",nutriType:"high",warmUp:[
+    {name:"Wrist circles + push-ups",duration:"60 sec",cue:"Wrist prep for HSPU and floor pressing loads"},
+    {name:"Band pull-aparts",duration:"15 reps",cue:"Wakes up rear delts and rotator cuff before vertical pull work"},
+    {name:"Shoulder dislocates",duration:"10 reps",cue:"Full ROM, no shrugging, band or dowel"},
+    {name:"Scapular pull-ups",duration:"10 reps",cue:"Primes the pull initiation, scapular depression before elbow bend"},
+    {name:"Dead hang",duration:"30 sec",cue:"Decompress the shoulders before loading them with weighted work"}
+  ],exercises:[
     {id:"cali_muscleup",skillId:"muscleup",dbId:"Muscle_Up",name:"Muscle-Up Progression",primaryMuscles:["lats","chest","triceps"],sets:4,reps:"3-5",tempo:"Explosive up, slow down",tempoDesc:"Band assist, then negative, then strict · build the transition",category:"Park"},
     {id:"cali_pikepush",skillId:"hspu",name:"Pike Push-Up",primaryMuscles:["shoulders"],sets:4,reps:"6-10",tempo:"3-1-1-0",tempoDesc:"3s lower, 1s pause, 1s press · toward HSPU",category:"Park/Home"},
     {id:"cali_pullup",dbId:"Pullups",name:"Pull-Up (add weight when easy)",sets:4,reps:"6-10",tempo:"2-1-2-0",tempoDesc:"Bodyweight first, weight belt or DB between feet once 10 clean reps",category:"Park"},
@@ -6007,29 +6112,47 @@ const CALISTHENICS_TEMPLATES = {
     {id:"cali_diapush",name:"Diamond Push-Up",primaryMuscles:["triceps"],sets:3,reps:"8-12",tempo:"3-1-1-0",tempoDesc:"Tricep emphasis · finisher volume",category:"Park/Home"}
   ]},
 
-  legs: {day:3,label:"Day 3",title:"Legs + Compression",subtitle:"Pistol · L-Sit · Dragon Flag",accent:"#ff7b3b",nutriType:"high",exercises:[
+  legs: {day:3,label:"Day 3",title:"Legs + Compression",subtitle:"Pistol · L-Sit · Dragon Flag",accent:"#ff7b3b",nutriType:"high",warmUp:[
+    {name:"Hip circles",duration:"60 sec",cue:"Both directions, open the hips before pistol depth"},
+    {name:"Ankle mobility (knee over toe)",duration:"60 sec",cue:"Pistol depth needs ankle ROM, without it you tip backward"},
+    {name:"Cat-cow + scorpion stretch",duration:"60 sec",cue:"Thoracic and lumbar mobility for the compression work"},
+    {name:"Bodyweight glute bridge",duration:"12 reps",cue:"Wake up the posterior chain before loaded leg work"},
+    {name:"Cossack squat",duration:"6 each side",cue:"Adductor and ankle in one, gateway to pistol position"}
+  ],exercises:[
     {id:"cali_pistol",skillId:"pistol",name:"Pistol Squat Progression",primaryMuscles:["quadriceps","glutes"],sets:4,reps:"4-6 each",tempo:"3-1-2-0",tempoDesc:"3s lower, 1s pause, 2s drive · TRX or pole if assistance needed",category:"Park/Home"},
     {id:"cali_bulgarian",dbId:"Split_Squat_with_Dumbbells",name:"Bulgarian Split Squat",sets:4,reps:"8-12 each",tempo:"2-1-1-0",tempoDesc:"2s lower, 1s pause, 1s drive · rear foot elevated",category:"Park/Home"},
     {id:"cali_glutebridge",dbId:"Single_Leg_Glute_Bridge",name:"Single-Leg Glute Bridge",sets:3,reps:"12-15 each",tempo:"2-2-1-0",tempoDesc:"2s lower, 2s squeeze, 1s drive · posterior chain",category:"Home"},
     {id:"cali_calf",dbId:"Standing_Calf_Raises",name:"Single-Leg Calf Raise",sets:3,reps:"15-20 each",tempo:"1-2-3-0",tempoDesc:"1s raise, 2s peak, 3s lower · full ROM",category:"Park/Home"},
-    {id:"cali_lsit",skillId:"lsit",name:"L-Sit Progression",primaryMuscles:["abdominals","triceps"],sets:4,reps:"15-25 sec",tempo:"Isometric",tempoDesc:"Tuck, one leg, then full · press down hard through the hands",category:"Park"},
+    {id:"cali_lsit",skillId:"lsit",name:"L-Sit Progression",equip:{bar:{name:"L-Sit Progression"},rings:{name:"Ring Support L-Sit",rungShift:-1,note:"Rings: starting one rung back. Holding support on rings adds a stability demand the floor does not."}},primaryMuscles:["abdominals","triceps"],sets:4,reps:"15-25 sec",tempo:"Isometric",tempoDesc:"Tuck, one leg, then full · press down hard through the hands",category:"Park"},
     {id:"cali_dragonflag",skillId:"dragonflag",name:"Dragon Flag Progression",primaryMuscles:["abdominals"],sets:3,reps:"3-5",tempo:"Slow controlled",tempoDesc:"Tucked, straddle, straight body · the antigravity compression skill",category:"Park/Home"},
     {id:"cali_hollow",dbId:"Plank",name:"Hollow Body Hold",sets:2,reps:"30-45 sec",tempo:"Isometric",tempoDesc:"Lower back pressed flat · compression finisher",category:"Home"}
   ]},
 
-  skills: {day:4,label:"Day 4",title:"Straight Arm",subtitle:"Back Lever · Flag · Static Density",accent:"#ff3b7b",nutriType:"mod",exercises:[
+  skills: {day:4,label:"Day 4",title:"Straight Arm",subtitle:"Back Lever · Flag · Static Density",accent:"#ff3b7b",nutriType:"mod",warmUp:[
+    {name:"Wrist circles + push-ups",duration:"60 sec",cue:"Same wrist prep as Day 1, never skip on a straight-arm day"},
+    {name:"Scapular push-ups",duration:"10 reps",cue:"Serratus and rhomboid activation"},
+    {name:"Scapular pull-ups",duration:"10 reps",cue:"Active hang prep before front and back lever loading"},
+    {name:"Shoulder dislocates",duration:"10 reps",cue:"ROM check, narrow grip as shoulders open"},
+    {name:"Side plank + thread-the-needle",duration:"30s each",cue:"Oblique and thoracic prep for flag and lateral work"},
+    {name:"Bicep tendon prep",duration:"30 sec",cue:"Pronated band stretch. Back lever and FL load the bicep tendon, prep it"}
+  ],exercises:[
     {id:"cali_handstand",skillId:"handstand",name:"Handstand Practice",primaryMuscles:["shoulders","abdominals"],sets:4,reps:"max time",tempo:"Isometric",tempoDesc:"5-10 min freeplay · prep CNS for static work",category:"Park/Home"},
     {id:"cali_planche",skillId:"planche",name:"Planche Progression",primaryMuscles:["shoulders","chest"],sets:4,reps:"8-15 sec",tempo:"Isometric",tempoDesc:"Second exposure this week · 3-4 days after Day 1 · hardest rung",category:"Park/Home"},
-    {id:"cali_lever",skillId:"frontlever",name:"Front Lever Progression",primaryMuscles:["lats","abdominals"],sets:3,reps:"8-15 sec",tempo:"Isometric",tempoDesc:"Second exposure this week · hollow body throughout",category:"Park"},
-    {id:"cali_backlever",skillId:"backlever",name:"Back Lever Progression",primaryMuscles:["lower back","shoulders"],sets:3,reps:"8-15 sec",tempo:"Isometric",tempoDesc:"Tuck, adv tuck, straddle, full · keep elbows soft, watch biceps",category:"Park"},
+    {id:"cali_lever",skillId:"frontlever",name:"Front Lever Progression",equip:{bar:{name:"Front Lever Progression"},rings:{name:"Ring Front Lever Progression",rungShift:0,note:"Rings allow natural scapular rotation. Similar difficulty to the bar."}},primaryMuscles:["lats","abdominals"],sets:3,reps:"8-15 sec",tempo:"Isometric",tempoDesc:"Second exposure this week · hollow body throughout",category:"Park"},
+    {id:"cali_backlever",skillId:"backlever",name:"Back Lever Progression",equip:{bar:{name:"Back Lever Progression"},rings:{name:"Ring Back Lever Progression",rungShift:0,note:"Rings ease wrist and shoulder strain in the back lever. Similar difficulty."}},primaryMuscles:["lower back","shoulders"],sets:3,reps:"8-15 sec",tempo:"Isometric",tempoDesc:"Tuck, adv tuck, straddle, full · keep elbows soft, watch biceps",category:"Park"},
     {id:"cali_flag",skillId:"flag",name:"Human Flag Progression",primaryMuscles:["abdominals","lats"],sets:3,reps:"5-10 sec each",tempo:"Isometric",tempoDesc:"Foot up, chamber, tuck flag, full · lateral static · switch sides",category:"Park"},
     {id:"cali_hollow",dbId:"Plank",name:"Hollow Body Hold",sets:3,reps:"30-45 sec",tempo:"Isometric",tempoDesc:"Lower back pressed flat · density finisher",category:"Home"}
   ]},
 
-  fullBody: {day:5,label:"Day 5",title:"Bent Arm",subtitle:"Archer Variations · OAP · Unilateral",accent:"#3bffe8",nutriType:"high",exercises:[
+  fullBody: {day:5,label:"Day 5",title:"Bent Arm",subtitle:"Archer Variations · OAP · Unilateral",accent:"#3bffe8",nutriType:"high",warmUp:[
+    {name:"Wrist circles + push-ups",duration:"60 sec",cue:"Wrist prep for OAP and archer floor work"},
+    {name:"Band pull-aparts",duration:"15 reps",cue:"Rear delt and rotator cuff before unilateral pull work"},
+    {name:"Shoulder dislocates",duration:"10 reps",cue:"Full ROM, no shrugging"},
+    {name:"Scapular pull-ups",duration:"10 reps",cue:"Scapular depression before any pull loading"},
+    {name:"Cross-body shoulder stretch",duration:"30s each",cue:"Posterior delt opening before unilateral push work"}
+  ],exercises:[
     {id:"cali_muscleup",skillId:"muscleup",dbId:"Muscle_Up",name:"Muscle-Up Progression",primaryMuscles:["lats","chest","triceps"],sets:3,reps:"3-5",tempo:"Explosive up, slow down",tempoDesc:"Second exposure this week · build toward one strict rep",category:"Park"},
-    {id:"cali_archpullup",name:"Archer Pull-Up",primaryMuscles:["lats","middle back"],sets:4,reps:"4-6 each",tempo:"2-1-2-0",tempoDesc:"Pull to one side, other arm assists · toward one-arm pull-up",category:"Park"},
-    {id:"cali_archpush",name:"Archer Push-Up",primaryMuscles:["chest","triceps"],sets:4,reps:"4-6 each",tempo:"3-1-1-0",tempoDesc:"3s lower to one side, 1s pause, 1s press · toward OAP",category:"Park/Home"},
+    {id:"cali_archpullup",name:"Archer Pull-Up",primaryMuscles:["lats","middle back"],sets:4,reps:"4-6 each",tempo:"2-1-2-0",tempoDesc:"Pull to one side, other arm assists · toward one-arm pull-up",category:"Park",equip:{bar:{name:"Archer Pull-Up"},rings:{name:"Ring Archer Pull-Up",note:"Rings let you rotate into each rep, kinder on the shoulders, harder to stabilise."}}},
     {id:"cali_oapush",skillId:"oapush",name:"One-Arm Push-Up Progression",primaryMuscles:["chest","triceps"],sets:3,reps:"3-5 each",tempo:"3-1-1-0",tempoDesc:"Elevated, then standard, then full OAP · build from the eccentric",category:"Park/Home"},
     {id:"cali_fb_pike",skillId:"hspu",name:"Pike Push-Up Volume",primaryMuscles:["shoulders"],sets:3,reps:"6-10",tempo:"3-1-1-0",tempoDesc:"Second HSPU exposure this week · volume not max",category:"Park/Home"},
     {id:"cali_row",dbId:"Inverted_Row",name:"Inverted Row",sets:3,reps:"10-12",tempo:"2-1-2-0",tempoDesc:"Horizontal pull volume · scapular retraction",category:"Park"}
@@ -6153,6 +6276,116 @@ const SKILL_PROGRESSIONS = {
           'Form is non-negotiable, drop weight before form',
           'Pause planche pushups also live at this rung',
           'Long-term: 10kg weighted holds = world-class'
+        ],
+        criteria: 'Keep adding load while form holds. No upper bound.'
+      }
+    ]
+  },
+
+  // Companion ladder to `planche` (static holds). Used when the originating
+  // exercise is a planche-push variant rather than a hold (e.g. PROGRAM
+  // Day 4's "Pseudo Planche Push-ups" or the calisthenics-style Day 1
+  // pseudo planche push-up). Same training target (full planche), different
+  // modality, so the rung picker must surface push variants when the
+  // exercise itself is a push.
+  planchepush: {
+    skillId: 'planchepush',
+    label: 'Planche Push-Up',
+    description: 'Dynamic push-up variants on the path to a full planche push-up. Same biomechanical target as the planche-holds ladder, but progressed through reps rather than holds.',
+    rungs: [
+      {
+        id: 'ppp_pseudo',
+        name: 'Pseudo Planche Push-Up',
+        sets: 3, reps: '5-8',
+        tempo: '3-1-1-0',
+        tempoDesc: '3s lower, 1s pause at bottom, 1s press',
+        category: 'Park/Home',
+        primaryMuscles: ['shoulders', 'chest'],
+        cues: [
+          'Hands at hip level, fingers pointed back or sideways',
+          'Lean shoulders forward over wrists, hollow body throughout',
+          'Wrists rotated to take pressure off the joint',
+          'Builds the lean strength toward true planche push variants'
+        ],
+        criteria: 'Hit 3 sets of 8 clean reps with full forward lean before progressing'
+      },
+      {
+        id: 'ppp_tuck',
+        name: 'Tuck Planche Push-Up',
+        sets: 3, reps: '3-5',
+        tempo: '2-1-1-0',
+        tempoDesc: '2s lower, 1s pause, 1s press from tuck planche',
+        category: 'Park/Home',
+        primaryMuscles: ['shoulders', 'chest'],
+        cues: [
+          'Start in tuck planche hold, knees tight to chest',
+          'Push press from tuck position to extended arms still tucked',
+          'Keep knees pulled in tight throughout the rep',
+          'Lean further forward than the static tuck hold needs'
+        ],
+        criteria: 'Hit 3 sets of 5 clean reps before progressing'
+      },
+      {
+        id: 'ppp_advtuck',
+        name: 'Advanced Tuck Planche Push-Up',
+        sets: 3, reps: '3-5',
+        tempo: '2-1-1-0',
+        tempoDesc: '2s lower, 1s pause, 1s press',
+        category: 'Park/Home',
+        primaryMuscles: ['shoulders', 'chest', 'core'],
+        cues: [
+          'Knees still tucked but hips fully extended, back parallel to floor',
+          'Hollow body throughout, no piking at the hips',
+          'Lean forward enough that feet stay floating without leg drive',
+          'Press from chest depth back to full arm extension'
+        ],
+        criteria: 'Hit 3 sets of 5 clean reps before progressing'
+      },
+      {
+        id: 'ppp_straddle',
+        name: 'Straddle Planche Push-Up',
+        sets: 3, reps: '2-4',
+        tempo: '2-1-1-0',
+        tempoDesc: '2s lower, 1s pause, 1s press',
+        category: 'Park/Home',
+        primaryMuscles: ['shoulders', 'chest', 'core'],
+        cues: [
+          'Legs straight and wide in a straddle shape',
+          'Wider straddle is easier, gradually bring legs in over months',
+          'Body stays parallel to floor throughout the rep',
+          'Expect to spend months at this rung, that is normal'
+        ],
+        criteria: 'Hit 3 sets of 4 reps in a narrow straddle before going for full'
+      },
+      {
+        id: 'ppp_full',
+        name: 'Full Planche Push-Up',
+        sets: 3, reps: '1-3',
+        tempo: '2-1-1-0',
+        tempoDesc: '2s lower, 1s pause, 1s press',
+        category: 'Park/Home',
+        primaryMuscles: ['shoulders', 'chest', 'core'],
+        cues: [
+          'Legs together, body fully parallel to the floor',
+          'Elite-level skill, expect a long ramp time',
+          'Touch chest to floor for full ROM, press back to lockout',
+          'A single clean rep is the realistic short-term goal'
+        ],
+        criteria: 'Hit 3 sets of 3 clean full-ROM reps before adding load'
+      },
+      {
+        id: 'ppp_weighted',
+        name: 'Weighted Planche Push-Up',
+        sets: 3, reps: '1-3',
+        tempo: '2-1-1-0',
+        tempoDesc: '2s lower, 1s pause, 1s press with added load',
+        category: 'Park/Home',
+        primaryMuscles: ['shoulders', 'chest', 'core'],
+        cues: [
+          'Weight vest or plate on lower back, secured tight',
+          'Start at 2.5-5kg, add slowly in 1-2.5kg increments',
+          'Form must be identical to the bodyweight full planche push-up',
+          'This is a strength-overload phase, not a discrete next rung'
         ],
         criteria: 'Keep adding load while form holds. No upper bound.'
       }
@@ -9110,10 +9343,16 @@ let wmTickIntervalId = null;
 let wmWakeLock = null;
 
 const WM_PALETTE = {
-  countdown: '#6aff3b',  // pre-start 5-2-1 green
-  working:   '#f0ff00',  // active set / hold — sport yellow
-  rest:      '#00d4aa',  // rest timer — mint teal
-  prep:      '#c8f5b8',  // prep / summary screens — soft mint, calm but in-mode
+  // Stage 0.6: repurposed from full-screen washes to phase ACCENT colors
+  // applied to timer digits, the rest ring, and phase chips. Every
+  // workout-mode screen now sits on the neutral dark base; color carries
+  // phase state on the elements, not the background.
+  countdown: '#3bdfff',  // pre-start digits, calm cyan
+  working:   '#ebebeb',  // active set / hold digits, neutral (no urgency state)
+  rest:      '#3bdfff',  // rest timer calm state, cyan
+  warn:      '#fbbf24',  // rest final 10s, amber
+  go:        '#6aff3b',  // GO / target reached, green
+  prep:      '#080808',  // prep / summary screens, neutral dark base
   setDone:   '#6aff3b'   // brief green flash at set finish
 };
 
@@ -9574,7 +9813,7 @@ function wmRender() {
   // Adapt overlay background to phase
   const phase = wmState.phase;
   const isPrep = ['weight-setup','weight-confirm','exercise-summary','workout-summary'].indexOf(phase) >= 0;
-  overlay.style.background = isPrep ? WM_PALETTE.prep : '#080808';
+  overlay.style.background = '#080808';
   overlay.style.transition = 'background 0.4s ease';
 
   overlay.appendChild(topBar);
@@ -9584,7 +9823,7 @@ function wmRender() {
     padding: '20px 18px 32px',
     maxWidth: '600px',
     margin: '0 auto',
-    background: isPrep ? WM_PALETTE.prep : 'transparent',
+    background: 'transparent',
     transition: 'background 0.4s ease'
   });
   switch (wmState.phase) {
@@ -9602,40 +9841,19 @@ function wmRender() {
 }
 
 function wmBuildTopBar(day, ex) {
-  // Phase-aware top bar — matches whatever colour lives below it
-  const phase = wmState ? wmState.phase : '';
-  const isPrep = ['weight-setup','weight-confirm','exercise-summary','workout-summary'].indexOf(phase) >= 0;
-  const isCountdown = phase === 'countdown';
-  const isWorking = phase === 'working-rolling' || phase === 'working-duration';
-  const isRest = phase === 'rest';
+  // Stage 0.6: single dark top bar, phase carried by digits below.
 
   let bg, fg, mutedFg, exitBg, exitBorder, exitFg, sublabelColor;
-  if (isPrep) {
-    bg = WM_PALETTE.prep; fg = '#000'; mutedFg = 'rgba(0,0,0,0.55)';
-    exitBg = 'rgba(0,0,0,0.08)'; exitBorder = 'rgba(0,0,0,0.25)'; exitFg = '#000';
-    sublabelColor = 'rgba(0,0,0,0.7)';
-  } else if (isCountdown) {
-    bg = WM_PALETTE.countdown; fg = '#000'; mutedFg = 'rgba(0,0,0,0.55)';
-    exitBg = 'rgba(0,0,0,0.1)'; exitBorder = 'rgba(0,0,0,0.3)'; exitFg = '#000';
-    sublabelColor = 'rgba(0,0,0,0.7)';
-  } else if (isWorking) {
-    bg = WM_PALETTE.working; fg = '#000'; mutedFg = 'rgba(0,0,0,0.55)';
-    exitBg = 'rgba(0,0,0,0.1)'; exitBorder = 'rgba(0,0,0,0.3)'; exitFg = '#000';
-    sublabelColor = 'rgba(0,0,0,0.7)';
-  } else if (isRest) {
-    bg = WM_PALETTE.rest; fg = '#000'; mutedFg = 'rgba(0,0,0,0.55)';
-    exitBg = 'rgba(0,0,0,0.1)'; exitBorder = 'rgba(0,0,0,0.3)'; exitFg = '#000';
-    sublabelColor = 'rgba(0,0,0,0.7)';
-  } else {
-    bg = '#080808'; fg = '#aaa'; mutedFg = '#444';
-    exitBg = 'transparent'; exitBorder = '#2a2a2a'; exitFg = '#666';
-    sublabelColor = '#aaa';
-  }
+  // Stage 0.6: one consistent dark top bar across every phase. Phase state
+  // is carried by the timer digits below, not by recoloring the chrome.
+  bg = 'var(--bg-base)'; fg = 'var(--text-secondary)'; mutedFg = 'var(--text-muted)';
+  exitBg = 'transparent'; exitBorder = '#2a2a2a'; exitFg = '#888';
+  sublabelColor = 'var(--text-tertiary)';
 
   const bar = div({
     position: 'sticky', top: '0', left: '0', right: '0',
     background: bg,
-    borderBottom: isPrep ? '1px solid rgba(0,0,0,0.12)' : (isCountdown || isWorking || isRest) ? '1px solid rgba(0,0,0,0.15)' : '1px solid #161616',
+    borderBottom: '1px solid #161616',
     padding: 'env(safe-area-inset-top, 12px) 18px 10px',
     display: 'flex',
     justifyContent: 'space-between',
@@ -9645,26 +9863,25 @@ function wmBuildTopBar(day, ex) {
   });
   const left = div({});
   left.appendChild(el('div', {
-    style: {fontSize:'7px', color: mutedFg, letterSpacing:'0.25em', textTransform:'uppercase', marginBottom:'2px', fontWeight: isPrep || isCountdown || isWorking || isRest ? '700' : '400'}
-  }, 'WORKOUT MODE · ' + day.title));
+    style: {fontSize:'11px', color: mutedFg, letterSpacing:'0.04em', marginBottom:'2px', fontFamily:'var(--font-ui)', fontWeight:'600'}
+  }, 'Workout mode · ' + day.title));
   if (ex) {
     const subRow = div({display:'flex',alignItems:'center',gap:'8px',flexWrap:'wrap'});
     subRow.appendChild(el('div', {
-      style: {fontSize:'10px', color: sublabelColor, fontFamily:"'DM Mono',monospace"}
+      style: {fontSize:'11px', color: sublabelColor, fontFamily:'var(--font-data)', fontVariantNumeric:'tabular-nums'}
     }, 'Exercise ' + (wmState.exIndex + 1) + '/' + day.exercises.length + ' · Set ' + (wmState.setIndex + 1) + '/' + ex.sets));
-    // ⇄ Swap badge — appears when the current exercise has been swapped.
-    // Tap to open a confirm with revert option.
+    // Swap badge: always the cyan treatment now (no per-phase recolor)
     if (ex._swapped) {
       const swapBadge = el('button', {
-        class: 'btn',
+        class: 'btn pressable',
         style: {
-          background: isPrep || isCountdown || isWorking || isRest ? 'rgba(0,0,0,0.12)' : 'rgba(59,223,255,0.12)',
-          color: isPrep || isCountdown || isWorking || isRest ? '#000' : '#3bdfff',
-          border: '1px solid ' + (isPrep || isCountdown || isWorking || isRest ? 'rgba(0,0,0,0.25)' : 'rgba(59,223,255,0.4)'),
-          padding: '3px 7px', borderRadius: '4px',
-          fontSize: '8px', fontFamily: "'DM Mono',monospace",
-          letterSpacing: '0.12em', textTransform: 'uppercase',
-          fontWeight: '700', cursor: 'pointer'
+          background: 'rgba(59,223,255,0.12)',
+          color: '#3bdfff',
+          border: '1px solid rgba(59,223,255,0.4)',
+          padding: '3px 8px', borderRadius: 'var(--radius-chip)',
+          fontSize: '11px', fontFamily: 'var(--font-ui)',
+          letterSpacing: '0',
+          fontWeight: '500', cursor: 'pointer'
         },
         onclick: async (e) => {
           e.stopPropagation();
@@ -9683,13 +9900,13 @@ function wmBuildTopBar(day, ex) {
   bar.appendChild(left);
 
   const exitBtn = el('button', {
-    class: 'btn',
+    class: 'btn pressable',
     style: {
       background: exitBg, color: exitFg, border: '1px solid ' + exitBorder,
-      padding: '6px 12px', borderRadius: '6px',
-      fontFamily: "'DM Mono',monospace", fontSize: '9px',
-      letterSpacing: '0.15em', textTransform: 'uppercase', cursor: 'pointer',
-      fontWeight: '700'
+      padding: '6px 12px', borderRadius: 'var(--radius-control)',
+      fontFamily: 'var(--font-ui)', fontSize: '12px',
+      letterSpacing: '0', cursor: 'pointer',
+      fontWeight: '500'
     },
     onclick: async (e) => {
       e.stopPropagation();
@@ -9815,15 +10032,16 @@ function wmRenderWeightConfirm(ex) {
 
 // PHASE: Countdown (5 → 4 → 3 → 2 → 1 → GO)
 function wmRenderCountdown(ex) {
-  const wrap = wmFullCanvas(WM_PALETTE.countdown);
+  const wrap = wmFullCanvas('var(--bg-base)');
   wrap.appendChild(wmTopLabel('Get Ready', '#000'));
   const numEl = el('div', {
     id: 'wm-countdown-num',
     style: {
-      fontFamily: "'Anton', 'Bebas Neue', sans-serif",
-      fontSize: '240px', color: '#000',
+      fontFamily: 'var(--font-ui)', fontWeight: '800',
+      fontVariantNumeric: 'tabular-nums',
+      fontSize: '160px', color: WM_PALETTE.countdown,
       letterSpacing: '-0.02em', lineHeight: '1',
-      WebkitTextStroke: '1px #000'
+      transition: 'color 0.2s ease'
     }
   }, '5');
   wrap.appendChild(numEl);
@@ -9835,7 +10053,10 @@ function wmRenderCountdown(ex) {
     if (wmState.pausedAt) return;
     const remainMs = wmState.countdownEndTime - Date.now();
     const remain = Math.max(0, Math.ceil(remainMs / 1000));
-    if (numEl) numEl.textContent = remain > 0 ? remain + '' : 'GO';
+    if (numEl) {
+      numEl.textContent = remain > 0 ? remain + '' : 'GO';
+      numEl.style.color = remain > 0 ? WM_PALETTE.countdown : WM_PALETTE.go;
+    }
     // Beep on each second mark (3, 2, 1)
     if (remain > 0 && remain <= 3 && !wmState['_cdBeeped' + remain]) {
       wmState['_cdBeeped' + remain] = true;
@@ -9860,22 +10081,22 @@ function wmRenderCountdown(ex) {
 
 // PHASE: Working — rolling timer (count UP) for weight exercises
 function wmRenderRolling(ex) {
-  const wrap = wmFullCanvas(WM_PALETTE.working);
+  const wrap = wmFullCanvas('var(--bg-base)');
   wrap.appendChild(wmTopLabel('Working · ' + (wmState.currentWeight > 0 ? wmState.currentWeight + 'kg' : 'BW'), '#000'));
 
   const timeEl = el('div', {
     id: 'wm-rolling-time',
     style: {
-      fontFamily: "'Anton', 'Bebas Neue', sans-serif",
-      fontSize: '200px', color: '#000',
-      letterSpacing: '-0.02em', lineHeight: '1',
-      WebkitTextStroke: '1px #000'
+      fontFamily: 'var(--font-ui)', fontWeight: '800',
+      fontVariantNumeric: 'tabular-nums',
+      fontSize: '140px', color: WM_PALETTE.working,
+      letterSpacing: '-0.02em', lineHeight: '1'
     }
   }, '0:00');
   wrap.appendChild(timeEl);
 
   wrap.appendChild(el('div', {
-    style: {fontSize:'10px',color:'#000',opacity:'0.55',letterSpacing:'0.25em',textTransform:'uppercase',fontFamily:"'DM Mono',monospace",marginTop:'8px'}
+    style: {fontSize:'11px',color:'var(--text-muted)',letterSpacing:'0.02em',fontFamily:'var(--font-ui)',marginTop:'8px'}
   }, 'Target: ' + ex.reps + ' reps'));
 
   const finishBtn = wmBigButton('✓ Finish Set', '#000', WM_PALETTE.working, () => {
@@ -9906,16 +10127,17 @@ function wmRenderRolling(ex) {
 // PHASE: Working — duration timer (count DOWN) for hold exercises
 function wmRenderDuration(ex) {
   const totalSec = parseDurationFromReps(ex.reps) || 30;
-  const wrap = wmFullCanvas(WM_PALETTE.working);
+  const wrap = wmFullCanvas('var(--bg-base)');
   wrap.appendChild(wmTopLabel('Hold · ' + ex.name, '#000'));
 
   const timeEl = el('div', {
     id: 'wm-dur-time',
     style: {
-      fontFamily: "'Anton', 'Bebas Neue', sans-serif",
-      fontSize: '240px', color: '#000',
+      fontFamily: 'var(--font-ui)', fontWeight: '800',
+      fontVariantNumeric: 'tabular-nums',
+      fontSize: '150px', color: WM_PALETTE.rest,
       letterSpacing: '-0.02em', lineHeight: '1',
-      WebkitTextStroke: '1px #000'
+      transition: 'color 0.2s ease, transform 0.15s ease'
     }
   }, formatTimerDisplay(totalSec));
   wrap.appendChild(timeEl);
@@ -9928,6 +10150,20 @@ function wmRenderDuration(ex) {
     const remainMs = wmState.holdEndTime - Date.now();
     const remain = Math.max(0, Math.ceil(remainMs / 1000));
     if (timeEl) timeEl.textContent = formatTimerDisplay(remain);
+    // Hold color: calm cyan throughout, pulse on the last 3, green at target.
+    // No amber phase: on a short hold, amber-at-10 would cover the whole rep.
+    if (timeEl) {
+      if (remainMs <= 0) {
+        timeEl.style.color = WM_PALETTE.go;
+        timeEl.style.transform = 'none';
+      } else if (remain <= 3) {
+        timeEl.style.color = WM_PALETTE.rest;
+        timeEl.style.transform = (remain % 2 === 0) ? 'scale(1.06)' : 'scale(1.0)';
+      } else {
+        timeEl.style.color = WM_PALETTE.rest;
+        timeEl.style.transform = 'none';
+      }
+    }
     if (remain > 0 && remain <= 3 && !wmState['_holdBeeped' + remain]) {
       wmState['_holdBeeped' + remain] = true;
       playCountdownBlip();
@@ -9969,7 +10205,7 @@ function wmRenderRest(ex) {
   const isHold = !!parseDurationFromReps(ex.reps);
   const isLastSet = wmState.setIndex >= ex.sets - 1;
   const totalRestSec = Math.max(1, getDefaultRestSec(ex));
-  const wrap = wmFullCanvas(WM_PALETTE.rest);
+  const wrap = wmFullCanvas('var(--bg-base)');
   wrap.appendChild(wmTopLabel('Rest', '#000'));
 
   // ── STOPWATCH RING ─────────────────────────────────────────────────────
@@ -10003,19 +10239,19 @@ function wmRenderRest(ex) {
   // Initial state: dashOffset = circumference (ring empty)
   ringSvg.innerHTML =
     '<svg width="100%" height="100%" viewBox="0 0 ' + RING_SIZE + ' ' + RING_SIZE + '" style="transform:rotate(-90deg)">' +
-      '<circle cx="' + (RING_SIZE/2) + '" cy="' + (RING_SIZE/2) + '" r="' + RING_R + '" fill="none" stroke="rgba(0,0,0,0.12)" stroke-width="' + RING_STROKE + '"/>' +
-      '<circle id="wm-rest-ring-progress" cx="' + (RING_SIZE/2) + '" cy="' + (RING_SIZE/2) + '" r="' + RING_R + '" fill="none" stroke="#000" stroke-width="' + RING_STROKE + '" stroke-linecap="round" stroke-dasharray="' + RING_CIRCUM + '" stroke-dashoffset="' + RING_CIRCUM + '" style="transition:stroke-dashoffset 0.2s linear, stroke 0.4s ease"/>' +
+      '<circle cx="' + (RING_SIZE/2) + '" cy="' + (RING_SIZE/2) + '" r="' + RING_R + '" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="' + RING_STROKE + '"/>' +
+      '<circle id="wm-rest-ring-progress" cx="' + (RING_SIZE/2) + '" cy="' + (RING_SIZE/2) + '" r="' + RING_R + '" fill="none" stroke="#3bdfff" stroke-width="' + RING_STROKE + '" stroke-linecap="round" stroke-dasharray="' + RING_CIRCUM + '" stroke-dashoffset="' + RING_CIRCUM + '" style="transition:stroke-dashoffset 0.2s linear, stroke 0.3s ease"/>' +
     '</svg>';
   ringWrap.appendChild(ringSvg);
 
   const timeEl = el('div', {
     id: 'wm-rest-time',
     style: {
-      fontFamily: "'Anton', 'Bebas Neue', sans-serif",
-      fontSize: '180px', color: '#000',
+      fontFamily: 'var(--font-ui)', fontWeight: '800',
+      fontVariantNumeric: 'tabular-nums',
+      fontSize: '96px', color: WM_PALETTE.rest,
       letterSpacing: '-0.02em', lineHeight: '1',
-      WebkitTextStroke: '1px #000',
-      transition: 'color 0.4s ease',
+      transition: 'color 0.3s ease, transform 0.15s ease',
       position: 'relative', zIndex: '1'
     }
   }, '0:00');
@@ -10025,9 +10261,9 @@ function wmRenderRest(ex) {
   // Input panel — only for rolling weight exercises (hold exercises auto-committed already)
   if (!isHold) {
     const inputCard = div({
-      background: 'rgba(0,0,0,0.08)',
-      border: '1px solid rgba(0,0,0,0.18)',
-      borderRadius: '12px',
+      background: 'var(--bg-elevated)',
+      border: '1px solid var(--border-subtle)',
+      borderRadius: 'var(--radius-card)',
       padding: '14px',
       width: '100%',
       maxWidth: '360px',
@@ -10035,14 +10271,14 @@ function wmRenderRest(ex) {
     });
 
     inputCard.appendChild(el('div', {
-      style: {fontSize:'8px',color:'#000',opacity:'0.7',letterSpacing:'0.22em',textTransform:'uppercase',marginBottom:'6px',fontWeight:'700'}
-    }, 'Reps Completed'));
+      style: {fontSize:'11px',color:'var(--text-tertiary)',letterSpacing:'0.02em',marginBottom:'6px',fontWeight:'600',fontFamily:'var(--font-ui)'}
+    }, 'Reps completed'));
 
     // Reps stepper
     const repsRow = div({display:'flex',alignItems:'center',gap:'10px',justifyContent:'center',marginBottom:'10px'});
     const mkStepBtn = (label, delta) => el('button', {
-      class:'btn',
-      style:{background:'#000',color:WM_PALETTE.rest,border:'none',width:'44px',height:'44px',borderRadius:'8px',fontFamily:"'DM Mono',monospace",fontSize:'18px',cursor:'pointer',fontWeight:'700'},
+      class:'btn pressable',
+      style:{background:'var(--bg-inset)',color:'var(--text-primary)',border:'1px solid var(--border-default)',width:'44px',height:'44px',borderRadius:'var(--radius-control)',fontFamily:'var(--font-ui)',fontSize:'20px',cursor:'pointer',fontWeight:'600'},
       onclick: (e) => {
         e.stopPropagation();
         const cur = parseInt(wmState.pendingReps || '0', 10);
@@ -10053,7 +10289,7 @@ function wmRenderRest(ex) {
     repsRow.appendChild(mkStepBtn('−', -1));
     repsRow.appendChild(el('div', {
       id: 'wm-reps-display',
-      style: {fontFamily:"'Anton', sans-serif",fontSize:'42px',color:'#000',minWidth:'60px',textAlign:'center',lineHeight:'1'}
+      style: {fontFamily:'var(--font-data)',fontVariantNumeric:'tabular-nums',fontSize:'36px',fontWeight:'500',color:'var(--text-primary)',minWidth:'60px',textAlign:'center',lineHeight:'1'}
     }, wmState.pendingReps || '0'));
     repsRow.appendChild(mkStepBtn('+', 1));
     inputCard.appendChild(repsRow);
@@ -10067,8 +10303,8 @@ function wmRenderRest(ex) {
       if (repsSpec.max && repsSpec.max !== repsSpec.min) targets.push(repsSpec.max);
       targets.forEach(n => {
         const b = el('button', {
-          class: 'btn',
-          style:{background:'rgba(0,0,0,0.15)',color:'#000',border:'1px solid rgba(0,0,0,0.25)',padding:'6px 12px',borderRadius:'14px',fontFamily:"'DM Mono',monospace",fontSize:'11px',cursor:'pointer',fontWeight:'700'},
+          class: 'btn pressable',
+          style:{background:'var(--bg-inset)',color:'var(--text-secondary)',border:'1px solid var(--border-default)',padding:'6px 12px',borderRadius:'var(--radius-pill)',fontFamily:'var(--font-data)',fontVariantNumeric:'tabular-nums',fontSize:'13px',cursor:'pointer',fontWeight:'500'},
           onclick: (e) => {
             e.stopPropagation();
             wmState.pendingReps = n + '';
@@ -10082,7 +10318,7 @@ function wmRenderRest(ex) {
 
     // Feedback row
     inputCard.appendChild(el('div', {
-      style: {fontSize:'8px',color:'#000',opacity:'0.7',letterSpacing:'0.22em',textTransform:'uppercase',marginBottom:'6px',fontWeight:'700'}
+      style: {fontSize:'11px',color:'var(--text-tertiary)',letterSpacing:'0.02em',marginBottom:'6px',fontWeight:'600',fontFamily:'var(--font-ui)'}
     }, 'How did it feel?'));
     const fbRow = div({display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'center',marginBottom: isLastSet ? '0' : '12px'});
     [
@@ -10092,15 +10328,15 @@ function wmRenderRest(ex) {
     ].forEach(opt => {
       const isActive = wmState.pendingFeedback === opt.key;
       const b = el('button', {
-        class: 'btn',
+        class: 'btn pressable',
         'data-fb': opt.key,
         style:{
-          background: isActive ? '#000' : 'rgba(0,0,0,0.15)',
-          color: isActive ? WM_PALETTE.rest : '#000',
-          border: '1px solid rgba(0,0,0,0.3)',
-          padding:'8px 12px', borderRadius:'14px',
-          fontFamily:"'DM Mono',monospace", fontSize:'10px',
-          cursor:'pointer', fontWeight:'700', letterSpacing:'0.05em'
+          background: isActive ? '#3bdfff' : 'var(--bg-inset)',
+          color: isActive ? '#000' : 'var(--text-secondary)',
+          border: '1px solid ' + (isActive ? '#3bdfff' : 'var(--border-default)'),
+          padding:'8px 12px', borderRadius:'var(--radius-control)',
+          fontFamily:'var(--font-ui)', fontSize:'12px',
+          cursor:'pointer', fontWeight:'500', letterSpacing:'0'
         },
         onclick: (e) => {
           e.stopPropagation();
@@ -10108,8 +10344,9 @@ function wmRenderRest(ex) {
           fbRow.querySelectorAll('[data-fb]').forEach(btn => {
             const k = btn.getAttribute('data-fb');
             const active = k === opt.key;
-            btn.style.background = active ? '#000' : 'rgba(0,0,0,0.15)';
-            btn.style.color = active ? WM_PALETTE.rest : '#000';
+            btn.style.background = active ? '#3bdfff' : 'var(--bg-inset)';
+            btn.style.color = active ? '#000' : 'var(--text-secondary)';
+            btn.style.border = '1px solid ' + (active ? '#3bdfff' : 'var(--border-default)');
           });
         }
       }, opt.label);
@@ -10120,16 +10357,16 @@ function wmRenderRest(ex) {
     // INLINE WEIGHT ADJUSTER for next set — only if not the last set
     if (!isLastSet) {
       inputCard.appendChild(el('div', {
-        style: {height:'1px',background:'rgba(0,0,0,0.15)',margin:'4px 0 12px'}
+        style: {height:'1px',background:'var(--border-subtle)',margin:'4px 0 12px'}
       }));
       inputCard.appendChild(el('div', {
-        style: {fontSize:'8px',color:'#000',opacity:'0.7',letterSpacing:'0.22em',textTransform:'uppercase',marginBottom:'6px',fontWeight:'700'}
-      }, 'Next Set Weight'));
+        style: {fontSize:'11px',color:'var(--text-tertiary)',letterSpacing:'0.02em',marginBottom:'6px',fontWeight:'600',fontFamily:'var(--font-ui)'}
+      }, 'Next set weight'));
 
       const weightRow = div({display:'flex',alignItems:'center',gap:'8px',justifyContent:'center',marginBottom:'8px'});
       const mkWtBtn = (label, delta) => el('button', {
-        class:'btn',
-        style:{background:'#000',color:WM_PALETTE.rest,border:'none',padding:'8px 11px',borderRadius:'8px',fontFamily:"'DM Mono',monospace",fontSize:'11px',cursor:'pointer',fontWeight:'700',minWidth:'46px'},
+        class:'btn pressable',
+        style:{background:'var(--bg-inset)',color:'var(--text-primary)',border:'1px solid var(--border-default)',padding:'8px 11px',borderRadius:'var(--radius-control)',fontFamily:'var(--font-ui)',fontSize:'13px',cursor:'pointer',fontWeight:'500',minWidth:'46px'},
         onclick: (e) => {
           e.stopPropagation();
           wmState.currentWeight = Math.max(0, +(wmState.currentWeight + delta).toFixed(2));
@@ -10142,7 +10379,7 @@ function wmRenderRest(ex) {
       weightRow.appendChild(mkWtBtn('−2.5', -2.5));
       weightRow.appendChild(el('div', {
         id:'wm-rest-weight-display',
-        style:{fontFamily:"'Anton',sans-serif",fontSize:'34px',color:'#000',minWidth:'70px',textAlign:'center',lineHeight:'1',padding:'0 4px'}
+        style:{fontFamily:'var(--font-data)',fontVariantNumeric:'tabular-nums',fontSize:'28px',fontWeight:'500',color:'var(--text-primary)',minWidth:'70px',textAlign:'center',lineHeight:'1',padding:'0 4px'}
       }, wmState.currentWeight + ''));
       weightRow.appendChild(mkWtBtn('+2.5', 2.5));
       weightRow.appendChild(mkWtBtn('+5', 5));
@@ -10151,8 +10388,8 @@ function wmRenderRest(ex) {
       // Bigger increments on a second row
       const bigRow = div({display:'flex',gap:'6px',justifyContent:'center'});
       const mkBigBtn = (label, delta) => el('button', {
-        class:'btn',
-        style:{background:'rgba(0,0,0,0.12)',color:'#000',border:'1px solid rgba(0,0,0,0.25)',padding:'6px 10px',borderRadius:'12px',fontFamily:"'DM Mono',monospace",fontSize:'10px',cursor:'pointer',fontWeight:'700'},
+        class:'btn pressable',
+        style:{background:'var(--bg-inset)',color:'var(--text-secondary)',border:'1px solid var(--border-default)',padding:'6px 10px',borderRadius:'var(--radius-control)',fontFamily:'var(--font-ui)',fontSize:'12px',cursor:'pointer',fontWeight:'500'},
         onclick: (e) => {
           e.stopPropagation();
           wmState.currentWeight = Math.max(0, +(wmState.currentWeight + delta).toFixed(2));
@@ -10176,13 +10413,13 @@ function wmRenderRest(ex) {
   // the big orange READY button when rest hits 0 (and we're not auto-advancing).
   const actionBtn = el('button', {
     id: 'wm-rest-action-btn',
-    class: 'btn',
+    class: 'btn pressable',
     style: {
-      marginTop: '16px', background:'#000', color:WM_PALETTE.rest,
-      border:'none', padding:'14px 28px', borderRadius:'10px',
-      fontFamily:"'DM Mono',monospace", fontSize:'12px',
-      letterSpacing:'0.2em', textTransform:'uppercase',
-      cursor:'pointer', fontWeight:'700',
+      marginTop: '16px', background:'var(--bg-elevated)', color:'var(--text-primary)',
+      border:'1px solid var(--border-default)', padding:'14px 28px', borderRadius:'var(--radius-control)',
+      fontFamily:'var(--font-ui)', fontSize:'14px',
+      letterSpacing:'0',
+      cursor:'pointer', fontWeight:'600',
       minHeight: '56px',
       transition:'all 0.3s ease'
     },
@@ -10191,15 +10428,16 @@ function wmRenderRest(ex) {
       wmCommitRestPhase(ex, isHold);
       wmAdvance();
     }
-  }, isLastSet ? 'Finish Exercise →' : 'Start Next Set →');
+  }, isLastSet ? 'Finish exercise →' : 'Start next set →');
   wrap.appendChild(actionBtn);
 
-  // Tick — handles ring fill, battle-royale fade (last 5s), auto-advance
-  // when rest hits 0 (unless user enabled "Prompt before next set"), and
-  // the READY button transformation when auto-advance is suppressed.
-  const FADE_START_SEC = 5;
-  const fromRGB = [0x00, 0xd4, 0xaa];  // mint teal canvas
-  const toRGB   = [0x00, 0x00, 0x00];  // pure black at remain=0
+  // Tick handles ring fill, the color-state progression (cyan to amber to
+  // pulse to green), auto-advance when rest hits 0 (unless the user enabled
+  // "Prompt before next set"), and the Go button transformation when
+  // auto-advance is suppressed. Background never changes: phase state is
+  // carried entirely by the digit and ring color.
+  const WARN_SEC = 10;   // amber threshold
+  const PULSE_SEC = 3;   // scale-pulse threshold
   let _autoAdvanceFired = false;
   let _readyTransformed = false;
 
@@ -10218,30 +10456,22 @@ function wmRenderRest(ex) {
       ringProgress.setAttribute('stroke-dashoffset', dashOffset);
     }
 
-    // ── Battle-royale fade (last 5s): canvas teal → black, text black → orange ──
-    if (remainPrecise <= FADE_START_SEC) {
-      const fadeProgress = Math.max(0, Math.min(1, 1 - (remainPrecise / FADE_START_SEC)));
-      const r = Math.round(fromRGB[0] + (toRGB[0] - fromRGB[0]) * fadeProgress);
-      const g = Math.round(fromRGB[1] + (toRGB[1] - fromRGB[1]) * fadeProgress);
-      const b = Math.round(fromRGB[2] + (toRGB[2] - fromRGB[2]) * fadeProgress);
-      wrap.style.background = 'rgb(' + r + ',' + g + ',' + b + ')';
-      // Text flips at midpoint: black for first half of fade, orange/white for second half
+    // ── Color states: calm cyan, amber under 10s, pulse under 3s, green at 0 ──
+    if (remainMs <= 0) {
+      if (timeEl) { timeEl.style.color = WM_PALETTE.go; timeEl.style.transform = 'none'; }
+      if (ringProgress) ringProgress.setAttribute('stroke', WM_PALETTE.go);
+    } else if (remain <= PULSE_SEC) {
       if (timeEl) {
-        if (fadeProgress < 0.5) {
-          timeEl.style.color = '#000';
-        } else {
-          // Past midpoint — flip to a bright readable colour against fading background
-          timeEl.style.color = '#ff6b3b';
-          timeEl.style.WebkitTextStroke = '1px #ff6b3b';
-        }
+        timeEl.style.color = WM_PALETTE.warn;
+        timeEl.style.transform = (remain % 2 === 0) ? 'scale(1.05)' : 'scale(1.0)';
       }
-      // Ring stroke also flips to orange at midpoint so it stays visible on dark canvas
-      if (ringProgress && fadeProgress >= 0.5) {
-        ringProgress.setAttribute('stroke', '#ff6b3b');
-      }
+      if (ringProgress) ringProgress.setAttribute('stroke', WM_PALETTE.warn);
+    } else if (remainPrecise <= WARN_SEC) {
+      if (timeEl) { timeEl.style.color = WM_PALETTE.warn; timeEl.style.transform = 'none'; }
+      if (ringProgress) ringProgress.setAttribute('stroke', WM_PALETTE.warn);
     } else {
-      // Outside the fade window — keep canvas at the rest palette
-      wrap.style.background = WM_PALETTE.rest;
+      if (timeEl) { timeEl.style.color = WM_PALETTE.rest; timeEl.style.transform = 'none'; }
+      if (ringProgress) ringProgress.setAttribute('stroke', WM_PALETTE.rest);
     }
 
     // ── Timer text ──
@@ -10249,9 +10479,9 @@ function wmRenderRest(ex) {
       if (remainMs > 0) {
         timeEl.textContent = formatTimerDisplay(remain);
       } else {
-        timeEl.textContent = 'READY';
-        // Shrink the text so the word READY fits inside the ring
-        timeEl.style.fontSize = '110px';
+        timeEl.textContent = 'Go';
+        // Shrink so the word fits inside the ring
+        timeEl.style.fontSize = '72px';
       }
     }
 
@@ -10289,21 +10519,23 @@ function wmRenderRest(ex) {
         }, 350);
       } else if (!_readyTransformed) {
         _readyTransformed = true;
-        // Transform action button into big READY treatment
+        // Transform action button into the green Go treatment
         const btn = document.getElementById('wm-rest-action-btn');
         if (btn) {
-          btn.style.background = '#ff6b3b';
-          btn.style.color = '#fff';
+          btn.style.background = WM_PALETTE.go;
+          btn.style.color = '#000';
+          btn.style.border = 'none';
           btn.style.padding = '22px 36px';
-          btn.style.fontSize = '18px';
-          btn.style.fontFamily = "'Bebas Neue', sans-serif";
-          btn.style.letterSpacing = '0.18em';
+          btn.style.fontSize = '17px';
+          btn.style.fontFamily = 'var(--font-ui)';
+          btn.style.fontWeight = '700';
+          btn.style.letterSpacing = '0';
           btn.style.minHeight = '64px';
           btn.style.width = '100%';
           btn.style.maxWidth = '420px';
-          btn.style.boxShadow = '0 8px 24px rgba(255,107,59,0.4), 0 0 0 4px rgba(255,107,59,0.15)';
+          btn.style.boxShadow = '0 8px 24px rgba(106,255,59,0.3), 0 0 0 4px rgba(106,255,59,0.12)';
           btn.style.transform = 'scale(1.02)';
-          btn.textContent = isLastSet ? 'FINISH EXERCISE →' : 'READY';
+          btn.textContent = isLastSet ? 'Finish exercise →' : 'Go';
         }
       }
     }
@@ -10474,39 +10706,39 @@ function wmRenderExerciseSummary(ex) {
   const wrap = div({});
   const sets = wmState.perExerciseLogs[ex.id] || [];
   const card = div({
-    background:'rgba(255,255,255,0.45)', border:'1px solid rgba(0,0,0,0.12)',
-    borderRadius:'12px', padding:'18px', marginBottom:'18px'
+    background:'var(--bg-card)', border:'1px solid var(--border-subtle)',
+    borderRadius:'var(--radius-card)', padding:'18px', marginBottom:'18px'
   });
   card.appendChild(el('div', {
-    style:{fontSize:'8px',color:'rgba(0,0,0,0.7)',letterSpacing:'0.25em',textTransform:'uppercase',marginBottom:'6px',fontWeight:'700'}
-  }, 'Exercise Complete · Tap to Edit'));
+    style:{fontSize:'11px',color:'var(--text-tertiary)',letterSpacing:'0.02em',marginBottom:'6px',fontWeight:'600',fontFamily:'var(--font-ui)'}
+  }, 'Exercise complete · tap to edit'));
   card.appendChild(el('div', {
-    style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'28px',color:'#000',letterSpacing:'0.04em',marginBottom:'14px'}
+    style:{fontFamily:'var(--font-ui)',fontSize:'20px',fontWeight:'700',color:'var(--text-primary)',letterSpacing:'-0.01em',marginBottom:'14px'}
   }, ex.name));
 
   sets.forEach((s, i) => {
     if (!s) return;
     const row = el('button', {
-      class: 'btn',
+      class: 'btn pressable',
       style: {
         display:'flex', justifyContent:'space-between', alignItems:'center',
         padding:'12px 0', width:'100%',
         background:'transparent', border:'none', cursor:'pointer',
-        borderBottom: i < sets.length - 1 ? '1px solid rgba(0,0,0,0.1)' : 'none',
+        borderBottom: i < sets.length - 1 ? '1px solid var(--border-subtle)' : 'none',
         textAlign:'left'
       },
       onclick: (e) => { e.stopPropagation(); wmEditSet(ex.id, i); }
     });
-    row.appendChild(el('div', {style:{fontSize:'10px',color:'rgba(0,0,0,0.65)',fontFamily:"'DM Mono',monospace",fontWeight:'700'}}, 'Set ' + (i+1) + '  ✎'));
+    row.appendChild(el('div', {style:{fontSize:'11px',color:'var(--text-tertiary)',fontFamily:'var(--font-ui)',fontWeight:'500'}}, 'Set ' + (i+1) + '  ✎'));
     const valRow = div({display:'flex',gap:'10px',alignItems:'center'});
     if (s.weight && parseFloat(s.weight) > 0) {
-      valRow.appendChild(el('div', {style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'20px',color:'#000',letterSpacing:'0.04em'}}, s.weight + 'kg'));
-      valRow.appendChild(el('div', {style:{color:'rgba(0,0,0,0.4)',fontSize:'12px'}}, '×'));
+      valRow.appendChild(el('div', {style:{fontFamily:'var(--font-data)',fontVariantNumeric:'tabular-nums',fontSize:'18px',fontWeight:'500',color:'var(--text-primary)'}}, s.weight + 'kg'));
+      valRow.appendChild(el('div', {style:{color:'var(--text-muted)',fontSize:'12px'}}, '×'));
     }
-    valRow.appendChild(el('div', {style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'20px',color:'#000',letterSpacing:'0.04em'}}, s.reps));
+    valRow.appendChild(el('div', {style:{fontFamily:'var(--font-data)',fontVariantNumeric:'tabular-nums',fontSize:'18px',fontWeight:'500',color:'var(--text-primary)'}}, s.reps));
     if (s.note) {
-      const fbColor = s.note === 'easy' ? 'rgba(0,90,0,0.85)' : (s.note === 'struggled' ? 'rgba(150,60,0,0.9)' : 'rgba(0,0,0,0.7)');
-      valRow.appendChild(el('div', {style:{fontSize:'9px',color:fbColor,letterSpacing:'0.12em',textTransform:'uppercase',fontFamily:"'DM Mono',monospace",fontWeight:'700'}}, s.note));
+      const fbColor = s.note === 'easy' ? '#6aff3b' : (s.note === 'struggled' ? '#fbbf24' : 'var(--text-tertiary)');
+      valRow.appendChild(el('div', {style:{fontSize:'11px',color:fbColor,letterSpacing:'0',fontFamily:'var(--font-ui)',fontWeight:'600'}}, s.note));
     }
     row.appendChild(valRow);
     card.appendChild(row);
@@ -10515,7 +10747,7 @@ function wmRenderExerciseSummary(ex) {
 
   const day = PROGRAM[activeDay];
   const isLast = wmState.exIndex >= day.exercises.length - 1;
-  const btn = wmBigButton(isLast ? 'Finish Workout →' : 'Next Exercise →', '#000', WM_PALETTE.prep, () => wmAdvance());
+  const btn = wmBigButton(isLast ? 'Finish workout →' : 'Next exercise →', '#000', WM_PALETTE.prep, () => wmAdvance());
   wrap.appendChild(btn);
   return wrap;
 }
@@ -10524,14 +10756,14 @@ function wmRenderExerciseSummary(ex) {
 function wmRenderWorkoutSummary(day) {
   const wrap = div({});
   const card = div({
-    background:'rgba(255,255,255,0.45)', border:'1px solid rgba(0,0,0,0.15)',
-    borderRadius:'12px', padding:'20px', marginBottom:'18px'
+    background:'var(--bg-card)', border:'1px solid var(--border-subtle)',
+    borderRadius:'var(--radius-card)', padding:'20px', marginBottom:'18px'
   });
   card.appendChild(el('div', {
-    style:{fontSize:'8px',color:'rgba(0,0,0,0.55)',letterSpacing:'0.28em',textTransform:'uppercase',marginBottom:'6px',fontWeight:'700'}
-  }, 'Workout Complete'));
+    style:{fontSize:'11px',color:'var(--text-tertiary)',letterSpacing:'0.02em',marginBottom:'6px',fontWeight:'600',fontFamily:'var(--font-ui)'}
+  }, 'Workout complete'));
   card.appendChild(el('div', {
-    style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'40px',color:'#000',letterSpacing:'0.04em',marginBottom:'14px',lineHeight:'1'}
+    style:{fontFamily:'var(--font-ui)',fontSize:'24px',fontWeight:'800',color:'var(--text-primary)',letterSpacing:'-0.02em',marginBottom:'14px',lineHeight:'1.1'}
   }, day.title));
 
   // Totals
@@ -10551,10 +10783,10 @@ function wmRenderWorkoutSummary(day) {
 
   const stats = div({display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'10px',marginBottom:'18px'});
   const stat = (label, val, unit) => {
-    const d = div({background:'rgba(0,0,0,0.06)',border:'1px solid rgba(0,0,0,0.15)',borderRadius:'8px',padding:'10px',textAlign:'center'});
-    d.appendChild(el('div',{style:{fontSize:'7px',color:'rgba(0,0,0,0.55)',letterSpacing:'0.2em',textTransform:'uppercase',marginBottom:'4px',fontWeight:'700'}},label));
-    d.appendChild(el('div',{style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'24px',color:'#000'}},val));
-    if (unit) d.appendChild(el('div',{style:{fontSize:'8px',color:'rgba(0,0,0,0.5)',marginTop:'2px',fontFamily:"'DM Mono',monospace",fontWeight:'700'}},unit));
+    const d = div({background:'var(--bg-inset)',border:'1px solid var(--border-subtle)',borderRadius:'var(--radius-control)',padding:'10px',textAlign:'center'});
+    d.appendChild(el('div',{style:{fontSize:'11px',color:'var(--text-tertiary)',letterSpacing:'0.02em',marginBottom:'4px',fontWeight:'600',fontFamily:'var(--font-ui)'}},label));
+    d.appendChild(el('div',{style:{fontFamily:'var(--font-data)',fontVariantNumeric:'tabular-nums',fontSize:'20px',fontWeight:'500',color:'var(--text-primary)'}},val));
+    if (unit) d.appendChild(el('div',{style:{fontSize:'11px',color:'var(--text-muted)',marginTop:'2px',fontFamily:'var(--font-ui)'}},unit));
     return d;
   };
   const mins = Math.floor(totalSec / 60);
@@ -10569,28 +10801,30 @@ function wmRenderWorkoutSummary(day) {
     const eq = animalEquivalent(totalVolume);
     if (eq) {
       const animalCard = div({
-        background:'rgba(255,255,255,0.55)',
-        border:'1px solid rgba(0,0,0,0.18)',
-        borderRadius:'14px',
+        background:'var(--bg-elevated)',
+        border:'1px solid var(--border-subtle)',
+        borderLeft:'3px solid ' + day.accent,
+        borderRadius:'var(--radius-card)',
         padding:'18px 16px',
         marginBottom:'14px',
         textAlign:'center',
         position:'relative',
         overflow:'hidden'
       });
-      // Soft accent gradient backdrop for the card
+      // The one deliberate glow in workout mode: a soft contained halo behind
+      // the emoji, tinted with the day accent. Not a full wash, a detail.
       animalCard.appendChild(el('div', {
         style:{
           position:'absolute', top:'0',left:'0',right:'0',bottom:'0',
-          background:'radial-gradient(ellipse at center, rgba(0,0,0,0.04), transparent 70%)',
+          background:'radial-gradient(circle at 50% 30%, ' + day.accent + '22, transparent 60%)',
           pointerEvents:'none'
         }
       }));
       const inner = div({position:'relative',zIndex:'1'});
       inner.appendChild(el('div', {
-        style:{fontSize:'8px',color:'rgba(0,0,0,0.7)',letterSpacing:'0.28em',textTransform:'uppercase',fontWeight:'700',marginBottom:'8px'}
-      }, 'You Lifted The Equivalent Of'));
-      // Big emoji centerpiece with subtle drop animation
+        style:{fontSize:'11px',color:'var(--text-tertiary)',letterSpacing:'0.02em',fontWeight:'600',marginBottom:'8px',fontFamily:'var(--font-ui)'}
+      }, 'You lifted the equivalent of'));
+      // Big emoji centerpiece with subtle drop animation (kept from before)
       const emojiEl = el('div', {
         id: 'wm-animal-emoji',
         style:{
@@ -10614,15 +10848,15 @@ function wmRenderWorkoutSummary(day) {
       // Count + animal label
       const countLine = div({display:'flex',justifyContent:'center',alignItems:'baseline',gap:'10px',marginBottom:'4px',flexWrap:'wrap'});
       countLine.appendChild(el('span', {
-        style:{fontFamily:"'Anton','Bebas Neue',sans-serif",fontSize:'52px',color:'#000',letterSpacing:'-0.01em',lineHeight:'1',WebkitTextStroke:'1px #000'}
+        style:{fontFamily:'var(--font-ui)',fontWeight:'800',fontVariantNumeric:'tabular-nums',fontSize:'48px',color:'var(--text-primary)',letterSpacing:'-0.02em',lineHeight:'1'}
       }, eq.count + ''));
       countLine.appendChild(el('span', {
-        style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'24px',color:'#000',letterSpacing:'0.04em'}
+        style:{fontFamily:'var(--font-ui)',fontSize:'20px',fontWeight:'600',color:'var(--text-secondary)',letterSpacing:'-0.01em'}
       }, eq.count === 1 ? eq.animal.singular : eq.animal.name));
       inner.appendChild(countLine);
       // Volume context
       inner.appendChild(el('div', {
-        style:{fontSize:'9px',color:'rgba(0,0,0,0.6)',fontFamily:"'DM Mono',monospace",letterSpacing:'0.1em',marginTop:'4px',fontWeight:'700'}
+        style:{fontSize:'12px',color:'var(--text-tertiary)',fontFamily:'var(--font-data)',fontVariantNumeric:'tabular-nums',letterSpacing:'0',marginTop:'4px'}
       }, totalVolume.toFixed(0) + ' kg total · ~' + eq.animal.kg + ' kg each'));
       animalCard.appendChild(inner);
       wrap.appendChild(animalCard);
@@ -10633,27 +10867,27 @@ function wmRenderWorkoutSummary(day) {
   // Iterate via wmGetExercisesForDay so display reflects swap targets even
   // though the logs are keyed by original ids (preserved through swap).
   card.appendChild(el('div', {
-    style: {fontSize:'8px',color:'rgba(0,0,0,0.55)',letterSpacing:'0.22em',textTransform:'uppercase',marginTop:'6px',marginBottom:'4px',fontWeight:'700'}
-  }, 'Sets · Tap to Edit'));
+    style: {fontSize:'11px',color:'var(--text-tertiary)',letterSpacing:'0.02em',marginTop:'6px',marginBottom:'4px',fontWeight:'600',fontFamily:'var(--font-ui)'}
+  }, 'Sets · tap to edit'));
   wmGetExercisesForDay(day).forEach(ex => {
     const sets = wmState.perExerciseLogs[ex.id];
     if (!sets || sets.length === 0) return;
-    const exRow = div({padding:'10px 0',borderTop:'1px solid rgba(0,0,0,0.1)'});
+    const exRow = div({padding:'10px 0',borderTop:'1px solid var(--border-subtle)'});
     exRow.appendChild(el('div', {
-      style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'15px',color:'#000',letterSpacing:'0.04em',marginBottom:'6px'}
+      style:{fontFamily:'var(--font-ui)',fontSize:'13px',fontWeight:'600',color:'var(--text-primary)',letterSpacing:'-0.01em',marginBottom:'6px'}
     }, ex.name));
     const setRow = div({display:'flex',gap:'4px',flexWrap:'wrap'});
     sets.forEach((s, i) => {
       if (!s) return;
       const label = s.weight && parseFloat(s.weight) > 0 ? (s.weight + 'kg×' + s.reps) : (s.reps + '');
       const setBtn = el('button', {
-        class: 'btn',
+        class: 'btn pressable',
         style: {
-          background: 'rgba(0,0,0,0.08)', color: '#000',
-          border: '1px solid rgba(0,0,0,0.18)',
-          padding: '5px 10px', borderRadius: '6px',
-          fontFamily: "'DM Mono',monospace", fontSize: '10px',
-          cursor: 'pointer', fontWeight: '700'
+          background: 'var(--bg-inset)', color: 'var(--text-secondary)',
+          border: '1px solid var(--border-default)',
+          padding: '5px 10px', borderRadius: 'var(--radius-control)',
+          fontFamily: 'var(--font-data)', fontVariantNumeric: 'tabular-nums', fontSize: '11px',
+          cursor: 'pointer', fontWeight: '500'
         },
         onclick: (e) => { e.stopPropagation(); wmEditSet(ex.id, i); }
       }, label + ' ✎');
@@ -10717,23 +10951,23 @@ function wmTogglePause() {
 function wmExerciseHeaderCard(ex) {
   const day = PROGRAM[activeDay];
   const card = div({
-    background: 'rgba(255,255,255,0.4)',
-    border: '1px solid rgba(0,0,0,0.12)',
-    borderRadius: '12px', padding: '18px', marginBottom: '14px',
-    backdropFilter: 'blur(4px)'
+    background: 'var(--bg-card)',
+    border: '1px solid var(--border-subtle)',
+    borderLeft: '3px solid ' + day.accent,
+    borderRadius: 'var(--radius-card)', padding: '18px', marginBottom: '14px'
   });
   card.appendChild(el('div', {
-    style:{fontSize:'8px',color:'rgba(0,0,0,0.55)',letterSpacing:'0.25em',textTransform:'uppercase',marginBottom:'6px',fontWeight:'700'}
-  }, 'Up Next'));
+    style:{fontSize:'11px',color:'var(--text-tertiary)',letterSpacing:'0.02em',marginBottom:'6px',fontWeight:'600',fontFamily:'var(--font-ui)'}
+  }, 'Up next'));
   card.appendChild(el('div', {
-    style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'30px',color:'#000',letterSpacing:'0.04em',lineHeight:'1.05',marginBottom:'12px'}
+    style:{fontFamily:'var(--font-ui)',fontSize:'20px',fontWeight:'700',color:'var(--text-primary)',letterSpacing:'-0.01em',lineHeight:'1.15',marginBottom:'12px'}
   }, ex.name));
 
   const meta = div({display:'flex',gap:'8px',flexWrap:'wrap',marginBottom:'14px'});
   const metaItem = (label, val) => {
-    const d = div({background:'rgba(0,0,0,0.06)',border:'1px solid rgba(0,0,0,0.15)',borderRadius:'6px',padding:'6px 10px'});
-    d.appendChild(el('div',{style:{fontSize:'7px',color:'rgba(0,0,0,0.5)',letterSpacing:'0.2em',textTransform:'uppercase',marginBottom:'2px',fontWeight:'700'}},label));
-    d.appendChild(el('div',{style:{fontFamily:"'DM Mono',monospace",fontSize:'12px',color:'#000',fontWeight:'700'}},val));
+    const d = div({background:'var(--bg-inset)',border:'1px solid var(--border-subtle)',borderRadius:'var(--radius-control)',padding:'6px 10px'});
+    d.appendChild(el('div',{style:{fontSize:'11px',color:'var(--text-tertiary)',letterSpacing:'0.02em',marginBottom:'2px',fontWeight:'600',fontFamily:'var(--font-ui)'}},label));
+    d.appendChild(el('div',{style:{fontFamily:'var(--font-data)',fontVariantNumeric:'tabular-nums',fontSize:'13px',color:'var(--text-primary)',fontWeight:'500'}},val));
     return d;
   };
   meta.appendChild(metaItem('Sets', ex.sets + ''));
@@ -10746,22 +10980,22 @@ function wmExerciseHeaderCard(ex) {
                   : { cues: (ex.cues || []), setupNote: ex.setupNote || null };
   if (_cueData.cues && _cueData.cues.length) {
     card.appendChild(el('div', {
-      style:{fontSize:'7px',color:'rgba(0,0,0,0.55)',letterSpacing:'0.22em',textTransform:'uppercase',marginBottom:'6px',fontWeight:'700'}
+      style:{fontSize:'11px',color:'var(--text-tertiary)',letterSpacing:'0.02em',marginBottom:'6px',fontWeight:'600',fontFamily:'var(--font-ui)'}
     }, 'Technique'));
     if (ex.tempoDesc) {
       card.appendChild(el('div', {
-        style:{fontSize:'10px',color:'rgba(0,0,0,0.7)',fontStyle:'italic',marginBottom:'8px',padding:'6px 10px',background:'rgba(0,0,0,0.05)',borderLeft:'2px solid #000',borderRadius:'3px'}
-      }, ex.tempo + ' — ' + ex.tempoDesc));
+        style:{fontSize:'12px',color:'var(--text-secondary)',marginBottom:'8px',padding:'6px 10px',background:'var(--bg-inset)',borderLeft:'2px solid ' + day.accent,borderRadius:'var(--radius-control)',fontFamily:'var(--font-ui)'}
+      }, ex.tempo + ' · ' + ex.tempoDesc));
     }
     // Optional setup note (renders before cue list when present)
     if (_cueData.setupNote) {
       card.appendChild(el('div', {
-        style:{fontSize:'10px',color:'rgba(0,0,0,0.65)',fontStyle:'italic',marginBottom:'8px',padding:'6px 10px',background:'rgba(0,0,0,0.04)',borderLeft:'2px solid rgba(0,0,0,0.3)',borderRadius:'3px'}
+        style:{fontSize:'12px',color:'var(--text-tertiary)',marginBottom:'8px',padding:'6px 10px',background:'var(--bg-inset)',borderLeft:'2px solid var(--border-default)',borderRadius:'var(--radius-control)',fontFamily:'var(--font-ui)'}
       }, '⚙ ' + _cueData.setupNote));
     }
     _cueData.cues.forEach(c => {
-      const cueRow = div({display:'flex',gap:'7px',fontSize:'11px',color:'rgba(0,0,0,0.78)',lineHeight:'1.5',marginBottom:'4px'});
-      cueRow.appendChild(el('span',{style:{color:'#000',opacity:'0.7',flexShrink:'0',fontWeight:'700'}},'→'));
+      const cueRow = div({display:'flex',gap:'7px',fontSize:'12px',color:'var(--text-secondary)',lineHeight:'1.5',marginBottom:'4px',fontFamily:'var(--font-ui)'});
+      cueRow.appendChild(el('span',{style:{color:day.accent,flexShrink:'0',fontWeight:'700'}},'→'));
       cueRow.appendChild(el('span',{},c));
       card.appendChild(cueRow);
     });
@@ -10771,21 +11005,21 @@ function wmExerciseHeaderCard(ex) {
 
 function wmWeightAdjuster() {
   const wrap = div({
-    background:'rgba(255,255,255,0.4)', border:'1px solid rgba(0,0,0,0.12)',
-    borderRadius:'12px', padding:'18px', marginBottom:'14px'
+    background:'var(--bg-card)', border:'1px solid var(--border-subtle)',
+    borderRadius:'var(--radius-card)', padding:'18px', marginBottom:'14px'
   });
   wrap.appendChild(el('div', {
-    style:{fontSize:'8px',color:'rgba(0,0,0,0.55)',letterSpacing:'0.25em',textTransform:'uppercase',marginBottom:'10px',fontWeight:'700'}
-  }, 'Working Weight'));
+    style:{fontSize:'11px',color:'var(--text-tertiary)',letterSpacing:'0.02em',marginBottom:'10px',fontWeight:'600',fontFamily:'var(--font-ui)'}
+  }, 'Working weight'));
 
   const display = div({textAlign:'center',marginBottom:'14px'});
   const numEl = el('div', {
     id:'wm-weight-display',
-    style:{fontFamily:"'Anton','Bebas Neue',sans-serif",fontSize:'78px',color:'#000',letterSpacing:'-0.02em',lineHeight:'1',WebkitTextStroke:'1px #000'}
+    style:{fontFamily:'var(--font-data)',fontVariantNumeric:'tabular-nums',fontSize:'56px',fontWeight:'500',color:'var(--text-primary)',letterSpacing:'-0.02em',lineHeight:'1'}
   }, wmState.currentWeight + '');
   display.appendChild(numEl);
   display.appendChild(el('div', {
-    style:{fontSize:'10px',color:'rgba(0,0,0,0.55)',letterSpacing:'0.25em',textTransform:'uppercase',fontFamily:"'DM Mono',monospace",marginTop:'4px',fontWeight:'700'}
+    style:{fontSize:'11px',color:'var(--text-tertiary)',letterSpacing:'0.02em',fontFamily:'var(--font-ui)',marginTop:'4px',fontWeight:'500'}
   }, 'kg'));
   wrap.appendChild(display);
 
@@ -10795,7 +11029,7 @@ function wmWeightAdjuster() {
     const btn = document.getElementById('wm-start-btn');
     if (btn) {
       const labelEl = btn.querySelector('span');
-      if (labelEl) labelEl.textContent = wmState.currentWeight > 0 ? 'Start with ' + wmState.currentWeight + 'kg' : 'Start (Bodyweight)';
+      if (labelEl) labelEl.textContent = wmState.currentWeight > 0 ? 'Start with ' + wmState.currentWeight + 'kg' : 'Start (bodyweight)';
     }
   };
 
@@ -10809,14 +11043,14 @@ function wmWeightAdjuster() {
   stepBtns.forEach(b => {
     const isPlus = b.delta > 0;
     const btn = el('button', {
-      class:'btn',
+      class:'btn pressable',
       style:{
-        background: isPlus ? '#000' : 'rgba(0,0,0,0.08)',
-        color: isPlus ? WM_PALETTE.prep : '#000',
-        border: isPlus ? '1px solid #000' : '1px solid rgba(0,0,0,0.25)',
-        padding:'10px 0', borderRadius:'6px',
-        fontFamily:"'DM Mono',monospace", fontSize:'10px',
-        cursor:'pointer', fontWeight:'700'
+        background: isPlus ? 'var(--bg-elevated)' : 'var(--bg-inset)',
+        color: 'var(--text-primary)',
+        border: '1px solid var(--border-default)',
+        padding:'10px 0', borderRadius:'var(--radius-control)',
+        fontFamily:'var(--font-data)', fontVariantNumeric:'tabular-nums', fontSize:'11px',
+        cursor:'pointer', fontWeight:'500'
       },
       onclick: (e) => {
         e.stopPropagation();
@@ -10831,10 +11065,10 @@ function wmWeightAdjuster() {
 
   // Manual entry
   const manualRow = div({display:'flex',alignItems:'center',gap:'8px',marginTop:'10px'});
-  manualRow.appendChild(el('div',{style:{fontSize:'9px',color:'rgba(0,0,0,0.55)',letterSpacing:'0.15em',textTransform:'uppercase',fontWeight:'700'}},'Or set'));
+  manualRow.appendChild(el('div',{style:{fontSize:'11px',color:'var(--text-tertiary)',letterSpacing:'0.02em',fontWeight:'600',fontFamily:'var(--font-ui)'}},'Or set'));
   const inp = el('input', {
     type:'number', step:'0.25', value: wmState.currentWeight + '',
-    style:{flex:'1',background:'rgba(255,255,255,0.6)',border:'1px solid rgba(0,0,0,0.2)',color:'#000',padding:'8px 10px',borderRadius:'5px',fontFamily:"'DM Mono',monospace",fontSize:'12px',fontWeight:'700'}
+    style:{flex:'1',background:'var(--bg-inset)',border:'1px solid var(--border-default)',color:'var(--text-primary)',padding:'8px 10px',borderRadius:'var(--radius-control)',fontFamily:'var(--font-data)',fontVariantNumeric:'tabular-nums',fontSize:'13px',fontWeight:'500'}
   });
   inp.addEventListener('change', () => {
     const v = parseFloat(inp.value);
@@ -10865,27 +11099,39 @@ function wmFullCanvas(bgColor) {
 }
 
 function wmTopLabel(text, color) {
+  // Stage 0.6: legacy callers pass '#000' (from the old wash era). Map any
+  // dark legacy value to the neutral tertiary text token; honor real colors.
+  const c = (color === '#000' || color === '#080808') ? 'var(--text-tertiary)' : color;
   return el('div', {
-    style:{fontSize:'10px',color:color,letterSpacing:'0.3em',textTransform:'uppercase',opacity:'0.65',fontFamily:"'DM Mono',monospace",fontWeight:'700',marginBottom:'10px'}
+    style:{fontSize:'11px',color:c,letterSpacing:'0.04em',fontFamily:'var(--font-ui)',fontWeight:'600',marginBottom:'10px'}
   }, text);
 }
 function wmBottomLabel(text, color) {
+  const c = (color === '#000' || color === '#080808') ? 'var(--text-muted)' : color;
   return el('div', {
-    style:{fontSize:'9px',color:color,letterSpacing:'0.25em',textTransform:'uppercase',opacity:'0.45',fontFamily:"'DM Mono',monospace",marginTop:'24px'}
+    style:{fontSize:'11px',color:c,letterSpacing:'0.02em',fontFamily:'var(--font-ui)',opacity:'0.8',marginTop:'24px'}
   }, text);
 }
 
 function wmBigButton(label, bgColor, fgColor, onclick) {
+  // Stage 0.6: legacy callers pass ('#000', WM_PALETTE.x) from the wash era,
+  // where buttons were dark-on-color. On the neutral dark base, map the dark
+  // background to an elevated surface with a border, and map dark/legacy
+  // foregrounds to primary text. Real accent foregrounds pass through.
+  const darkLegacy = (v) => v === '#000' || v === '#080808' || v === '#c8f5b8' || v === '#ebebeb';
+  const bg = darkLegacy(bgColor) ? 'var(--bg-elevated)' : bgColor;
+  const fg = darkLegacy(fgColor) ? 'var(--text-primary)' : fgColor;
+  const border = darkLegacy(bgColor) ? '1px solid var(--border-default)' : 'none';
   return el('button', {
     id:'wm-start-btn',
-    class:'btn',
+    class:'btn pressable',
     style:{
       width:'100%', maxWidth:'420px', display:'block', margin:'0 auto',
-      background: bgColor, color: fgColor, border:'none',
-      padding:'18px 20px', borderRadius:'14px',
-      fontFamily:"'DM Mono',monospace", fontSize:'13px',
-      letterSpacing:'0.2em', textTransform:'uppercase',
-      cursor:'pointer', fontWeight:'700'
+      background: bg, color: fg, border: border,
+      padding:'18px 20px', borderRadius:'var(--radius-control)',
+      fontFamily:'var(--font-ui)', fontSize:'15px',
+      letterSpacing:'0',
+      cursor:'pointer', fontWeight:'600'
     },
     onclick: (e) => { e.stopPropagation(); onclick(e); }
   }, el('span', {}, label));
@@ -10947,31 +11193,31 @@ function wmRenderEntryBanner() {
   // inset accent-soft shadow, larger padding, Bebas Neue headline replacing
   // the small uppercase label.
   const wrap = div({
-    background: 'linear-gradient(135deg, ' + day.accent + '22, ' + day.accent + '08)',
-    border: '1px solid ' + day.accent + '88',
-    boxShadow: '0 0 0 1px ' + day.accent + '22 inset',
-    borderRadius: '12px',
+    background: 'var(--bg-card)',
+    border: '1px solid ' + day.accent + '33',
+    borderLeft: '3px solid ' + day.accent,
+    borderRadius: 'var(--radius-card)',
     padding: '16px 18px',
     marginBottom: '14px',
     display:'flex', justifyContent:'space-between', alignItems:'center', gap:'12px'
   });
   const left = div({ flex: '1', minWidth: '0' });
   left.appendChild(el('div', {
-    style:{fontFamily:"'Bebas Neue', sans-serif",fontSize:'22px',color: day.accent,letterSpacing:'0.04em',lineHeight:'1.05',marginBottom:'4px'}
-  }, hasSaved ? 'RESUME SESSION' : 'WORKOUT MODE'));
+    style:{fontFamily:'var(--font-ui)',fontSize:'17px',fontWeight:'650',color:'var(--text-primary)',letterSpacing:'-0.01em',lineHeight:'1.2',marginBottom:'4px'}
+  }, hasSaved ? 'Resume session' : 'Workout mode'));
   left.appendChild(el('div', {
-    style:{fontSize:'11px',color:'#aaa',lineHeight:'1.45',fontFamily:"'DM Mono', monospace"}
+    style:{fontSize:'12px',color:'var(--text-tertiary)',lineHeight:'1.45',fontFamily:'var(--font-ui)'}
   }, hasSaved ? 'Pick up where you left off.' : 'Guided session: countdown, sets, rest, all timed.'));
   wrap.appendChild(left);
 
   const startBtn = el('button', {
-    class:'btn',
+    class:'btn pressable',
     style:{
       background: day.accent, color:'#000', border:'none',
-      padding:'10px 16px', borderRadius:'10px',
-      fontFamily:"'DM Mono',monospace", fontSize:'11px',
-      letterSpacing:'0.18em', textTransform:'uppercase',
-      cursor:'pointer', fontWeight:'700', flexShrink:'0'
+      padding:'10px 18px', borderRadius:'var(--radius-control)',
+      fontFamily:'var(--font-ui)', fontSize:'14px',
+      letterSpacing:'0',
+      cursor:'pointer', fontWeight:'600', flexShrink:'0'
     },
     onclick: (e) => {
       e.stopPropagation();
@@ -10989,10 +11235,10 @@ function wmRenderEntryBanner() {
       style:{
         background:'transparent', color: day.accent,
         border:'1px solid ' + day.accent + '66',
-        padding:'7px 12px', borderRadius:'8px',
-        fontFamily:"'DM Mono',monospace", fontSize:'9px',
-        letterSpacing:'0.18em', textTransform:'uppercase',
-        cursor:'pointer', fontWeight:'700'
+        padding:'7px 12px', borderRadius:'var(--radius-control)',
+        fontFamily:'var(--font-ui)', fontSize:'12px',
+        letterSpacing:'0',
+        cursor:'pointer', fontWeight:'600'
       },
       onclick: async (e) => {
         e.stopPropagation();
@@ -11010,6 +11256,22 @@ function wmRenderEntryBanner() {
     wrap.appendChild(actionCol);
   } else {
     wrap.appendChild(startBtn);
+  }
+
+  // Equipment switcher (Stage 3.5): second location, below the entry banner,
+  // so the implement can be chosen right before starting a session. Only
+  // present when the day actually has equipment variants.
+  if (typeof dayHasEquipVariants === 'function' && dayHasEquipVariants(day)) {
+    const outer = div({marginBottom:'14px'});
+    wrap.style.marginBottom = '8px';
+    outer.appendChild(wrap);
+    const label = el('div', {
+      style:{fontSize:'11px',color:'var(--text-tertiary)',fontFamily:'var(--font-ui)',fontWeight:'600',marginBottom:'6px',letterSpacing:'0.02em'}
+    }, 'Equipment');
+    outer.appendChild(label);
+    const sw = renderEquipSwitcher(function() { renderWorkout(); renderDayBanner(); });
+    if (sw) outer.appendChild(sw);
+    return outer;
   }
   return wrap;
 }
@@ -12512,11 +12774,10 @@ function renderHaloNav() {
       const labelEl = document.createElement('div');
       labelEl.className = 'halo-tab-label';
       labelEl.style.cssText = `
-        font-family:'DM Mono',monospace;
-        font-size:8px;
-        letter-spacing:0.18em;
-        text-transform:uppercase;
-        font-weight:700;
+        font-family:var(--font-ui);
+        font-size:10px;
+        letter-spacing:0.01em;
+        font-weight:600;
         line-height:1;
         white-space:nowrap;
         margin-top:6px;
@@ -13210,13 +13471,13 @@ function renderDaySelector() {
       style:{
         flex:'0 0 auto',
         minWidth:'74px',
-        background: active ? d.accent : 'var(--bg-card)',
-        color: active ? '#000' : 'var(--text-footnote)',
-        border: '1px solid ' + borderColor,
-        borderRadius:'6px',
+        background: active ? 'var(--bg-elevated)' : 'var(--bg-card)',
+        color: active ? 'var(--text-primary)' : 'var(--text-footnote)',
+        border: '1px solid ' + (active ? d.accent : borderColor),
+        borderRadius:'var(--radius-control)',
         padding:'7px 8px',
         cursor:'pointer',
-        fontFamily:"'DM Mono',monospace",
+        fontFamily:'var(--font-ui)',
         textAlign:'center',
         fontSize:'11px',
         position:'relative',
@@ -13236,9 +13497,10 @@ function renderDaySelector() {
     // Weekday label (top)
     btn.appendChild(el('div', {
       style: {
-        fontSize:'7px',
-        color: active ? '#00000099' : (isToday ? d.accent : '#666'),
-        letterSpacing:'0.1em',
+        fontSize:'10px',
+        fontWeight:'600',
+        color: active ? d.accent : (isToday ? d.accent : '#666'),
+        letterSpacing:'0.02em',
         marginBottom:'1px',
         fontWeight: isToday ? '700' : '400'
       }
@@ -13255,11 +13517,11 @@ function renderDaySelector() {
     }, dateLabel));
 
     // Title
-    btn.appendChild(el('div', {style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'14px',letterSpacing:'0.04em'}}, d.title));
+    btn.appendChild(el('div', {style:{fontFamily:'var(--font-ui)',fontSize:'12px',fontWeight:'600',letterSpacing:'0'}}, d.title));
 
     // Day label + nutrition tag
-    btn.appendChild(el('div', {style:{fontSize:'6px',opacity:'0.55',marginTop:'1px',letterSpacing:'0.08em'}}, d.label));
-    btn.appendChild(el('div', {style:{fontSize:'6px',color: active?'#00000088':np.color,marginTop:'2px',letterSpacing:'0.05em'}}, np.label.split(' ')[0].toUpperCase()));
+    btn.appendChild(el('div', {style:{fontSize:'9px',opacity:'0.55',marginTop:'1px',letterSpacing:'0.02em'}}, d.label));
+    btn.appendChild(el('div', {style:{fontSize:'9px',color: np.color,marginTop:'2px',letterSpacing:'0.02em',fontWeight:'500'}}, np.label.split(' ')[0].toUpperCase()));
 
     // Status indicator (top-right corner)
     if (statusGlyph && !active) {
@@ -13285,7 +13547,7 @@ function renderDaySelector() {
         left:'50%',
         transform:'translateX(-50%)',
         fontSize:'8px',
-        color: active ? '#00000044' : '#1a1a1a',
+        color: '#1a1a1a',
         letterSpacing:'1px',
         lineHeight:'1',
         pointerEvents:'none'
@@ -13697,6 +13959,7 @@ function renderDayBanner() {
   const banner = document.getElementById('day-banner');
   const isToday = activeDay === getTodayActiveDay() && weekOffset === 0;
   banner.style.border = '1px solid ' + day.accent + '22';
+  banner.style.borderLeft = '3px solid ' + day.accent;
   banner.innerHTML = '';
   const left = div({});
 
@@ -13706,15 +13969,15 @@ function renderDayBanner() {
   if (isToday) {
     const datePill = div({
       display:'inline-block',
-      fontSize:'8px',
+      fontSize:'10px',
       color: day.accent,
       background: day.accent + '14',
       padding:'2px 8px',
-      borderRadius:'10px',
-      letterSpacing:'0.12em',
+      borderRadius:'var(--radius-pill)',
+      letterSpacing:'0.04em',
       textTransform:'uppercase',
       marginBottom:'6px',
-      fontWeight:'700'
+      fontWeight:'600'
     });
     datePill.appendChild(document.createTextNode('TODAY · ' + todayLocaleDate()));
     left.appendChild(datePill);
@@ -13725,10 +13988,10 @@ function renderDayBanner() {
     else if (weekOffset === -1) dateText = 'Last ' + dateText;
     else if (weekOffset > 1) dateText += ' · ' + weekOffset + 'w ahead';
     else if (weekOffset < -1) dateText += ' · ' + Math.abs(weekOffset) + 'w ago';
-    left.appendChild(el('div',{style:{fontSize:'8px',color:'#6a6a6a',letterSpacing:'0.15em',textTransform:'uppercase',marginBottom:'4px'}}, dateText));
+    left.appendChild(el('div',{style:{fontSize:'11px',color:'#6a6a6a',letterSpacing:'0.02em',marginBottom:'4px'}}, dateText));
   }
-  left.appendChild(bebas(32,day.accent,day.title));
-  left.appendChild(el('div',{style:{fontSize:'9px',color:'#7a7a7a',letterSpacing:'0.12em',textTransform:'uppercase',marginTop:'3px'}},day.subtitle));
+  left.appendChild(bebas(32,'var(--text-primary)',day.title));
+  left.appendChild(el('div',{style:{fontSize:'11px',color:'#7a7a7a',letterSpacing:'0.02em',marginTop:'3px',fontFamily:'var(--font-ui)'}},day.subtitle));
   banner.appendChild(left);
   // Use user's day-type target if a goal profile exists; otherwise fall back
   // to the hardcoded baseline. This makes the banner reflect what THIS user
@@ -13738,11 +14001,67 @@ function renderDayBanner() {
   const _displayKcal = _dayMacros ? _dayMacros.targetKcal : np.calories;
   const _displayProtein = _dayMacros ? _dayMacros.proteinG : np.protein;
   banner.appendChild(div({textAlign:'right'},
-    el('div',{style:{fontSize:'8px',color:np.color,letterSpacing:'0.15em',textTransform:'uppercase',marginBottom:'3px'}},np.label),
-    bebas(22,np.color,_displayKcal+' kcal'),
-    el('div',{style:{fontSize:'9px',color:'#6a6a6a'}},_displayProtein+'g protein'),
-    el('div',{style:{fontSize:'9px',color:'#333',marginTop:'2px'}},np.desc)
+    el('div',{style:{fontSize:'10px',color:np.color,letterSpacing:'0.04em',textTransform:'uppercase',fontWeight:'600',marginBottom:'3px'}},np.label),
+    el('div',{style:{fontFamily:'var(--font-data)',fontVariantNumeric:'tabular-nums',fontSize:'20px',fontWeight:'500',color:'var(--text-primary)',lineHeight:'1.1'}},_displayKcal+' kcal'),
+    el('div',{style:{fontSize:'11px',color:'#6a6a6a',fontFamily:'var(--font-ui)'}},_displayProtein+'g protein'),
+    el('div',{style:{fontSize:'10px',color:'#4a4a4a',marginTop:'2px',fontFamily:'var(--font-ui)'}},np.desc)
   ));
+
+  // Equipment switcher (Stage 3.5): only shown when the day has at least one
+  // exercise that defines equip variants, so pure-gym days stay uncluttered.
+  if (dayHasEquipVariants(day)) {
+    const sw = renderEquipSwitcher(function() { renderWorkout(); renderDayBanner(); });
+    if (sw) {
+      sw.style.marginTop = '12px';
+      // span the full banner width below the two columns
+      sw.style.flexBasis = '100%';
+      banner.appendChild(sw);
+    }
+  }
+}
+
+// True when any exercise in the day defines an equip object, i.e. the
+// equipment switcher is meaningful for this day.
+function dayHasEquipVariants(day) {
+  if (!day || !Array.isArray(day.exercises)) return false;
+  return day.exercises.some(function(ex) { return ex && ex.equip; });
+}
+
+// Reusable Default / Bar / Rings segmented control. onChange runs after the
+// context is persisted. Built in the Stage 0.5 token language.
+function renderEquipSwitcher(onChange) {
+  const ctx = (typeof getEquipContext === 'function') ? getEquipContext() : 'default';
+  const opts = [
+    {key:'default', label:'Default'},
+    {key:'bar', label:'Bar'},
+    {key:'rings', label:'Rings'}
+  ];
+  const row = div({
+    display:'flex', gap:'4px', alignItems:'center',
+    background:'var(--bg-inset)', border:'1px solid var(--border-subtle)',
+    borderRadius:'var(--radius-control)', padding:'3px'
+  });
+  opts.forEach(function(o) {
+    const active = ctx === o.key;
+    row.appendChild(el('button', {
+      class:'btn pressable',
+      style:{
+        flex:'1',
+        background: active ? 'var(--accent)' : 'transparent',
+        color: active ? '#001014' : 'var(--text-tertiary)',
+        border:'none', borderRadius:'var(--radius-chip)',
+        padding:'6px 8px', cursor:'pointer',
+        fontFamily:'var(--font-ui)', fontSize:'12px',
+        fontWeight: active ? '600' : '500', letterSpacing:'0'
+      },
+      onclick: function(e) {
+        e.stopPropagation();
+        if (typeof setEquipContext === 'function') setEquipContext(o.key);
+        if (typeof onChange === 'function') onChange();
+      }
+    }, o.label));
+  });
+  return row;
 }
 
 function renderReorderHint() {
@@ -13752,10 +14071,10 @@ function renderReorderHint() {
   const isCustom = !!localStorage.getItem(dayOrderKey());
   if (isCustom) {
     const row = div({display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 18px 6px',gap:'8px'});
-    row.appendChild(el('span',{style:{fontSize:'8px',color:'#7a7a7a',letterSpacing:'0.12em',textTransform:'uppercase'}},'• Custom day order this week'));
+    row.appendChild(el('span',{style:{fontSize:'11px',color:'#7a7a7a',letterSpacing:'0.02em'}},'Custom day order this week'));
     row.appendChild(el('button',{
       class:'btn',
-      style:{background:'transparent',color:'#8a8a8a',border:'1px solid #2a2a2a',padding:'3px 8px',borderRadius:'4px',fontFamily:"'DM Mono',monospace",fontSize:'8px',letterSpacing:'0.12em',cursor:'pointer',textTransform:'uppercase'},
+      style:{background:'transparent',color:'#8a8a8a',border:'1px solid #2a2a2a',padding:'4px 10px',borderRadius:'var(--radius-control)',fontFamily:'var(--font-ui)',fontSize:'11px',fontWeight:'500',letterSpacing:'0.01em',cursor:'pointer'},
       onclick: resetWeekDayOrder
     }, 'Reset Order'));
     wrap.appendChild(row);
@@ -17681,6 +18000,83 @@ function renderWorkout() {
   var _progNotice = renderProgramOnboardingNotice();
   if (_progNotice) list.appendChild(_progNotice);
 
+  // Warm-up panel. Surfaces above the first exercise card whenever the
+  // active day carries a warmUp array. Currently only the calisthenics
+  // style ships warm-ups (Day 1-5) because that style has the highest
+  // tendon-load risk profile (planche, levers, HSPU). PROGRAM and other
+  // styles render nothing here because they don't define warmUp.
+  // Intentionally non-interactive: no logging, no done state, no swap.
+  // It's a prescribed prep checklist the user reads, performs, then moves
+  // past to start the working sets.
+  if (Array.isArray(day.warmUp) && day.warmUp.length > 0) {
+    var wuCard = el('div', {
+      class: 'card dark-card',
+      style: {
+        background: 'var(--bg-card)',
+        border: '1px solid ' + day.accent + '22',
+        borderRadius: 'var(--radius-card)',
+        marginBottom: '10px',
+        overflow: 'hidden'
+      }
+    });
+    var wuHeader = div({
+      padding: '10px 14px 8px',
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      borderBottom: '1px solid ' + day.accent + '14'
+    },
+      el('span', {style: {
+        fontFamily: "'Bebas Neue',sans-serif",
+        fontSize: '12px',
+        letterSpacing: '0.18em',
+        color: day.accent
+      }}, '\u25c6 WARM-UP'),
+      el('span', {style: {
+        fontFamily: "'DM Mono',monospace",
+        fontSize: '9px',
+        letterSpacing: '0.1em',
+        color: '#6a6a6a'
+      }}, 'INJURY PREP \u00b7 ' + day.warmUp.length + ' MOVEMENTS')
+    );
+    wuCard.appendChild(wuHeader);
+    var wuList = div({padding: '8px 14px 12px'});
+    day.warmUp.forEach(function(mv, i) {
+      var row = div({
+        padding: '8px 0',
+        borderBottom: (i < day.warmUp.length - 1) ? '1px solid var(--border-subtle)' : 'none'
+      },
+        div({display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '3px', gap: '8px'},
+          el('span', {style: {
+            fontFamily: "'Bebas Neue',sans-serif",
+            fontSize: '14px',
+            letterSpacing: '0.03em',
+            color: '#e0e0e0',
+            flex: '1',
+            minWidth: '0'
+          }}, mv.name),
+          el('span', {style: {
+            fontFamily: "'DM Mono',monospace",
+            fontSize: '10px',
+            color: day.accent,
+            letterSpacing: '0.05em',
+            flexShrink: '0',
+            whiteSpace: 'nowrap'
+          }}, mv.duration)
+        ),
+        el('div', {style: {
+          fontFamily: "'DM Mono',monospace",
+          fontSize: '10px',
+          color: '#8a8a8a',
+          lineHeight: '1.5'
+        }}, mv.cue)
+      );
+      wuList.appendChild(row);
+    });
+    wuCard.appendChild(wuList);
+    list.appendChild(wuCard);
+  }
+
   day.exercises.forEach(originalEx => {
     // Phase 1B: resolve skill rung BEFORE user swap. Skill rung substitutes
     // name/sets/reps/tempo/cues from the user's current rung when the
@@ -17712,61 +18108,60 @@ function renderWorkout() {
     const header = div({padding:'12px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',gap:'6px'},
       div({flex:'1',minWidth:'0'},
         div({display:'flex',alignItems:'center',gap:'8px',marginBottom:'3px',flexWrap:'wrap'},
-          el('span',{style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:'17px',letterSpacing:'0.04em'}},ex.name),
-          el('span',{style:{fontSize:'7px',color:day.accent,border:'1px solid ' + day.accent+'33',padding:'2px 5px',borderRadius:'3px',letterSpacing:'0.1em'}},ex.category),
-          level ? el('span',{style:{fontSize:'7px',color:levelColor,border:'1px solid ' + levelColor + '33',padding:'2px 5px',borderRadius:'3px',letterSpacing:'0.1em',textTransform:'uppercase',fontWeight:'700'}}, level) : null,
-          ex._swapped ? el('span',{style:{fontSize:'7px',color:'#3bdfff',background:'rgba(59,223,255,0.1)',border:'1px solid rgba(59,223,255,0.3)',padding:'2px 5px',borderRadius:'3px',letterSpacing:'0.1em',fontWeight:'700'}}, '⇄ swapped') : null,
-          // ── Experience-level variant badge ──
-          // Appears when the exercise has been substituted by the difficulty
-          // system (beginner or advanced variant in play). Color-coded:
-          // amber for beginner (gentler variant), purple for advanced (harder).
-          // Intermediate is the default and shows no badge.
-          ex._variantLevel === 'beginner' ? el('span',{
-            title: 'Beginner variant — original was: ' + (ex._originalName || 'standard'),
-            style:{fontSize:'7px',color:'#fbbf24',background:'rgba(251,191,36,0.08)',border:'1px solid rgba(251,191,36,0.3)',padding:'2px 5px',borderRadius:'3px',letterSpacing:'0.1em',fontWeight:'700'}
-          }, '▱▱▱ Beginner') : null,
-          ex._variantLevel === 'advanced' ? el('span',{
-            title: 'Advanced variant — original was: ' + (ex._originalName || 'standard'),
-            style:{fontSize:'7px',color:'#b03bff',background:'rgba(176,59,255,0.08)',border:'1px solid rgba(176,59,255,0.3)',padding:'2px 5px',borderRadius:'3px',letterSpacing:'0.1em',fontWeight:'700'}
-          }, '▰▰▰ Advanced') : null,
-          // ── Skill progression rung badge ──
-          // Surfaces when the exercise has been resolved to a specific rung
-          // on its skill ladder (e.g. Planche rung 2 of 6). Hidden when the
-          // user has swapped out of the skill entirely, since the rung is
-          // then moot. Uses the skill day accent (purple) to mirror the
-          // calisthenics visual language.
-          (ex._skillRung && !ex._swapped) ? el('span',{
-            title: ex._skillLabel + ' progression · rung ' + (ex._skillRungIndex + 1) + ' of ' + ex._skillRungTotal + ' · tap swap to change',
-            style:{fontSize:'7px',color:'#b03bff',background:'rgba(176,59,255,0.08)',border:'1px solid rgba(176,59,255,0.3)',padding:'2px 5px',borderRadius:'3px',letterSpacing:'0.1em',fontWeight:'700'}
-          }, 'RUNG ' + (ex._skillRungIndex + 1) + '/' + ex._skillRungTotal) : null,
-          filled>0 ? el('span',{style:{fontSize:'7px',color:'var(--status-success)',letterSpacing:'0.1em'}},filled + '/' + ex.sets + ' \u2713') : null,
-          suggestion ? el('span',{class:'progress-chip progress-chip-up',style:{fontSize:'8px'}},'\u2191 Progress') : (rawSuggestion && rawSuggestion.reason === 'repeat' ? el('span',{class:'progress-chip progress-chip-hold',style:{fontSize:'8px'},title:'Didn\'t hit top reps last session — hold weight'},'\u2192 Hold') : null)
+          el('span',{style:{fontFamily:'var(--font-ui)',fontSize:'16px',fontWeight:'600',letterSpacing:'-0.01em'}},ex.name),
+          // ── Status chip: exactly ONE shows, by priority ──
+          // swapped > variant > rung > progress. Category and experience
+          // level moved to the meta line below; they are reference info,
+          // not glance info, and seven simultaneous chips was the single
+          // loudest "unfinished" signal on this surface.
+          (function(){
+            if (ex._swapped) return el('span',{style:{fontSize:'11px',color:'#3bdfff',background:'rgba(59,223,255,0.1)',border:'1px solid rgba(59,223,255,0.3)',padding:'2px 7px',borderRadius:'var(--radius-chip)',fontWeight:'500',fontFamily:'var(--font-ui)'}}, '⇄ Swapped');
+            if (ex._variantLevel === 'beginner') return el('span',{
+              title: 'Beginner variant. Original was: ' + (ex._originalName || 'standard'),
+              style:{fontSize:'11px',color:'#fbbf24',background:'rgba(251,191,36,0.08)',border:'1px solid rgba(251,191,36,0.3)',padding:'2px 7px',borderRadius:'var(--radius-chip)',fontWeight:'500',fontFamily:'var(--font-ui)'}
+            }, 'Beginner variant');
+            if (ex._variantLevel === 'advanced') return el('span',{
+              title: 'Advanced variant. Original was: ' + (ex._originalName || 'standard'),
+              style:{fontSize:'11px',color:'#b03bff',background:'rgba(176,59,255,0.08)',border:'1px solid rgba(176,59,255,0.3)',padding:'2px 7px',borderRadius:'var(--radius-chip)',fontWeight:'500',fontFamily:'var(--font-ui)'}
+            }, 'Advanced variant');
+            if (ex._skillRung && !ex._swapped) return el('span',{
+              title: ex._skillLabel + ' progression · rung ' + (ex._skillRungIndex + 1) + ' of ' + ex._skillRungTotal + ' · tap swap to change',
+              style:{fontSize:'11px',color:'#b03bff',background:'rgba(176,59,255,0.08)',border:'1px solid rgba(176,59,255,0.3)',padding:'2px 7px',borderRadius:'var(--radius-chip)',fontWeight:'500',fontFamily:'var(--font-ui)'}
+            }, 'Rung ' + (ex._skillRungIndex + 1) + '/' + ex._skillRungTotal);
+            if (suggestion) return el('span',{class:'progress-chip progress-chip-up',style:{fontSize:'10px'}},'\u2191 Progress');
+            if (rawSuggestion && rawSuggestion.reason === 'repeat') return el('span',{class:'progress-chip progress-chip-hold',style:{fontSize:'10px'},title:'Didn\'t hit top reps last session, hold weight'},'\u2192 Hold');
+            return null;
+          })(),
+          filled>0 ? el('span',{style:{fontSize:'11px',color:'var(--status-success)',fontFamily:'var(--font-data)',fontVariantNumeric:'tabular-nums'}},filled + '/' + ex.sets + ' \u2713') : null
         ),
-        el('div',{style:{fontSize:'9px',color:'#6a6a6a'}},ex.sets + ' × ' + ex.reps + ' · T: ' + ex.tempo)
+        el('div',{style:{fontSize:'11px',color:'var(--text-muted)',fontFamily:'var(--font-ui)'}},ex.sets + ' × ' + ex.reps + ' · T: ' + ex.tempo + ' · ' + ex.category + (level ? ' · ' + level.charAt(0).toUpperCase() + level.slice(1).toLowerCase() : '')),
+        // Equipment context note (Stage 3.5): heads-up line when a ring/bar
+        // variant is active, especially when the rung was stepped back.
+        ex._equipNote ? el('div',{style:{fontSize:'11px',color:'var(--accent)',fontFamily:'var(--font-ui)',marginTop:'4px',lineHeight:'1.4'}}, ex._equipNote) : null
       ),
       // History button — opens bottom sheet showing the last 12 sessions
       // for this exercise across all weeks/days, plus PR summary.
       el('button',{
-        class:'btn',
+        class:'btn pressable',
         title:'View history',
         'aria-label':'View history for ' + ex.name,
         style:{
           background:'transparent',color:'var(--text-tertiary)',
           border:'1px solid var(--border-subtle)',
-          padding:'6px 9px',borderRadius:'5px',
+          padding:'6px 9px',borderRadius:'var(--radius-control)',
           fontSize:'13px',cursor:'pointer',flexShrink:'0'
         },
         onclick: (e) => { e.stopPropagation(); openHistorySheet(originalEx, day.accent); }
       }, '◴'),
       // Swap button — opens bottom sheet for alternative selection
       el('button',{
-        class:'btn',
+        class:'btn pressable',
         title:'Swap exercise',
         'aria-label':'Swap ' + ex.name + ' for an alternative',
         style:{
           background:'transparent',color:'var(--text-tertiary)',
           border:'1px solid var(--border-subtle)',
-          padding:'6px 9px',borderRadius:'5px',
+          padding:'6px 9px',borderRadius:'var(--radius-control)',
           fontSize:'13px',cursor:'pointer',flexShrink:'0'
         },
         onclick: (e) => { e.stopPropagation(); openSwapSheet(originalEx, day.day); }
@@ -26690,6 +27085,59 @@ const ORIGIN_LUNCHES = [
       { n: 5, body: 'Pour in the tomatoes plus 80ml water. Simmer uncovered 12 minutes, stirring occasionally, until the sauce holds a line on the spoon.' },
       { n: 6, body: 'While the sauce reduces, tear the kale into bite pieces and toss in a hot dry pan with a pinch of salt for 3 minutes until just wilted and slightly charred at the edges.' },
       { n: 7, body: 'Off the heat, stir the nutritional yeast through the bolognese. Plate the kale beside, ragù on top, scatter with walnut crumble and torn basil.' }
+    ]
+  },
+
+  {
+    id: 'origin-lunch-thai-basil-beef',
+    slot: 'lunch',
+    rotation: 'origin',
+    carbLevel: 'MOD',
+    proteinClass: 'meat',
+    name: 'Thai Basil Beef + Brown Rice Bowl',
+    tagline: 'Sirloin stir-fried with garlic, chilli, and fresh basil over brown rice with bok choy.',
+    fusionStory: 'Pad krapow nuea is the working-day street food of Bangkok. Built around the trinity of garlic, chilli, and Thai basil, with a small but loud combination of oyster sauce and fish sauce doing most of the heavy lifting. Brown rice instead of white is the only real departure from the source.',
+    teachingNote: 'Lean sirloin at 155 grams clears the protein floor without the fat creep that fattier cuts bring, which is what lets a stir-fry sit cleanly in a MOD-carb day. Brown rice is what makes this a training-day lunch rather than a takeout dish: same carb load, more fibre, slower release. The oyster sauce and fish sauce stack contributes most of the umami; resist the urge to add more oil.',
+    techniques: [
+      { name: 'High-heat searing', note: 'Get the pan smoking hot before the beef goes in. Cook in two batches if needed so the strips actually brown rather than steaming in their own juice.' },
+      { name: 'Basil at the end', note: 'Thai basil (or fresh basil if you cannot find it) goes in off the heat. The leaves should wilt from residual warmth, not cook. Adding too early kills the aromatic top notes that define the dish.' }
+    ],
+    ingredients: [
+      { id: 'beef-sirloin-lean-raw', qty: 155, unit: 'g', role: 'main_protein' },
+      { id: 'brown-rice-raw',       qty: 70,  unit: 'g', role: 'main_carb' },
+      { id: 'bok-choy-raw',         qty: 100, unit: 'g', role: 'flavor' },
+      { id: 'bean-sprouts-raw',     qty: 50,  unit: 'g', role: 'flavor' },
+      { id: 'basil-fresh',          qty: 15,  unit: 'g', role: 'finishing' },
+      { id: 'garlic-raw',           qty: 10,  unit: 'g', role: 'aromatic' },
+      { id: 'oyster-sauce',         qty: 18,  unit: 'g', role: 'flavor' },
+      { id: 'soy-sauce',            qty: 12,  unit: 'g', role: 'flavor' },
+      { id: 'fish-sauce',           qty: 8,   unit: 'g', role: 'flavor' },
+      { id: 'sesame-oil',           qty: 8,   unit: 'ml', role: 'fat_source' },
+      { id: 'chili-bean-sauce',     qty: 5,   unit: 'g', role: 'flavor' },
+      { id: 'lime-raw',             qty: 15,  unit: 'g', role: 'finishing' },
+      { id: 'spring-onion-raw',     qty: 15,  unit: 'g', role: 'finishing' }
+    ],
+    swaps: [
+      { from: 'beef-sirloin-lean-raw', to: 'chicken-breast-raw',
+        macroAdjust: { kcal: -67, protein: 1, carbs: 0, fat: -8 },
+        cookNote: 'Use 155g chicken breast, sliced thin against the grain. Cooks faster than beef; pull it at first sign of opacity to keep it juicy.' },
+      { from: 'beef-sirloin-lean-raw', to: 'tofu-firm',
+        macroAdjust: { kcal: -26, protein: -6, carbs: 0, fat: 3 },
+        cookNote: 'Press 165g firm tofu 10 minutes, cube, brown in the pan before the aromatics. Tofu absorbs the sauce more than meat, so taste and pull back the soy a touch.' }
+    ],
+    optionalIngredients: ['chili-bean-sauce'],
+    macros: { kcal: 637, protein: 45, carbs: 71, fat: 19 },
+    cookTime: { prep: 10, cook: 20, total: 30 },
+    equipment: ['pan', 'pot', 'stove'],
+    airFryerAlt: null,
+    steps: [
+      { n: 1, body: 'Rinse the brown rice. Bring 165ml water to a boil, add the rice, cover, drop to low, set a 25-minute timer. Rice goes first so everything else lines up to its finish.' },
+      { n: 2, body: 'Slice the beef thinly against the grain. Crush and finely chop the garlic. Slice the spring onion. Halve the bok choy lengthwise. Pick the basil leaves from the stems.' },
+      { n: 3, body: 'In a small bowl, stir together the oyster sauce, soy sauce, fish sauce, and chili bean sauce. This is your sauce mix, ready to pour in one go.' },
+      { n: 4, body: 'Heat the sesame oil in a heavy pan over high heat until it shimmers. Add the beef in a single layer, do not move it for 90 seconds. Stir-fry 90 seconds more until just browned. Remove to a plate.' },
+      { n: 5, body: 'Drop the heat to medium-high. Add the garlic to the same pan, stir 20 seconds. Add the bok choy cut-side down, cook 90 seconds. Throw in the bean sprouts and the sauce mix, toss to coat.' },
+      { n: 6, body: 'Return the beef and any resting juices to the pan, toss everything together for 30 seconds. Pull off the heat and stir in the basil leaves so they wilt rather than cook.' },
+      { n: 7, body: 'Plate the rice, top with the stir-fry. Finish with the spring onion and a wedge of lime squeezed over.' }
     ]
   },
 
