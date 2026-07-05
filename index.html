@@ -733,7 +733,7 @@
 //   1. Bump APP_VERSION here
 //   2. Bump CACHE_VERSION in service-worker.js to match
 //   3. mv fraser-final-complete.html index.html; git commit; git push
-const APP_VERSION = '2026.05.19.63';
+const APP_VERSION = '2026.05.19.65';
 
 let activeTab = 'today';
 let activeDay = 0; // will be set to today on init
@@ -29728,6 +29728,21 @@ function getDisplayMealsForDay(meals, dayType, dayNum) {
     });
   }
 
+  // ── Build Your Plate conversion ──────────────────────────────────────────
+  // Lunch, Dinner, and Post-Workout Dinner become modular whole-food plates
+  // (chosen protein + carb + marinade + fixed veg). A plate carries its own
+  // live macros from real portions, so it bypasses the target scaling below
+  // and shows true numbers. Skipped for locked plans (returned earlier).
+  var PLATE_SLOTS = { 'Lunch': true, 'Dinner': true, 'Post-Workout Dinner': true };
+  if (typeof buildPlateMeal === 'function') {
+    meals = meals.map(function (m) {
+      if (m && !m._plate && m.slot && PLATE_SLOTS[m.slot]) {
+        try { return buildPlateMeal(m, dayNum); } catch (e) { return m; }
+      }
+      return m;
+    });
+  }
+
   const profile = (typeof getGoalProfile === 'function') ? getGoalProfile() : null;
   if (!profile || !profile.targetKcal) return meals;
 
@@ -29782,6 +29797,8 @@ function getDisplayMealsForDay(meals, dayType, dayNum) {
   // _optional flag (preserving their original kcal for "would have been" display)
   return meals.map((m, i) => {
     if (!m) return m;
+    // Plate meals carry true macros from fixed whole-food portions: never scale.
+    if (m._plate) return m;
     if (optionalSet.has(i)) {
       return Object.assign({}, m, {
         _optional: true,
@@ -30235,6 +30252,269 @@ function openProteinSwapSheet(mealIndex, meal) {
   requestAnimationFrame(function () { inner.style.transform = 'translateY(0)'; sheet.style.opacity = '1'; });
 }
 // ═══ MODULAR PROTEIN FOR MAINS (Piece 2) END ═══
+
+// ═══ BUILD YOUR PLATE (modular lunch and dinner) BEGIN ═══
+// A whole-foods modular main: chosen protein + chosen carb + chosen marinade
+// plus a fixed veg side. Every component is a real INGREDIENT_DATABASE id with
+// a raw/dry gram portion, so all macros compute live from ingredient ids and
+// are never hardcoded. Portions are tuned for a high-protein cut. These option
+// menus are data: any id or gram amount can be changed in one line.
+
+// Protein options (raw weight). Portions target roughly 35 to 45 g protein.
+const PLATE_PROTEINS = [
+  { id: 'chicken-breast-raw',    grams: 180, label: 'Chicken breast' },
+  { id: 'beef-mince-lean-raw',   grams: 170, label: 'Beef mince' },
+  { id: 'turkey-mince-lean',     grams: 180, label: 'Turkey mince' },
+  { id: 'chicken-mince-lean-raw',grams: 180, label: 'Chicken mince' },
+  { id: 'lamb-mince-lean-raw',   grams: 150, label: 'Lamb mince' },
+  { id: 'cod-raw',               grams: 200, label: 'Cod fillet' },
+  { id: 'prawns-raw',            grams: 180, label: 'Prawns' },
+  { id: 'tofu-firm',             grams: 200, label: 'Firm tofu' }
+];
+
+// Carb options (dry or raw weight). Portions target roughly 50 g carbs.
+const PLATE_CARBS = [
+  { id: 'basmati-rice-raw',     grams: 65,  label: 'Basmati rice' },
+  { id: 'brown-rice-raw',       grams: 65,  label: 'Brown rice' },
+  { id: 'sweet-potato-raw',     grams: 250, label: 'Sweet potato' },
+  { id: 'potato-white-raw',     grams: 280, label: 'White potato' },
+  { id: 'quinoa-raw',           grams: 70,  label: 'Quinoa' },
+  { id: 'wholewheat-pasta-dry', grams: 70,  label: 'Wholewheat pasta' },
+  { id: 'couscous-dry',         grams: 65,  label: 'Couscous' }
+];
+
+// Marinade options (macro-affecting). 'none' contributes nothing (salt and
+// pepper only). Portions are a realistic single-serve amount.
+const PLATE_MARINADES = [
+  { id: 'none',            grams: 0,  label: 'Plain (salt & pepper)' },
+  { id: 'soy-sauce',       grams: 25, label: 'Soy' },
+  { id: 'hoisin-sauce',    grams: 25, label: 'Hoisin' },
+  { id: 'bbq-sauce-light', grams: 30, label: 'BBQ (light)' },
+  { id: 'harissa-paste',   grams: 20, label: 'Harissa' },
+  { id: 'pesto-basil',     grams: 20, label: 'Pesto' },
+  { id: 'chipotle-adobo',  grams: 25, label: 'Chipotle' },
+  { id: 'honey',           grams: 15, label: 'Honey glaze' }
+];
+
+// Fixed veg side, the same on every plate. Contributes real macros.
+const PLATE_VEG = [
+  { id: 'broccoli-raw',        grams: 100 },
+  { id: 'bell-pepper-red-raw', grams: 80 }
+];
+
+const PLATE_DEFAULT = { proteinId: 'chicken-breast-raw', carbId: 'basmati-rice-raw', marinadeId: 'soy-sauce' };
+const PLATE_SELECTION_KEY = 'flow.plate.selections';
+
+function _plateOption(list, id) {
+  for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+  return null;
+}
+
+// Per-meal selection storage. Keyed by a stable meal key (slot + day) so each
+// plate remembers its own protein, carb, and marinade.
+function getPlateSelection(mealKey) {
+  try {
+    var all = JSON.parse(localStorage.getItem(PLATE_SELECTION_KEY) || '{}');
+    var sel = all[mealKey];
+    if (sel && sel.proteinId && sel.carbId && sel.marinadeId) return sel;
+  } catch (e) {}
+  return Object.assign({}, PLATE_DEFAULT);
+}
+
+function setPlateSelection(mealKey, slot, id) {
+  if (slot !== 'proteinId' && slot !== 'carbId' && slot !== 'marinadeId') return;
+  try {
+    var all = JSON.parse(localStorage.getItem(PLATE_SELECTION_KEY) || '{}');
+    var cur = all[mealKey] || Object.assign({}, PLATE_DEFAULT);
+    cur[slot] = id;
+    all[mealKey] = cur;
+    localStorage.setItem(PLATE_SELECTION_KEY, JSON.stringify(all));
+  } catch (e) {}
+}
+
+// Sum macros for one component (ingredient id + grams) using the shared engine.
+function _plateComponentMacros(id, grams) {
+  if (!id || id === 'none' || !grams) return { kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 };
+  var entry = (typeof INGREDIENT_DATABASE !== 'undefined') ? INGREDIENT_DATABASE[id] : null;
+  if (!entry) return { kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 };
+  try { return computeIngredientMacros(entry, grams, 'g'); }
+  catch (e) { return { kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 }; }
+}
+
+// Live macros for a full plate: protein + carb + marinade + fixed veg.
+function computePlateMacros(selection) {
+  var sel = selection || PLATE_DEFAULT;
+  var pOpt = _plateOption(PLATE_PROTEINS, sel.proteinId) || PLATE_PROTEINS[0];
+  var cOpt = _plateOption(PLATE_CARBS, sel.carbId) || PLATE_CARBS[0];
+  var mOpt = _plateOption(PLATE_MARINADES, sel.marinadeId) || PLATE_MARINADES[0];
+  var parts = [
+    _plateComponentMacros(pOpt.id, pOpt.grams),
+    _plateComponentMacros(cOpt.id, cOpt.grams),
+    _plateComponentMacros(mOpt.id, mOpt.grams)
+  ];
+  PLATE_VEG.forEach(function (v) { parts.push(_plateComponentMacros(v.id, v.grams)); });
+  var t = { kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 };
+  parts.forEach(function (m) { t.kcal += m.kcal; t.protein += m.protein; t.carbs += m.carbs; t.fat += m.fat; t.fiber += (m.fiber || 0); });
+  return { kcal: Math.round(t.kcal), protein: Math.round(t.protein), carbs: Math.round(t.carbs), fat: Math.round(t.fat), fiber: Math.round(t.fiber) };
+}
+
+// Ingredient rows for the card, in the {n, a, u, m, mu} display shape.
+function _plateIngredientRows(selection) {
+  var sel = selection || PLATE_DEFAULT;
+  var rows = [];
+  function push(id, grams) {
+    if (!id || id === 'none' || !grams) return;
+    var entry = (typeof INGREDIENT_DATABASE !== 'undefined') ? INGREDIENT_DATABASE[id] : null;
+    var nm = entry && entry.name ? entry.name.split(',')[0] : id;
+    rows.push({ n: nm, a: grams, u: 'g', m: grams, mu: 'g' });
+  }
+  var pOpt = _plateOption(PLATE_PROTEINS, sel.proteinId) || PLATE_PROTEINS[0];
+  var cOpt = _plateOption(PLATE_CARBS, sel.carbId) || PLATE_CARBS[0];
+  var mOpt = _plateOption(PLATE_MARINADES, sel.marinadeId) || PLATE_MARINADES[0];
+  push(pOpt.id, pOpt.grams);
+  push(cOpt.id, cOpt.grams);
+  push(mOpt.id, mOpt.grams);
+  PLATE_VEG.forEach(function (v) { push(v.id, v.grams); });
+  return rows;
+}
+
+// Adaptive cooking steps that read back the chosen components.
+function _plateInstructions(selection) {
+  var sel = selection || PLATE_DEFAULT;
+  var pOpt = _plateOption(PLATE_PROTEINS, sel.proteinId) || PLATE_PROTEINS[0];
+  var cOpt = _plateOption(PLATE_CARBS, sel.carbId) || PLATE_CARBS[0];
+  var mOpt = _plateOption(PLATE_MARINADES, sel.marinadeId) || PLATE_MARINADES[0];
+  var marinadeStep = (mOpt.id === 'none')
+    ? 'Season the ' + pOpt.label.toLowerCase() + ' with salt and pepper.'
+    : 'Coat the ' + pOpt.label.toLowerCase() + ' in the ' + mOpt.label.toLowerCase() + ' and leave to marinate for 10 minutes.';
+  return [
+    { step: marinadeStep },
+    { step: 'Cook the ' + pOpt.label.toLowerCase() + ' through: pan-fry, grill, or bake until done.', timer: 0 },
+    { step: 'Prepare the ' + cOpt.label.toLowerCase() + ' per packet or until tender.', timer: 0 },
+    { step: 'Steam or roast the broccoli and pepper until just tender, 5 to 7 minutes.', timer: 0 },
+    { step: 'Plate the protein, carb, and veg together and finish with any remaining marinade.' }
+  ];
+}
+
+// True when a displayed meal is a Build Your Plate main.
+function isPlateMeal(meal) {
+  return !!(meal && meal._plate === true);
+}
+
+// ── Plate selector UI ──────────────────────────────────────────────────────
+const PLATE_SLOT_META = {
+  proteinId: { label: 'Protein', list: PLATE_PROTEINS },
+  carbId:    { label: 'Carb',    list: PLATE_CARBS },
+  marinadeId:{ label: 'Marinade',list: PLATE_MARINADES }
+};
+
+function plateOptionLabel(slotField, id) {
+  var opt = _plateOption(PLATE_SLOT_META[slotField].list, id);
+  return opt ? opt.label : id;
+}
+
+function closePlatePickSheet() {
+  var sheet = document.getElementById('plate-pick-sheet');
+  if (!sheet) return;
+  var inner = sheet.querySelector('[data-sheet-inner]');
+  if (inner) inner.style.transform = 'translateY(100%)';
+  sheet.style.opacity = '0';
+  setTimeout(function () { sheet.remove(); }, 220);
+}
+
+// A bottom sheet listing the options for one slot, with live macro deltas so
+// the choice is informed. Selecting persists and re-renders the plan.
+function openPlatePickSheet(mealKey, slotField) {
+  var meta = PLATE_SLOT_META[slotField];
+  if (!meta) return;
+  var sel = getPlateSelection(mealKey);
+  var baseMacros = computePlateMacros(sel);
+
+  var sheet = el('div', {
+    id: 'plate-pick-sheet',
+    style: { position: 'fixed', top: '0', left: '0', right: '0', bottom: '0', zIndex: '6000', background: 'rgba(0,0,0,0.7)', opacity: '0', transition: 'opacity 0.22s cubic-bezier(0.32,0.72,0,1)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }
+  });
+  sheet.onclick = function (e) { if (e.target === sheet) closePlatePickSheet(); };
+  var inner = el('div', {
+    'data-sheet-inner': 'true',
+    style: { background: 'var(--bg-inset)', borderTop: '1px solid var(--border-default)', borderRadius: '20px 20px 0 0', padding: '20px 16px 30px', maxHeight: '75vh', overflowY: 'auto', transform: 'translateY(100%)', transition: 'transform 0.28s cubic-bezier(0.32,0.72,0,1)' }
+  });
+  inner.appendChild(el('div', { style: { fontSize: '11px', color: 'var(--text-tertiary)', letterSpacing: '0.04em', fontWeight: '600', fontFamily: 'var(--font-ui)', textTransform: 'uppercase', marginBottom: '12px' } }, 'Choose ' + meta.label));
+
+  meta.list.forEach(function (opt) {
+    var isSel = opt.id === sel[slotField];
+    // macro delta if this option were chosen
+    var trial = Object.assign({}, sel); trial[slotField] = opt.id;
+    var trialMacros = computePlateMacros(trial);
+    var dK = trialMacros.kcal - baseMacros.kcal;
+    var row = el('button', {
+      class: 'btn pressable',
+      style: { width: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', background: isSel ? 'var(--bg-card)' : 'transparent', border: '1px solid ' + (isSel ? 'var(--accent)' : 'var(--border-subtle)'), borderRadius: 'var(--radius-control)', padding: '13px 14px', marginBottom: '8px', cursor: 'pointer' },
+      onclick: (function (optId) { return function (e) {
+        e.stopPropagation();
+        setPlateSelection(mealKey, slotField, optId);
+        closePlatePickSheet();
+        if (typeof renderNutrition === 'function') renderNutrition();
+      }; })(opt.id)
+    });
+    var left = el('span', { style: { fontSize: '14px', color: isSel ? 'var(--accent)' : 'var(--text-primary)', fontFamily: 'var(--font-ui)', fontWeight: isSel ? '700' : '500' } }, opt.label);
+    var right = el('span', { style: { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-data)', fontVariantNumeric: 'tabular-nums' } }, (dK === 0 ? (isSel ? 'current' : '\u00b10 kcal') : (dK > 0 ? '+' : '') + dK + ' kcal'));
+    row.appendChild(left); row.appendChild(right);
+    inner.appendChild(row);
+  });
+
+  sheet.appendChild(inner);
+  document.body.appendChild(sheet);
+  requestAnimationFrame(function () { inner.style.transform = 'translateY(0)'; sheet.style.opacity = '1'; });
+}
+
+// The row of three tappable chips (protein, carb, marinade) shown on a plate
+// meal card. Mirrors the existing protein-chip styling.
+function renderPlateSelectors(meal) {
+  var key = meal._plateKey;
+  var sel = meal._plateSelection || getPlateSelection(key);
+  var wrap = el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '10px 14px 0' } });
+  ['proteinId', 'carbId', 'marinadeId'].forEach(function (field) {
+    var chip = el('button', {
+      class: 'btn pressable',
+      style: { display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'var(--bg-inset)', border: '1px solid rgba(59,223,255,0.3)', borderRadius: 'var(--radius-pill)', padding: '7px 11px', cursor: 'pointer' },
+      onclick: (function (f) { return function (e) { e.stopPropagation(); openPlatePickSheet(key, f); }; })(field)
+    });
+    chip.appendChild(el('span', { style: { fontSize: '10px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-ui)', fontWeight: '600' } }, PLATE_SLOT_META[field].label));
+    chip.appendChild(el('span', { style: { fontSize: '13px', color: 'var(--accent)', fontFamily: 'var(--font-ui)', fontWeight: '700' } }, plateOptionLabel(field, sel[field])));
+    chip.appendChild(el('span', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, '\u25be'));
+    wrap.appendChild(chip);
+  });
+  return wrap;
+}
+
+// A stable key for a plate meal so its selection persists per slot and day.
+function plateMealKey(meal, dayNum) {
+  var slot = (meal && meal.slot) ? meal.slot : 'Main';
+  return 'plate:' + slot + ':d' + (dayNum != null ? dayNum : (typeof getTodayActiveDay === 'function' ? getTodayActiveDay() : 0));
+}
+
+// Build a full plate meal object: name, live macros, display ingredients, and
+// adaptive instructions, reflecting the stored selection for its key.
+function buildPlateMeal(base, dayNum) {
+  var meal = Object.assign({}, base, { _plate: true });
+  var key = plateMealKey(meal, dayNum);
+  var sel = getPlateSelection(key);
+  var macros = computePlateMacros(sel);
+  var pOpt = _plateOption(PLATE_PROTEINS, sel.proteinId) || PLATE_PROTEINS[0];
+  var cOpt = _plateOption(PLATE_CARBS, sel.carbId) || PLATE_CARBS[0];
+  meal._plateKey = key;
+  meal._plateSelection = sel;
+  meal.name = pOpt.label + ' + ' + cOpt.label;
+  meal.kcal = macros.kcal;
+  meal.protein = macros.protein;
+  meal.carbs = macros.carbs;
+  meal.fat = macros.fat;
+  meal.ingredients = _plateIngredientRows(sel);
+  meal.instructions = _plateInstructions(sel);
+  return meal;
+}
+// ═══ BUILD YOUR PLATE (modular lunch and dinner) END ═══
 
 // Returns same-slot alternatives from MEAL_DATABASE for a given slot label,
 // each normalised to the display meal shape with engine-computed macros. The
@@ -35576,7 +35856,9 @@ function renderNutrition() {
         if (typeof openMealSwapSheet === 'function') openMealSwapSheet(mi, meal);
       }
     }, '\u21c4');
-    right.appendChild(swapBtn);
+    // Plate meals use the protein/carb/marinade selectors instead of meal
+    // swapping, so the swap icon is hidden for them.
+    if (!(typeof isPlateMeal === 'function' && isPlateMeal(meal))) right.appendChild(swapBtn);
     hdr.appendChild(right);
 
     hdr.onclick = (e) => {
@@ -35607,6 +35889,11 @@ function renderNutrition() {
       // Modular protein selector (Piece 2): only for mains that resolve to a
       // proteinSlot recipe. A chip showing the current protein; tapping opens
       // the protein picker. Keeps the same grams and shows recomputed macros.
+      // Build Your Plate mains: three selector chips (protein, carb, marinade)
+      // above the fixed veg. Each opens a picker with live macro deltas.
+      if (typeof isPlateMeal === 'function' && isPlateMeal(meal)) {
+        try { body.appendChild(renderPlateSelectors(meal)); } catch (e) {}
+      }
       if (typeof isModularMainMeal === 'function' && isModularMainMeal(meal)) {
         const curId = currentProteinId(meal);
         const chipWrap = div({ padding: '10px 14px 0' });
