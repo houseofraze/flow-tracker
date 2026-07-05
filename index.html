@@ -733,7 +733,7 @@
 //   1. Bump APP_VERSION here
 //   2. Bump CACHE_VERSION in service-worker.js to match
 //   3. mv fraser-final-complete.html index.html; git commit; git push
-const APP_VERSION = '2026.05.19.65';
+const APP_VERSION = '2026.05.19.67';
 
 let activeTab = 'today';
 let activeDay = 0; // will be set to today on init
@@ -20908,6 +20908,14 @@ const INGREDIENT_DATABASE = {
     per100g: { kcal: 110, protein: 3.5,  carbs: 12.0, fat: 5.5, fiber: 5.0 },
     density: null, commonUnit: 'g', aisle: 'Pantry & Condiments'
   },
+  'thai-chili-basil-marinade': {
+    // Composite homemade blend (fish sauce, soy, a little honey, lime, chilli,
+    // garlic, Thai basil). Macros are an honest estimate of a homemade sauce,
+    // not a verified commercial product. Lean and umami-forward.
+    usdaId: null, name: 'Thai chilli basil marinade',
+    per100g: { kcal: 90, protein: 3.5, carbs: 17.0, fat: 1.0, fiber: 1.0 },
+    density: null, commonUnit: 'g', aisle: 'Pantry & Condiments'
+  },
   'curry-powder': {
     usdaId: 171323, name: 'Curry powder',
     per100g: { kcal: 325, protein: 14.3, carbs: 55.8, fat: 14.0, fiber: 53.2 },
@@ -30293,6 +30301,8 @@ const PLATE_MARINADES = [
   { id: 'harissa-paste',   grams: 20, label: 'Harissa' },
   { id: 'pesto-basil',     grams: 20, label: 'Pesto' },
   { id: 'chipotle-adobo',  grams: 25, label: 'Chipotle' },
+  { id: 'gochujang',       grams: 20, label: 'Gochujang' },
+  { id: 'thai-chili-basil-marinade', grams: 25, label: 'Thai chilli basil' },
   { id: 'honey',           grams: 15, label: 'Honey glaze' }
 ];
 
@@ -30498,6 +30508,13 @@ function plateMealKey(meal, dayNum) {
 // adaptive instructions, reflecting the stored selection for its key.
 function buildPlateMeal(base, dayNum) {
   var meal = Object.assign({}, base, { _plate: true });
+  // A plate must not carry recipe/protein markers inherited from a prior swap
+  // (e.g. a lunch previously swapped to a modular main). Without this the plate
+  // would read as both a plate and a modular main, rendering two protein chips.
+  delete meal._recipeId;
+  delete meal._proteinId;
+  delete meal._swappedFrom;
+  delete meal.proteinSlot;
   var key = plateMealKey(meal, dayNum);
   var sel = getPlateSelection(key);
   var macros = computePlateMacros(sel);
