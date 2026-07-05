@@ -733,7 +733,7 @@
 //   1. Bump APP_VERSION here
 //   2. Bump CACHE_VERSION in service-worker.js to match
 //   3. mv fraser-final-complete.html index.html; git commit; git push
-const APP_VERSION = '2026.05.19.62';
+const APP_VERSION = '2026.05.19.63';
 
 let activeTab = 'today';
 let activeDay = 0; // will be set to today on init
@@ -30057,6 +30057,49 @@ function recipeForMeal(meal) {
   return null;
 }
 
+// Hydrate a displayed meal with its recipe's ingredients and instructions,
+// resolved from _recipeId. Swapped and modular meals store only a summary
+// (name, macros, tags), so without this the card has no recipe to show even
+// though the full recipe exists in MEAL_DATABASE. Converts the recipe shapes
+// to the shapes the meal card renders: ingredients to {n, a, u, m, mu} and
+// instructions to {step, timer} objects. For a modular main with a chosen
+// protein, the ingredient list reflects that protein. Never overrides fields
+// the meal already has (native plan meals keep their own).
+function hydrateMealFromRecipe(meal) {
+  if (!meal || !meal._recipeId) return meal;
+  var hasIng = Array.isArray(meal.ingredients) && meal.ingredients.length > 0;
+  var hasInstr = Array.isArray(meal.instructions) && meal.instructions.length > 0;
+  if (hasIng && hasInstr) return meal;
+
+  var recipe = recipeForMeal(meal);
+  if (!recipe) return meal;
+  // Reflect the chosen protein in the ingredient list for modular mains.
+  if (recipe.proteinSlot && typeof recipeWithProtein === 'function') {
+    try { recipe = recipeWithProtein(recipe, currentProteinId(meal)); } catch (e) {}
+  }
+
+  var out = Object.assign({}, meal);
+
+  if (!hasIng && Array.isArray(recipe.ingredients)) {
+    out.ingredients = recipe.ingredients.map(function (ing) {
+      var entry = (typeof INGREDIENT_DATABASE !== 'undefined') ? INGREDIENT_DATABASE[ing.ingredientId] : null;
+      var nm = entry && entry.name ? entry.name.split(',')[0] : (ing.ingredientId || 'ingredient');
+      var qty = ing.quantity;
+      var unit = ing.unit || 'g';
+      return { n: nm, a: qty, u: unit, m: qty, mu: unit };
+    });
+  }
+
+  if (!hasInstr && Array.isArray(recipe.instructions)) {
+    out.instructions = recipe.instructions.map(function (step) {
+      if (typeof step === 'string') return { step: step };
+      return step; // already {step, timer, ...}
+    });
+  }
+
+  return out;
+}
+
 // True when a displayed meal resolves to a modular main (has a proteinSlot).
 function isModularMainMeal(meal) {
   const r = recipeForMeal(meal);
@@ -35355,6 +35398,10 @@ function renderNutrition() {
   }
 
   displayMeals.forEach((meal, mi) => {
+    // Recipe hydration: swapped and modular meals store only a summary, so
+    // pull their ingredients and instructions back from the recipe (via
+    // _recipeId) so the card can show them. No-op for native plan meals.
+    try { if (typeof hydrateMealFromRecipe === 'function') meal = hydrateMealFromRecipe(meal); } catch (e) {}
     const isSwapped = !!getMealSwap(mi);
     const isOpen = expandedMeal===mi;
     const sc = SLOT_COLORS[meal.slot]||'#888';
