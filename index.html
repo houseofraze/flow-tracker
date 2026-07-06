@@ -733,7 +733,7 @@
 //   1. Bump APP_VERSION here
 //   2. Bump CACHE_VERSION in service-worker.js to match
 //   3. mv fraser-final-complete.html index.html; git commit; git push
-const APP_VERSION = '2026.05.19.67';
+const APP_VERSION = '2026.05.19.69';
 
 let activeTab = 'today';
 let activeDay = 0; // will be set to today on init
@@ -29805,8 +29805,10 @@ function getDisplayMealsForDay(meals, dayType, dayNum) {
   // _optional flag (preserving their original kcal for "would have been" display)
   return meals.map((m, i) => {
     if (!m) return m;
-    // Plate meals carry true macros from fixed whole-food portions: never scale.
-    if (m._plate) return m;
+    // Plate meals scale their protein+carb portions to the slot's original
+    // designed calories (not the plate's lower fixed baseline) so the day's
+    // meals add up to the user's target. Marinade and veg stay fixed.
+    if (m._plate) return scalePlateToTarget(m, Math.round((m._plateBaselineKcal || m.kcal) * effectiveRatio));
     if (optionalSet.has(i)) {
       return Object.assign({}, m, {
         _optional: true,
@@ -30406,6 +30408,53 @@ function _plateInstructions(selection) {
   ];
 }
 
+// Scale a plate to a target kcal so the day's meals add up to the user's
+// targets. Uses the plate's known structure rather than name classification:
+// the protein and carb portions scale (protein-sparing, mirroring the app's
+// macro-scale curve), while the marinade and fixed veg stay put. Macros are
+// recomputed exactly from the scaled grams, so the plate stays sum-consistent.
+function scalePlateToTarget(meal, targetKcal) {
+  if (!meal || !meal._plate || !meal._plateSelection || !targetKcal || !meal.kcal) return meal;
+  var ratio = targetKcal / meal.kcal;
+  if (Math.abs(ratio - 1) < 0.03) return meal;
+  var sel = meal._plateSelection;
+  var pOpt = _plateOption(PLATE_PROTEINS, sel.proteinId) || PLATE_PROTEINS[0];
+  var cOpt = _plateOption(PLATE_CARBS, sel.carbId) || PLATE_CARBS[0];
+  var mOpt = _plateOption(PLATE_MARINADES, sel.marinadeId) || PLATE_MARINADES[0];
+
+  var scales = computeMacroScales(ratio);
+  var newPGrams = Math.max(1, Math.round(pOpt.grams * scales.proteinScale));
+  var newCGrams = Math.max(1, Math.round(cOpt.grams * scales.carbScale));
+
+  // Recompute macros from the scaled portions plus the fixed marinade and veg.
+  var parts = [
+    _plateComponentMacros(pOpt.id, newPGrams),
+    _plateComponentMacros(cOpt.id, newCGrams),
+    _plateComponentMacros(mOpt.id, mOpt.grams)
+  ];
+  PLATE_VEG.forEach(function (v) { parts.push(_plateComponentMacros(v.id, v.grams)); });
+  var t = { kcal: 0, protein: 0, carbs: 0, fat: 0 };
+  parts.forEach(function (m2) { t.kcal += m2.kcal; t.protein += m2.protein; t.carbs += m2.carbs; t.fat += m2.fat; });
+
+  // Rebuild the ingredient rows at the scaled grams.
+  function row(id, grams) {
+    if (!id || id === 'none' || !grams) return null;
+    var entry = (typeof INGREDIENT_DATABASE !== 'undefined') ? INGREDIENT_DATABASE[id] : null;
+    var nm = entry && entry.name ? entry.name.split(',')[0] : id;
+    return { n: nm, a: grams, u: 'g', m: grams, mu: 'g' };
+  }
+  var rows = [];
+  [[pOpt.id, newPGrams], [cOpt.id, newCGrams], [mOpt.id, mOpt.grams]].forEach(function (pair) {
+    var r = row(pair[0], pair[1]); if (r) rows.push(r);
+  });
+  PLATE_VEG.forEach(function (v) { var r = row(v.id, v.grams); if (r) rows.push(r); });
+
+  return Object.assign({}, meal, {
+    kcal: Math.round(t.kcal), protein: Math.round(t.protein), carbs: Math.round(t.carbs), fat: Math.round(t.fat),
+    ingredients: rows, _scaled: true, _scaleRatio: Math.round(ratio * 100) / 100
+  });
+}
+
 // True when a displayed meal is a Build Your Plate main.
 function isPlateMeal(meal) {
   return !!(meal && meal._plate === true);
@@ -30515,6 +30564,12 @@ function buildPlateMeal(base, dayNum) {
   delete meal._proteinId;
   delete meal._swappedFrom;
   delete meal.proteinSlot;
+  // Also strip inherited chef data: Chef Mode prefers chefSteps over
+  // instructions, so a stale chefSteps from the base plan meal (e.g. quinoa
+  // steps) would override the plate's adaptive instructions. Removing it makes
+  // Chef Mode fall through to the plate's real steps.
+  delete meal.chefSteps;
+  delete meal.chefNotes;
   var key = plateMealKey(meal, dayNum);
   var sel = getPlateSelection(key);
   var macros = computePlateMacros(sel);
@@ -30522,6 +30577,9 @@ function buildPlateMeal(base, dayNum) {
   var cOpt = _plateOption(PLATE_CARBS, sel.carbId) || PLATE_CARBS[0];
   meal._plateKey = key;
   meal._plateSelection = sel;
+  // Preserve the slot's original designed calories so scaling targets the slot,
+  // not the plate's lower fixed baseline (otherwise the day falls short).
+  meal._plateBaselineKcal = (base && base.kcal) ? base.kcal : macros.kcal;
   meal.name = pOpt.label + ' + ' + cOpt.label;
   meal.kcal = macros.kcal;
   meal.protein = macros.protein;
