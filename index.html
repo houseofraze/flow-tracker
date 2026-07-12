@@ -733,7 +733,7 @@
 //   1. Bump APP_VERSION here
 //   2. Bump CACHE_VERSION in service-worker.js to match
 //   3. mv fraser-final-complete.html index.html; git commit; git push
-const APP_VERSION = '2026.05.19.69';
+const APP_VERSION = '2026.05.19.70';
 
 let activeTab = 'today';
 let activeDay = 0; // will be set to today on init
@@ -9528,6 +9528,56 @@ function wmStorageKey() {
   return wmSessionKey(day.day);
 }
 
+// Nominal pre-start countdown length. Single source of truth so the display
+// can never show more than the countdown was ever set to.
+const WM_COUNTDOWN_MS = 5000;
+
+// ─── PAUSE STATE: REMAINING DURATIONS, NOT TIMESTAMP ARITHMETIC ──────────────
+// Pausing used to record only pausedAt, and resuming shifted every absolute end
+// time forward by (now - pausedAt). That invariant broke whenever pausedAt was
+// stale: it survives persistence, it is not cleared when a new phase sets a
+// fresh countdown, and wmResumeSession only refreshed it for time-based phases.
+// A stale pausedAt made resume add the entire away duration to a fresh 5 second
+// countdown, producing the hundreds-and-thousands jump users reported.
+//
+// Instead we snapshot how much time each timer had LEFT at the moment of pause,
+// and rebuild the end times from that on resume. This is immune to how long the
+// pause lasted, to persistence, to restore, and to system clock changes.
+function wmCaptureRemaining() {
+  if (!wmState) return;
+  const now = Date.now();
+  wmState.remaining = {
+    countdown: wmState.countdownEndTime ? Math.max(0, wmState.countdownEndTime - now) : null,
+    hold: wmState.holdEndTime ? Math.max(0, wmState.holdEndTime - now) : null,
+    rest: wmState.restEndTime ? Math.max(0, wmState.restEndTime - now) : null,
+    workingElapsed: wmState.workingStartTime ? Math.max(0, now - wmState.workingStartTime) : null
+  };
+}
+
+function wmRestoreFromRemaining() {
+  if (!wmState || !wmState.remaining) return;
+  const now = Date.now();
+  const rem = wmState.remaining;
+  if (rem.countdown != null) wmState.countdownEndTime = now + Math.min(rem.countdown, WM_COUNTDOWN_MS);
+  if (rem.hold != null) wmState.holdEndTime = now + rem.hold;
+  if (rem.rest != null) wmState.restEndTime = now + rem.rest;
+  if (rem.workingElapsed != null) wmState.workingStartTime = now - rem.workingElapsed;
+  wmState.remaining = null;
+}
+
+// Enter the pre-start countdown. Always clears any pause state so a fresh
+// countdown can never inherit a stale pausedAt from an earlier phase.
+function wmStartCountdown() {
+  wmState.phase = 'countdown';
+  wmState.countdownEndTime = Date.now() + WM_COUNTDOWN_MS;
+  wmState.pausedAt = null;
+  wmState.remaining = null;
+  wmState._cdGoTone = false;
+  wmState._cdBeeped1 = false;
+  wmState._cdBeeped2 = false;
+  wmState._cdBeeped3 = false;
+}
+
 // Persist current state. Called after every phase transition.
 function wmPersist() {
   if (!wmState) return;
@@ -9547,7 +9597,8 @@ function wmPersist() {
     perExerciseLogs: wmState.perExerciseLogs,
     pendingReps: wmState.pendingReps,
     pendingFeedback: wmState.pendingFeedback,
-    pausedAt: wmState.pausedAt
+    pausedAt: wmState.pausedAt,
+    remaining: wmState.remaining || null
   };
   try { localStorage.setItem(wmStorageKey(), JSON.stringify(snap)); } catch(e) {}
 }
@@ -9673,10 +9724,23 @@ function wmResumeSession() {
   const saved = wmLoadPersisted();
   if (!saved) return;
   wmState = saved;
-  // If we were in a time-based phase, treat the resume as a paused state and
-  // require the user to tap to continue. We don't auto-fast-forward elapsed time.
-  if (['countdown', 'working-duration', 'rest'].indexOf(wmState.phase) >= 0) {
-    wmState.pausedAt = Date.now();
+  // A persisted pausedAt is a timestamp from the past and must never be used
+  // as a pause-start for resume arithmetic. Rebase it to now, for every phase
+  // (not just the time-based ones), so the session comes back paused and no
+  // stale value can survive into wmTogglePause.
+  wmState.pausedAt = Date.now();
+  // Legacy saves have no remaining snapshot. Reconstruct one so resume restores
+  // sensible time left rather than an expired or inflated countdown.
+  if (!wmState.remaining) {
+    if (wmState.phase === 'countdown') {
+      wmState.remaining = { countdown: WM_COUNTDOWN_MS, hold: null, rest: null, workingElapsed: null };
+    } else {
+      wmCaptureRemaining();
+    }
+  }
+  // Clamp a restored countdown: it can never exceed its nominal length.
+  if (wmState.remaining && wmState.remaining.countdown != null) {
+    wmState.remaining.countdown = Math.max(0, Math.min(wmState.remaining.countdown, WM_COUNTDOWN_MS));
   }
   wmRender();
   wmRequestWakeLock();
@@ -9688,6 +9752,7 @@ function wmExitSession(persist) {
   if (wmWakeLock) { try { wmWakeLock.release(); } catch(_){} wmWakeLock = null; }
   if (persist && wmState && wmState.phase !== 'complete') {
     wmState.pausedAt = Date.now();
+    wmCaptureRemaining();
     wmPersist();
   } else if (!persist) {
     wmClearPersisted();
@@ -9829,8 +9894,7 @@ function wmAdvance() {
   switch (wmState.phase) {
     case 'weight-setup': {
       // Begin countdown to start
-      wmState.phase = 'countdown';
-      wmState.countdownEndTime = Date.now() + 5000;
+      wmStartCountdown();
       break;
     }
     case 'countdown': {
@@ -9864,16 +9928,14 @@ function wmAdvance() {
         wmState.phase = 'exercise-summary';
       } else {
         wmState.setIndex++;
-        wmState.phase = 'countdown';
-        wmState.countdownEndTime = Date.now() + 5000;
+        wmStartCountdown();
       }
       break;
     }
     case 'weight-confirm': {
       // Legacy — kept for backward compatibility with any saved sessions
       // mid-flow before this update. Just advance to countdown.
-      wmState.phase = 'countdown';
-      wmState.countdownEndTime = Date.now() + 5000;
+      wmStartCountdown();
       break;
     }
     case 'exercise-summary': {
@@ -10222,7 +10284,9 @@ function wmRenderCountdown(ex) {
     if (!wmState || wmState.phase !== 'countdown') return;
     if (wmState.pausedAt) return;
     const remainMs = wmState.countdownEndTime - Date.now();
-    const remain = Math.max(0, Math.ceil(remainMs / 1000));
+    // Defensive clamp: the countdown can never display more than its nominal
+    // length, whatever state it was restored from.
+    const remain = Math.max(0, Math.min(Math.ceil(remainMs / 1000), Math.ceil(WM_COUNTDOWN_MS / 1000)));
     if (numEl) {
       numEl.textContent = remain > 0 ? remain + '' : 'GO';
       numEl.style.color = remain > 0 ? WM_PALETTE.countdown : WM_PALETTE.go;
@@ -11549,17 +11613,16 @@ function wmRenderWorkoutSummary(day) {
 function wmTogglePause() {
   if (!wmState) return;
   if (wmState.pausedAt) {
-    // Resume — shift all relevant end-times forward by the pause duration
-    const pauseDur = Date.now() - wmState.pausedAt;
-    if (wmState.countdownEndTime) wmState.countdownEndTime += pauseDur;
-    if (wmState.holdEndTime) wmState.holdEndTime += pauseDur;
-    if (wmState.restEndTime) wmState.restEndTime += pauseDur;
-    if (wmState.workingStartTime) wmState.workingStartTime += pauseDur;
+    // Resume: rebuild the end times from the remaining durations captured at
+    // pause. No timestamp arithmetic, so a stale pausedAt cannot inflate the
+    // countdown no matter how long the app was backgrounded or closed.
+    wmRestoreFromRemaining();
     wmState.pausedAt = null;
     wmPersist();
     wmRender();
   } else {
     wmState.pausedAt = Date.now();
+    wmCaptureRemaining();
     wmPersist();
     // Show paused overlay
     if (wmTickIntervalId) clearInterval(wmTickIntervalId);
@@ -40714,7 +40777,24 @@ window.addEventListener('resize', () => {
 maybeShowSleepPrompt();
 // Re-check when app regains focus (returning to the tab/PWA)
 document.addEventListener('visibilitychange', () => {
+  // Workout mode: a pre-start countdown must not keep rolling while the app is
+  // backgrounded, or the user returns to an expired countdown. Auto-pause it
+  // and capture the time left so resume gives back the same seconds. Hold and
+  // rest timers keep running, since that time genuinely passes in the gym.
+  if (document.visibilityState === 'hidden') {
+    if (typeof wmState !== 'undefined' && wmState && wmState.phase === 'countdown' && !wmState.pausedAt) {
+      wmState.pausedAt = Date.now();
+      wmCaptureRemaining();
+      wmPersist();
+    }
+    return;
+  }
   if (document.visibilityState === 'visible') {
+    // If a workout overlay is open, re-render it so the paused countdown shows.
+    if (typeof wmState !== 'undefined' && wmState) {
+      try { wmRender(); } catch (e) { /* non-fatal */ }
+      return;
+    }
     // Re-check carry-forward — handles the case where the PWA was open over
     // midnight Sunday→Monday and we need to migrate state into the new week.
     carryForwardWeeklyState();
